@@ -1,0 +1,20 @@
+packages:
+  "framer-motion": "For premium page transitions, stagger effects, and smooth micro-interactions"
+  "date-fns": "For formatting human-readable timestamps in social feed and chat"
+  "clsx": "For conditional class name merging"
+  "tailwind-merge": "For deep tailwind class merging"
+
+images:
+  - path: "artifacts/ofouq-eltafouk/public/images/hero-bg.png"
+    description: "Abstract geometric educational background with glowing warm teal and vibrant orange, 3d minimal modern style, clean, soft light leaks"
+    aspect_ratio: "16:9"
+  - path: "artifacts/ofouq-eltafouk/public/images/points-banner.png"
+    description: "A shiny golden coin with an elegant glowing aura and sparkles, 3d rendered, clean transparent style background"
+    aspect_ratio: "16:9"
+  - path: "artifacts/ofouq-eltafouk/public/images/avatar-placeholder.png"
+    description: "Cute 3d illustrated avatar character of a student, vibrant soft colors, smooth rendering"
+    aspect_ratio: "1:1"
+
+notes:
+  - "App is built with dir='rtl' for Arabic, using gap utilities to naturally handle left/right spacing."
+  - "React Query hooks are imported from @workspace/api-client-react as instructed."

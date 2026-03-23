@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Ofouq Eltafouk"
+version = "1.0.0"
+id = "artifacts/ofouq-eltafouk"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18936
+
+[services.development]
+run = "pnpm --filter @workspace/ofouq-eltafouk run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ofouq-eltafouk", "run", "build" ]
+publicDir = "artifacts/ofouq-eltafouk/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18936"
+BASE_PATH = "/"

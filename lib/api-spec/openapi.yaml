@@ -1,22 +1,35 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Ofouq Eltafouk Educational Platform API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: books
+    description: Book browsing, reservation, and purchase
+  - name: videos
+    description: Educational video content
+  - name: social
+    description: Social feed posts and interactions
+  - name: points
+    description: Points system management
+  - name: games
+    description: Educational quiz games
+  - name: rewards
+    description: Rewards and gift redemption
+  - name: openai
+    description: OpenAI AI chat operations
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +37,593 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # Books
+  /books:
+    get:
+      operationId: listBooks
+      tags: [books]
+      summary: List all books
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of books
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Book"
+    post:
+      operationId: createBook
+      tags: [books]
+      summary: Create a book
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookBody"
+      responses:
+        "201":
+          description: Created book
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Book"
+
+  /books/{id}:
+    get:
+      operationId: getBook
+      tags: [books]
+      summary: Get a book by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Book details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Book"
+        "404":
+          description: Not found
+
+  /books/{id}/reserve:
+    post:
+      operationId: reserveBook
+      tags: [books]
+      summary: Reserve a book
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reservation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookReservation"
+
+  /books/{id}/purchase:
+    post:
+      operationId: purchaseBook
+      tags: [books]
+      summary: Purchase a book with points
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Purchase successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookPurchase"
+        "400":
+          description: Insufficient points
+
+  # Videos
+  /videos:
+    get:
+      operationId: listVideos
+      tags: [videos]
+      summary: List educational videos
+      parameters:
+        - name: subject
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of videos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Video"
+    post:
+      operationId: createVideo
+      tags: [videos]
+      summary: Create a video entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVideoBody"
+      responses:
+        "201":
+          description: Created video
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Video"
+
+  /videos/{id}:
+    get:
+      operationId: getVideo
+      tags: [videos]
+      summary: Get a video by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Video details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Video"
+
+  # Social Feed
+  /posts:
+    get:
+      operationId: listPosts
+      tags: [social]
+      summary: List social feed posts
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Post"
+    post:
+      operationId: createPost
+      tags: [social]
+      summary: Create a social post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePostBody"
+      responses:
+        "201":
+          description: Created post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+
+  /posts/{id}:
+    get:
+      operationId: getPost
+      tags: [social]
+      summary: Get a post by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Post details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+    delete:
+      operationId: deletePost
+      tags: [social]
+      summary: Delete a post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /posts/{id}/like:
+    post:
+      operationId: likePost
+      tags: [social]
+      summary: Like or unlike a post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Like toggled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LikeResponse"
+
+  /posts/{id}/comments:
+    get:
+      operationId: listComments
+      tags: [social]
+      summary: List comments on a post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Comment"
+    post:
+      operationId: createComment
+      tags: [social]
+      summary: Comment on a post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCommentBody"
+      responses:
+        "201":
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+
+  # Points
+  /points:
+    get:
+      operationId: getPoints
+      tags: [points]
+      summary: Get current user points balance
+      responses:
+        "200":
+          description: Points balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PointsBalance"
+
+  /points/purchase:
+    post:
+      operationId: purchasePoints
+      tags: [points]
+      summary: Purchase points (simulated)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchasePointsBody"
+      responses:
+        "200":
+          description: Points purchased
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PointsBalance"
+
+  /points/history:
+    get:
+      operationId: getPointsHistory
+      tags: [points]
+      summary: Get points transaction history
+      responses:
+        "200":
+          description: Transaction history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PointsTransaction"
+
+  # Games
+  /games:
+    get:
+      operationId: listGames
+      tags: [games]
+      summary: List available quiz games
+      responses:
+        "200":
+          description: List of games
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Game"
+
+  /games/{id}:
+    get:
+      operationId: getGame
+      tags: [games]
+      summary: Get a game with its questions
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Game details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameWithQuestions"
+
+  /games/{id}/submit:
+    post:
+      operationId: submitGameAnswers
+      tags: [games]
+      summary: Submit quiz answers and earn points
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitGameBody"
+      responses:
+        "200":
+          description: Game result with points earned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameResult"
+
+  # Rewards
+  /rewards:
+    get:
+      operationId: listRewards
+      tags: [rewards]
+      summary: List available rewards
+      responses:
+        "200":
+          description: List of rewards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Reward"
+
+  /rewards/{id}/redeem:
+    post:
+      operationId: redeemReward
+      tags: [rewards]
+      summary: Redeem a reward with points
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reward redeemed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RedemptionResult"
+        "400":
+          description: Insufficient points
+
+  /rewards/redemptions:
+    get:
+      operationId: listRedemptions
+      tags: [rewards]
+      summary: List user redemption history
+      responses:
+        "200":
+          description: Redemption history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Redemption"
+
+  # OpenAI Chat
+  /openai/conversations:
+    get:
+      operationId: listOpenaiConversations
+      tags: [openai]
+      summary: List all conversations
+      responses:
+        "200":
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpenaiConversation"
+    post:
+      operationId: createOpenaiConversation
+      tags: [openai]
+      summary: Create a new conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOpenaiConversationBody"
+      responses:
+        "201":
+          description: Created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenaiConversation"
+
+  /openai/conversations/{id}:
+    get:
+      operationId: getOpenaiConversation
+      tags: [openai]
+      summary: Get conversation with messages
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Conversation with messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenaiConversationWithMessages"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenaiError"
+    delete:
+      operationId: deleteOpenaiConversation
+      tags: [openai]
+      summary: Delete a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenaiError"
+
+  /openai/conversations/{id}/messages:
+    get:
+      operationId: listOpenaiMessages
+      tags: [openai]
+      summary: List messages in a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpenaiMessage"
+    post:
+      operationId: sendOpenaiMessage
+      tags: [openai]
+      summary: Send a text message and receive a streaming text response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendOpenaiMessageBody"
+      responses:
+        "200":
+          description: SSE stream of assistant text chunks
+          content:
+            text/event-stream: {}
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +634,568 @@ components:
       required:
         - status
 
+    # Books
+    Book:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        author:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        coverUrl:
+          type: string
+        pointsPrice:
+          type: integer
+        available:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - author
+        - description
+        - category
+        - pointsPrice
+        - available
+        - createdAt
+
+    CreateBookBody:
+      type: object
+      properties:
+        title:
+          type: string
+        author:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        coverUrl:
+          type: string
+        pointsPrice:
+          type: integer
+        available:
+          type: boolean
+      required:
+        - title
+        - author
+        - description
+        - category
+        - pointsPrice
+
+    BookReservation:
+      type: object
+      properties:
+        id:
+          type: integer
+        bookId:
+          type: integer
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - bookId
+        - status
+        - createdAt
+
+    BookPurchase:
+      type: object
+      properties:
+        id:
+          type: integer
+        bookId:
+          type: integer
+        pointsSpent:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - bookId
+        - pointsSpent
+        - createdAt
+
+    # Videos
+    Video:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        subject:
+          type: string
+        videoUrl:
+          type: string
+        thumbnailUrl:
+          type: string
+        duration:
+          type: integer
+        instructor:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - description
+        - subject
+        - videoUrl
+        - duration
+        - instructor
+        - createdAt
+
+    CreateVideoBody:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        subject:
+          type: string
+        videoUrl:
+          type: string
+        thumbnailUrl:
+          type: string
+        duration:
+          type: integer
+        instructor:
+          type: string
+      required:
+        - title
+        - description
+        - subject
+        - videoUrl
+        - duration
+        - instructor
+
+    # Social
+    Post:
+      type: object
+      properties:
+        id:
+          type: integer
+        content:
+          type: string
+        authorName:
+          type: string
+        authorAvatar:
+          type: string
+        likesCount:
+          type: integer
+        commentsCount:
+          type: integer
+        isLiked:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - content
+        - authorName
+        - likesCount
+        - commentsCount
+        - isLiked
+        - createdAt
+
+    CreatePostBody:
+      type: object
+      properties:
+        content:
+          type: string
+        authorName:
+          type: string
+        authorAvatar:
+          type: string
+      required:
+        - content
+        - authorName
+
+    Comment:
+      type: object
+      properties:
+        id:
+          type: integer
+        postId:
+          type: integer
+        content:
+          type: string
+        authorName:
+          type: string
+        authorAvatar:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - postId
+        - content
+        - authorName
+        - createdAt
+
+    CreateCommentBody:
+      type: object
+      properties:
+        content:
+          type: string
+        authorName:
+          type: string
+        authorAvatar:
+          type: string
+      required:
+        - content
+        - authorName
+
+    LikeResponse:
+      type: object
+      properties:
+        liked:
+          type: boolean
+        likesCount:
+          type: integer
+      required:
+        - liked
+        - likesCount
+
+    # Points
+    PointsBalance:
+      type: object
+      properties:
+        balance:
+          type: integer
+        totalEarned:
+          type: integer
+        totalSpent:
+          type: integer
+      required:
+        - balance
+        - totalEarned
+        - totalSpent
+
+    PurchasePointsBody:
+      type: object
+      properties:
+        amount:
+          type: integer
+        packageName:
+          type: string
+      required:
+        - amount
+        - packageName
+
+    PointsTransaction:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [earn, spend, purchase]
+        amount:
+          type: integer
+        description:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - type
+        - amount
+        - description
+        - createdAt
+
+    # Games
+    Game:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        subject:
+          type: string
+        difficulty:
+          type: string
+          enum: [easy, medium, hard]
+        questionsCount:
+          type: integer
+        pointsReward:
+          type: integer
+        description:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - subject
+        - difficulty
+        - questionsCount
+        - pointsReward
+        - description
+        - createdAt
+
+    Question:
+      type: object
+      properties:
+        id:
+          type: integer
+        gameId:
+          type: integer
+        text:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        correctIndex:
+          type: integer
+      required:
+        - id
+        - gameId
+        - text
+        - options
+        - correctIndex
+
+    GameWithQuestions:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        subject:
+          type: string
+        difficulty:
+          type: string
+        questionsCount:
+          type: integer
+        pointsReward:
+          type: integer
+        description:
+          type: string
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Question"
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - subject
+        - difficulty
+        - questionsCount
+        - pointsReward
+        - description
+        - questions
+        - createdAt
+
+    SubmitGameBody:
+      type: object
+      properties:
+        answers:
+          type: array
+          items:
+            type: object
+            properties:
+              questionId:
+                type: integer
+              selectedIndex:
+                type: integer
+            required:
+              - questionId
+              - selectedIndex
+      required:
+        - answers
+
+    GameResult:
+      type: object
+      properties:
+        correctCount:
+          type: integer
+        totalQuestions:
+          type: integer
+        pointsEarned:
+          type: integer
+        newBalance:
+          type: integer
+      required:
+        - correctCount
+        - totalQuestions
+        - pointsEarned
+        - newBalance
+
+    # Rewards
+    Reward:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [book, gift, voucher]
+        pointsCost:
+          type: integer
+        imageUrl:
+          type: string
+        available:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - description
+        - type
+        - pointsCost
+        - available
+        - createdAt
+
+    RedemptionResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        pointsSpent:
+          type: integer
+        newBalance:
+          type: integer
+        rewardTitle:
+          type: string
+      required:
+        - success
+        - pointsSpent
+        - newBalance
+        - rewardTitle
+
+    Redemption:
+      type: object
+      properties:
+        id:
+          type: integer
+        rewardId:
+          type: integer
+        rewardTitle:
+          type: string
+        pointsSpent:
+          type: integer
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - rewardId
+        - rewardTitle
+        - pointsSpent
+        - status
+        - createdAt
+
+    # OpenAI
+    OpenaiConversation:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - createdAt
+
+    OpenaiMessage:
+      type: object
+      properties:
+        id:
+          type: integer
+        conversationId:
+          type: integer
+        role:
+          type: string
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - conversationId
+        - role
+        - content
+        - createdAt
+
+    CreateOpenaiConversationBody:
+      type: object
+      properties:
+        title:
+          type: string
+      required:
+        - title
+
+    SendOpenaiMessageBody:
+      type: object
+      properties:
+        content:
+          type: string
+      required:
+        - content
+
+    OpenaiConversationWithMessages:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpenaiMessage"
+      required:
+        - id
+        - title
+        - createdAt
+        - messages
+
+    OpenaiError:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
