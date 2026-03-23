@@ -23,6 +23,10 @@ tags:
     description: Rewards and gift redemption
   - name: openai
     description: OpenAI AI chat operations
+  - name: admin
+    description: Admin dashboard management
+  - name: moderator
+    description: Moderator content control
 
 paths:
   /healthz:
@@ -624,6 +628,658 @@ paths:
           content:
             text/event-stream: {}
 
+  # Admin
+  /admin/stats:
+    get:
+      operationId: getAdminStats
+      tags: [admin]
+      summary: Get platform overview statistics
+      responses:
+        "200":
+          description: Platform stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  /admin/users:
+    get:
+      operationId: listAdminUsers
+      tags: [admin]
+      summary: List all users
+      responses:
+        "200":
+          description: All users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminUser"
+    post:
+      operationId: createAdminUser
+      tags: [admin]
+      summary: Create a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAdminUserBody"
+      responses:
+        "201":
+          description: Created user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+
+  /admin/users/{id}:
+    put:
+      operationId: updateAdminUser
+      tags: [admin]
+      summary: Update user role or status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAdminUserBody"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+    delete:
+      operationId: deleteAdminUser
+      tags: [admin]
+      summary: Delete a user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /admin/books:
+    get:
+      operationId: listAdminBooks
+      tags: [admin]
+      summary: List all books with admin details
+      responses:
+        "200":
+          description: All books
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Book"
+    post:
+      operationId: createAdminBook
+      tags: [admin]
+      summary: Create a new book
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookBody"
+      responses:
+        "201":
+          description: Created book
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Book"
+
+  /admin/books/{id}:
+    put:
+      operationId: updateAdminBook
+      tags: [admin]
+      summary: Update a book
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookBody"
+      responses:
+        "200":
+          description: Updated book
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Book"
+    delete:
+      operationId: deleteAdminBook
+      tags: [admin]
+      summary: Delete a book
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /admin/videos:
+    get:
+      operationId: listAdminVideos
+      tags: [admin]
+      summary: List all videos
+      responses:
+        "200":
+          description: All videos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Video"
+    post:
+      operationId: createAdminVideo
+      tags: [admin]
+      summary: Create a video
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVideoBody"
+      responses:
+        "201":
+          description: Created video
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Video"
+
+  /admin/videos/{id}:
+    put:
+      operationId: updateAdminVideo
+      tags: [admin]
+      summary: Update a video
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVideoBody"
+      responses:
+        "200":
+          description: Updated video
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Video"
+    delete:
+      operationId: deleteAdminVideo
+      tags: [admin]
+      summary: Delete a video
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /admin/rewards:
+    get:
+      operationId: listAdminRewards
+      tags: [admin]
+      summary: List all rewards
+      responses:
+        "200":
+          description: All rewards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Reward"
+    post:
+      operationId: createAdminReward
+      tags: [admin]
+      summary: Create a reward
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRewardBody"
+      responses:
+        "201":
+          description: Created reward
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reward"
+
+  /admin/rewards/{id}:
+    put:
+      operationId: updateAdminReward
+      tags: [admin]
+      summary: Update a reward
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRewardBody"
+      responses:
+        "200":
+          description: Updated reward
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reward"
+    delete:
+      operationId: deleteAdminReward
+      tags: [admin]
+      summary: Delete a reward
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /admin/games:
+    get:
+      operationId: listAdminGames
+      tags: [admin]
+      summary: List all games
+      responses:
+        "200":
+          description: All games
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Game"
+    post:
+      operationId: createAdminGame
+      tags: [admin]
+      summary: Create a game
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGameBody"
+      responses:
+        "201":
+          description: Created game
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+
+  /admin/games/{id}:
+    put:
+      operationId: updateAdminGame
+      tags: [admin]
+      summary: Update a game
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGameBody"
+      responses:
+        "200":
+          description: Updated game
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+    delete:
+      operationId: deleteAdminGame
+      tags: [admin]
+      summary: Delete a game
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /admin/banners:
+    get:
+      operationId: listAdminBanners
+      tags: [admin]
+      summary: List all banners
+      responses:
+        "200":
+          description: All banners
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Banner"
+    post:
+      operationId: createAdminBanner
+      tags: [admin]
+      summary: Create a banner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBannerBody"
+      responses:
+        "201":
+          description: Created banner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Banner"
+
+  /admin/banners/{id}:
+    put:
+      operationId: updateAdminBanner
+      tags: [admin]
+      summary: Update a banner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBannerBody"
+      responses:
+        "200":
+          description: Updated banner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Banner"
+    delete:
+      operationId: deleteAdminBanner
+      tags: [admin]
+      summary: Delete a banner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /admin/purchases:
+    get:
+      operationId: listAdminPurchases
+      tags: [admin]
+      summary: List all book purchases
+      responses:
+        "200":
+          description: All purchases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminPurchase"
+
+  /admin/reservations:
+    get:
+      operationId: listAdminReservations
+      tags: [admin]
+      summary: List all book reservations
+      responses:
+        "200":
+          description: All reservations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminReservation"
+
+  /admin/redemptions:
+    get:
+      operationId: listAdminRedemptions
+      tags: [admin]
+      summary: List all reward redemptions
+      responses:
+        "200":
+          description: All redemptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Redemption"
+
+  /admin/points-transactions:
+    get:
+      operationId: listAdminPointsTransactions
+      tags: [admin]
+      summary: List all points transactions
+      responses:
+        "200":
+          description: All transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PointsTransaction"
+
+  /admin/reports:
+    get:
+      operationId: listAdminReports
+      tags: [admin]
+      summary: List all reports
+      responses:
+        "200":
+          description: All reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContentReport"
+
+  /admin/reports/{id}:
+    put:
+      operationId: resolveAdminReport
+      tags: [admin]
+      summary: Resolve a report
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveReportBody"
+      responses:
+        "200":
+          description: Resolved report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentReport"
+
+  # Moderator
+  /moderator/posts:
+    get:
+      operationId: listModeratorPosts
+      tags: [moderator]
+      summary: List all posts for moderation
+      responses:
+        "200":
+          description: All posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Post"
+
+  /moderator/posts/{id}:
+    delete:
+      operationId: deleteModeratorPost
+      tags: [moderator]
+      summary: Remove a post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Removed
+
+  /moderator/comments:
+    get:
+      operationId: listModeratorComments
+      tags: [moderator]
+      summary: List all comments for moderation
+      responses:
+        "200":
+          description: All comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Comment"
+
+  /moderator/comments/{id}:
+    delete:
+      operationId: deleteModeratorComment
+      tags: [moderator]
+      summary: Remove a comment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Removed
+
+  /moderator/reports:
+    get:
+      operationId: listModeratorReports
+      tags: [moderator]
+      summary: List reports assigned to moderators
+      responses:
+        "200":
+          description: Reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContentReport"
+    post:
+      operationId: createModeratorReport
+      tags: [moderator]
+      summary: Submit a content report
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReportBody"
+      responses:
+        "201":
+          description: Report submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentReport"
+
+  /moderator/reports/{id}:
+    put:
+      operationId: updateModeratorReport
+      tags: [moderator]
+      summary: Update report status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveReportBody"
+      responses:
+        "200":
+          description: Updated report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentReport"
+
 components:
   schemas:
     HealthStatus:
@@ -1199,3 +1855,282 @@ components:
           type: string
       required:
         - error
+
+    # Admin schemas
+    AdminStats:
+      type: object
+      properties:
+        totalUsers:
+          type: integer
+        totalBooks:
+          type: integer
+        totalVideos:
+          type: integer
+        totalPosts:
+          type: integer
+        totalGames:
+          type: integer
+        totalRewards:
+          type: integer
+        totalPurchases:
+          type: integer
+        totalRedemptions:
+          type: integer
+        totalPointsCirculating:
+          type: integer
+        pendingReports:
+          type: integer
+      required:
+        - totalUsers
+        - totalBooks
+        - totalVideos
+        - totalPosts
+        - totalGames
+        - totalRewards
+        - totalPurchases
+        - totalRedemptions
+        - totalPointsCirculating
+        - pendingReports
+
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [student, admin, moderator]
+        status:
+          type: string
+          enum: [active, suspended]
+        avatarUrl:
+          type: string
+        joinedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - email
+        - role
+        - status
+        - joinedAt
+
+    CreateAdminUserBody:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [student, admin, moderator]
+        status:
+          type: string
+      required:
+        - name
+        - email
+        - role
+
+    UpdateAdminUserBody:
+      type: object
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+          enum: [student, admin, moderator]
+        status:
+          type: string
+          enum: [active, suspended]
+
+    CreateRewardBody:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [book, gift, voucher]
+        pointsCost:
+          type: integer
+        imageUrl:
+          type: string
+        available:
+          type: boolean
+      required:
+        - title
+        - description
+        - type
+        - pointsCost
+
+    CreateGameBody:
+      type: object
+      properties:
+        title:
+          type: string
+        subject:
+          type: string
+        difficulty:
+          type: string
+          enum: [easy, medium, hard]
+        pointsReward:
+          type: integer
+        description:
+          type: string
+      required:
+        - title
+        - subject
+        - difficulty
+        - pointsReward
+        - description
+
+    Banner:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        imageUrl:
+          type: string
+        linkUrl:
+          type: string
+        active:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - active
+        - createdAt
+
+    CreateBannerBody:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        imageUrl:
+          type: string
+        linkUrl:
+          type: string
+        active:
+          type: boolean
+      required:
+        - title
+
+    AdminPurchase:
+      type: object
+      properties:
+        id:
+          type: integer
+        bookId:
+          type: integer
+        bookTitle:
+          type: string
+        pointsSpent:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - bookId
+        - pointsSpent
+        - createdAt
+
+    AdminReservation:
+      type: object
+      properties:
+        id:
+          type: integer
+        bookId:
+          type: integer
+        bookTitle:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - bookId
+        - status
+        - createdAt
+
+    ContentReport:
+      type: object
+      properties:
+        id:
+          type: integer
+        targetType:
+          type: string
+        targetId:
+          type: integer
+        reason:
+          type: string
+        description:
+          type: string
+        reportedBy:
+          type: string
+        status:
+          type: string
+        resolvedBy:
+          type: string
+        resolvedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - targetType
+        - targetId
+        - reason
+        - reportedBy
+        - status
+        - createdAt
+
+    CreateReportBody:
+      type: object
+      properties:
+        targetType:
+          type: string
+        targetId:
+          type: integer
+        reason:
+          type: string
+        description:
+          type: string
+        reportedBy:
+          type: string
+      required:
+        - targetType
+        - targetId
+        - reason
+
+    ResolveReportBody:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [resolved, dismissed, escalated]
+        resolvedBy:
+          type: string
+      required:
+        - status

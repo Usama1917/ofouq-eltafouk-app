@@ -256,6 +256,188 @@ export interface OpenaiError {
   error: string;
 }
 
+export interface AdminStats {
+  totalUsers: number;
+  totalBooks: number;
+  totalVideos: number;
+  totalPosts: number;
+  totalGames: number;
+  totalRewards: number;
+  totalPurchases: number;
+  totalRedemptions: number;
+  totalPointsCirculating: number;
+  pendingReports: number;
+}
+
+export type AdminUserRole = (typeof AdminUserRole)[keyof typeof AdminUserRole];
+
+export const AdminUserRole = {
+  student: "student",
+  admin: "admin",
+  moderator: "moderator",
+} as const;
+
+export type AdminUserStatus =
+  (typeof AdminUserStatus)[keyof typeof AdminUserStatus];
+
+export const AdminUserStatus = {
+  active: "active",
+  suspended: "suspended",
+} as const;
+
+export interface AdminUser {
+  id: number;
+  name: string;
+  email: string;
+  role: AdminUserRole;
+  status: AdminUserStatus;
+  avatarUrl?: string;
+  joinedAt: string;
+}
+
+export type CreateAdminUserBodyRole =
+  (typeof CreateAdminUserBodyRole)[keyof typeof CreateAdminUserBodyRole];
+
+export const CreateAdminUserBodyRole = {
+  student: "student",
+  admin: "admin",
+  moderator: "moderator",
+} as const;
+
+export interface CreateAdminUserBody {
+  name: string;
+  email: string;
+  role: CreateAdminUserBodyRole;
+  status?: string;
+}
+
+export type UpdateAdminUserBodyRole =
+  (typeof UpdateAdminUserBodyRole)[keyof typeof UpdateAdminUserBodyRole];
+
+export const UpdateAdminUserBodyRole = {
+  student: "student",
+  admin: "admin",
+  moderator: "moderator",
+} as const;
+
+export type UpdateAdminUserBodyStatus =
+  (typeof UpdateAdminUserBodyStatus)[keyof typeof UpdateAdminUserBodyStatus];
+
+export const UpdateAdminUserBodyStatus = {
+  active: "active",
+  suspended: "suspended",
+} as const;
+
+export interface UpdateAdminUserBody {
+  name?: string;
+  role?: UpdateAdminUserBodyRole;
+  status?: UpdateAdminUserBodyStatus;
+}
+
+export type CreateRewardBodyType =
+  (typeof CreateRewardBodyType)[keyof typeof CreateRewardBodyType];
+
+export const CreateRewardBodyType = {
+  book: "book",
+  gift: "gift",
+  voucher: "voucher",
+} as const;
+
+export interface CreateRewardBody {
+  title: string;
+  description: string;
+  type: CreateRewardBodyType;
+  pointsCost: number;
+  imageUrl?: string;
+  available?: boolean;
+}
+
+export type CreateGameBodyDifficulty =
+  (typeof CreateGameBodyDifficulty)[keyof typeof CreateGameBodyDifficulty];
+
+export const CreateGameBodyDifficulty = {
+  easy: "easy",
+  medium: "medium",
+  hard: "hard",
+} as const;
+
+export interface CreateGameBody {
+  title: string;
+  subject: string;
+  difficulty: CreateGameBodyDifficulty;
+  pointsReward: number;
+  description: string;
+}
+
+export interface Banner {
+  id: number;
+  title: string;
+  description?: string;
+  imageUrl?: string;
+  linkUrl?: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface CreateBannerBody {
+  title: string;
+  description?: string;
+  imageUrl?: string;
+  linkUrl?: string;
+  active?: boolean;
+}
+
+export interface AdminPurchase {
+  id: number;
+  bookId: number;
+  bookTitle?: string;
+  pointsSpent: number;
+  createdAt: string;
+}
+
+export interface AdminReservation {
+  id: number;
+  bookId: number;
+  bookTitle?: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface ContentReport {
+  id: number;
+  targetType: string;
+  targetId: number;
+  reason: string;
+  description?: string;
+  reportedBy: string;
+  status: string;
+  resolvedBy?: string;
+  resolvedAt?: string;
+  createdAt: string;
+}
+
+export interface CreateReportBody {
+  targetType: string;
+  targetId: number;
+  reason: string;
+  description?: string;
+  reportedBy?: string;
+}
+
+export type ResolveReportBodyStatus =
+  (typeof ResolveReportBodyStatus)[keyof typeof ResolveReportBodyStatus];
+
+export const ResolveReportBodyStatus = {
+  resolved: "resolved",
+  dismissed: "dismissed",
+  escalated: "escalated",
+} as const;
+
+export interface ResolveReportBody {
+  status: ResolveReportBodyStatus;
+  resolvedBy?: string;
+}
+
 export type ListBooksParams = {
   category?: string;
   search?: string;

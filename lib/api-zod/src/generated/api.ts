@@ -462,3 +462,580 @@ export const SendOpenaiMessageParams = zod.object({
 export const SendOpenaiMessageBody = zod.object({
   content: zod.string(),
 });
+
+/**
+ * @summary Get platform overview statistics
+ */
+export const GetAdminStatsResponse = zod.object({
+  totalUsers: zod.number(),
+  totalBooks: zod.number(),
+  totalVideos: zod.number(),
+  totalPosts: zod.number(),
+  totalGames: zod.number(),
+  totalRewards: zod.number(),
+  totalPurchases: zod.number(),
+  totalRedemptions: zod.number(),
+  totalPointsCirculating: zod.number(),
+  pendingReports: zod.number(),
+});
+
+/**
+ * @summary List all users
+ */
+export const ListAdminUsersResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  email: zod.string(),
+  role: zod.enum(["student", "admin", "moderator"]),
+  status: zod.enum(["active", "suspended"]),
+  avatarUrl: zod.string().optional(),
+  joinedAt: zod.date(),
+});
+export const ListAdminUsersResponse = zod.array(ListAdminUsersResponseItem);
+
+/**
+ * @summary Create a new user
+ */
+export const CreateAdminUserBody = zod.object({
+  name: zod.string(),
+  email: zod.string(),
+  role: zod.enum(["student", "admin", "moderator"]),
+  status: zod.string().optional(),
+});
+
+/**
+ * @summary Update user role or status
+ */
+export const UpdateAdminUserParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateAdminUserBody = zod.object({
+  name: zod.string().optional(),
+  role: zod.enum(["student", "admin", "moderator"]).optional(),
+  status: zod.enum(["active", "suspended"]).optional(),
+});
+
+export const UpdateAdminUserResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  email: zod.string(),
+  role: zod.enum(["student", "admin", "moderator"]),
+  status: zod.enum(["active", "suspended"]),
+  avatarUrl: zod.string().optional(),
+  joinedAt: zod.date(),
+});
+
+/**
+ * @summary Delete a user
+ */
+export const DeleteAdminUserParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary List all books with admin details
+ */
+export const ListAdminBooksResponseItem = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  author: zod.string(),
+  description: zod.string(),
+  category: zod.string(),
+  coverUrl: zod.string().optional(),
+  pointsPrice: zod.number(),
+  available: zod.boolean(),
+  createdAt: zod.date(),
+});
+export const ListAdminBooksResponse = zod.array(ListAdminBooksResponseItem);
+
+/**
+ * @summary Create a new book
+ */
+export const CreateAdminBookBody = zod.object({
+  title: zod.string(),
+  author: zod.string(),
+  description: zod.string(),
+  category: zod.string(),
+  coverUrl: zod.string().optional(),
+  pointsPrice: zod.number(),
+  available: zod.boolean().optional(),
+});
+
+/**
+ * @summary Update a book
+ */
+export const UpdateAdminBookParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateAdminBookBody = zod.object({
+  title: zod.string(),
+  author: zod.string(),
+  description: zod.string(),
+  category: zod.string(),
+  coverUrl: zod.string().optional(),
+  pointsPrice: zod.number(),
+  available: zod.boolean().optional(),
+});
+
+export const UpdateAdminBookResponse = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  author: zod.string(),
+  description: zod.string(),
+  category: zod.string(),
+  coverUrl: zod.string().optional(),
+  pointsPrice: zod.number(),
+  available: zod.boolean(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary Delete a book
+ */
+export const DeleteAdminBookParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary List all videos
+ */
+export const ListAdminVideosResponseItem = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string(),
+  subject: zod.string(),
+  videoUrl: zod.string(),
+  thumbnailUrl: zod.string().optional(),
+  duration: zod.number(),
+  instructor: zod.string(),
+  createdAt: zod.date(),
+});
+export const ListAdminVideosResponse = zod.array(ListAdminVideosResponseItem);
+
+/**
+ * @summary Create a video
+ */
+export const CreateAdminVideoBody = zod.object({
+  title: zod.string(),
+  description: zod.string(),
+  subject: zod.string(),
+  videoUrl: zod.string(),
+  thumbnailUrl: zod.string().optional(),
+  duration: zod.number(),
+  instructor: zod.string(),
+});
+
+/**
+ * @summary Update a video
+ */
+export const UpdateAdminVideoParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateAdminVideoBody = zod.object({
+  title: zod.string(),
+  description: zod.string(),
+  subject: zod.string(),
+  videoUrl: zod.string(),
+  thumbnailUrl: zod.string().optional(),
+  duration: zod.number(),
+  instructor: zod.string(),
+});
+
+export const UpdateAdminVideoResponse = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string(),
+  subject: zod.string(),
+  videoUrl: zod.string(),
+  thumbnailUrl: zod.string().optional(),
+  duration: zod.number(),
+  instructor: zod.string(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary Delete a video
+ */
+export const DeleteAdminVideoParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary List all rewards
+ */
+export const ListAdminRewardsResponseItem = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string(),
+  type: zod.enum(["book", "gift", "voucher"]),
+  pointsCost: zod.number(),
+  imageUrl: zod.string().optional(),
+  available: zod.boolean(),
+  createdAt: zod.date(),
+});
+export const ListAdminRewardsResponse = zod.array(ListAdminRewardsResponseItem);
+
+/**
+ * @summary Create a reward
+ */
+export const CreateAdminRewardBody = zod.object({
+  title: zod.string(),
+  description: zod.string(),
+  type: zod.enum(["book", "gift", "voucher"]),
+  pointsCost: zod.number(),
+  imageUrl: zod.string().optional(),
+  available: zod.boolean().optional(),
+});
+
+/**
+ * @summary Update a reward
+ */
+export const UpdateAdminRewardParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateAdminRewardBody = zod.object({
+  title: zod.string(),
+  description: zod.string(),
+  type: zod.enum(["book", "gift", "voucher"]),
+  pointsCost: zod.number(),
+  imageUrl: zod.string().optional(),
+  available: zod.boolean().optional(),
+});
+
+export const UpdateAdminRewardResponse = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string(),
+  type: zod.enum(["book", "gift", "voucher"]),
+  pointsCost: zod.number(),
+  imageUrl: zod.string().optional(),
+  available: zod.boolean(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary Delete a reward
+ */
+export const DeleteAdminRewardParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary List all games
+ */
+export const ListAdminGamesResponseItem = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  subject: zod.string(),
+  difficulty: zod.enum(["easy", "medium", "hard"]),
+  questionsCount: zod.number(),
+  pointsReward: zod.number(),
+  description: zod.string(),
+  createdAt: zod.date(),
+});
+export const ListAdminGamesResponse = zod.array(ListAdminGamesResponseItem);
+
+/**
+ * @summary Create a game
+ */
+export const CreateAdminGameBody = zod.object({
+  title: zod.string(),
+  subject: zod.string(),
+  difficulty: zod.enum(["easy", "medium", "hard"]),
+  pointsReward: zod.number(),
+  description: zod.string(),
+});
+
+/**
+ * @summary Update a game
+ */
+export const UpdateAdminGameParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateAdminGameBody = zod.object({
+  title: zod.string(),
+  subject: zod.string(),
+  difficulty: zod.enum(["easy", "medium", "hard"]),
+  pointsReward: zod.number(),
+  description: zod.string(),
+});
+
+export const UpdateAdminGameResponse = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  subject: zod.string(),
+  difficulty: zod.enum(["easy", "medium", "hard"]),
+  questionsCount: zod.number(),
+  pointsReward: zod.number(),
+  description: zod.string(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary Delete a game
+ */
+export const DeleteAdminGameParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary List all banners
+ */
+export const ListAdminBannersResponseItem = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string().optional(),
+  imageUrl: zod.string().optional(),
+  linkUrl: zod.string().optional(),
+  active: zod.boolean(),
+  createdAt: zod.date(),
+});
+export const ListAdminBannersResponse = zod.array(ListAdminBannersResponseItem);
+
+/**
+ * @summary Create a banner
+ */
+export const CreateAdminBannerBody = zod.object({
+  title: zod.string(),
+  description: zod.string().optional(),
+  imageUrl: zod.string().optional(),
+  linkUrl: zod.string().optional(),
+  active: zod.boolean().optional(),
+});
+
+/**
+ * @summary Update a banner
+ */
+export const UpdateAdminBannerParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateAdminBannerBody = zod.object({
+  title: zod.string(),
+  description: zod.string().optional(),
+  imageUrl: zod.string().optional(),
+  linkUrl: zod.string().optional(),
+  active: zod.boolean().optional(),
+});
+
+export const UpdateAdminBannerResponse = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string().optional(),
+  imageUrl: zod.string().optional(),
+  linkUrl: zod.string().optional(),
+  active: zod.boolean(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary Delete a banner
+ */
+export const DeleteAdminBannerParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary List all book purchases
+ */
+export const ListAdminPurchasesResponseItem = zod.object({
+  id: zod.number(),
+  bookId: zod.number(),
+  bookTitle: zod.string().optional(),
+  pointsSpent: zod.number(),
+  createdAt: zod.date(),
+});
+export const ListAdminPurchasesResponse = zod.array(
+  ListAdminPurchasesResponseItem,
+);
+
+/**
+ * @summary List all book reservations
+ */
+export const ListAdminReservationsResponseItem = zod.object({
+  id: zod.number(),
+  bookId: zod.number(),
+  bookTitle: zod.string().optional(),
+  status: zod.string(),
+  createdAt: zod.date(),
+});
+export const ListAdminReservationsResponse = zod.array(
+  ListAdminReservationsResponseItem,
+);
+
+/**
+ * @summary List all reward redemptions
+ */
+export const ListAdminRedemptionsResponseItem = zod.object({
+  id: zod.number(),
+  rewardId: zod.number(),
+  rewardTitle: zod.string(),
+  pointsSpent: zod.number(),
+  status: zod.string(),
+  createdAt: zod.date(),
+});
+export const ListAdminRedemptionsResponse = zod.array(
+  ListAdminRedemptionsResponseItem,
+);
+
+/**
+ * @summary List all points transactions
+ */
+export const ListAdminPointsTransactionsResponseItem = zod.object({
+  id: zod.number(),
+  type: zod.enum(["earn", "spend", "purchase"]),
+  amount: zod.number(),
+  description: zod.string(),
+  createdAt: zod.date(),
+});
+export const ListAdminPointsTransactionsResponse = zod.array(
+  ListAdminPointsTransactionsResponseItem,
+);
+
+/**
+ * @summary List all reports
+ */
+export const ListAdminReportsResponseItem = zod.object({
+  id: zod.number(),
+  targetType: zod.string(),
+  targetId: zod.number(),
+  reason: zod.string(),
+  description: zod.string().optional(),
+  reportedBy: zod.string(),
+  status: zod.string(),
+  resolvedBy: zod.string().optional(),
+  resolvedAt: zod.date().optional(),
+  createdAt: zod.date(),
+});
+export const ListAdminReportsResponse = zod.array(ListAdminReportsResponseItem);
+
+/**
+ * @summary Resolve a report
+ */
+export const ResolveAdminReportParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ResolveAdminReportBody = zod.object({
+  status: zod.enum(["resolved", "dismissed", "escalated"]),
+  resolvedBy: zod.string().optional(),
+});
+
+export const ResolveAdminReportResponse = zod.object({
+  id: zod.number(),
+  targetType: zod.string(),
+  targetId: zod.number(),
+  reason: zod.string(),
+  description: zod.string().optional(),
+  reportedBy: zod.string(),
+  status: zod.string(),
+  resolvedBy: zod.string().optional(),
+  resolvedAt: zod.date().optional(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary List all posts for moderation
+ */
+export const ListModeratorPostsResponseItem = zod.object({
+  id: zod.number(),
+  content: zod.string(),
+  authorName: zod.string(),
+  authorAvatar: zod.string().optional(),
+  likesCount: zod.number(),
+  commentsCount: zod.number(),
+  isLiked: zod.boolean(),
+  createdAt: zod.date(),
+});
+export const ListModeratorPostsResponse = zod.array(
+  ListModeratorPostsResponseItem,
+);
+
+/**
+ * @summary Remove a post
+ */
+export const DeleteModeratorPostParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary List all comments for moderation
+ */
+export const ListModeratorCommentsResponseItem = zod.object({
+  id: zod.number(),
+  postId: zod.number(),
+  content: zod.string(),
+  authorName: zod.string(),
+  authorAvatar: zod.string().optional(),
+  createdAt: zod.date(),
+});
+export const ListModeratorCommentsResponse = zod.array(
+  ListModeratorCommentsResponseItem,
+);
+
+/**
+ * @summary Remove a comment
+ */
+export const DeleteModeratorCommentParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary List reports assigned to moderators
+ */
+export const ListModeratorReportsResponseItem = zod.object({
+  id: zod.number(),
+  targetType: zod.string(),
+  targetId: zod.number(),
+  reason: zod.string(),
+  description: zod.string().optional(),
+  reportedBy: zod.string(),
+  status: zod.string(),
+  resolvedBy: zod.string().optional(),
+  resolvedAt: zod.date().optional(),
+  createdAt: zod.date(),
+});
+export const ListModeratorReportsResponse = zod.array(
+  ListModeratorReportsResponseItem,
+);
+
+/**
+ * @summary Submit a content report
+ */
+export const CreateModeratorReportBody = zod.object({
+  targetType: zod.string(),
+  targetId: zod.number(),
+  reason: zod.string(),
+  description: zod.string().optional(),
+  reportedBy: zod.string().optional(),
+});
+
+/**
+ * @summary Update report status
+ */
+export const UpdateModeratorReportParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateModeratorReportBody = zod.object({
+  status: zod.enum(["resolved", "dismissed", "escalated"]),
+  resolvedBy: zod.string().optional(),
+});
+
+export const UpdateModeratorReportResponse = zod.object({
+  id: zod.number(),
+  targetType: zod.string(),
+  targetId: zod.number(),
+  reason: zod.string(),
+  description: zod.string().optional(),
+  reportedBy: zod.string(),
+  status: zod.string(),
+  resolvedBy: zod.string().optional(),
+  resolvedAt: zod.date().optional(),
+  createdAt: zod.date(),
+});

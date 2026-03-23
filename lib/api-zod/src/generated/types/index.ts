@@ -6,14 +6,30 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./adminPurchase";
+export * from "./adminReservation";
+export * from "./adminStats";
+export * from "./adminUser";
+export * from "./adminUserRole";
+export * from "./adminUserStatus";
+export * from "./banner";
 export * from "./book";
 export * from "./bookPurchase";
 export * from "./bookReservation";
 export * from "./comment";
+export * from "./contentReport";
+export * from "./createAdminUserBody";
+export * from "./createAdminUserBodyRole";
+export * from "./createBannerBody";
 export * from "./createBookBody";
 export * from "./createCommentBody";
+export * from "./createGameBody";
+export * from "./createGameBodyDifficulty";
 export * from "./createOpenaiConversationBody";
 export * from "./createPostBody";
+export * from "./createReportBody";
+export * from "./createRewardBody";
+export * from "./createRewardBodyType";
 export * from "./createVideoBody";
 export * from "./game";
 export * from "./gameDifficulty";
@@ -36,9 +52,14 @@ export * from "./purchasePointsBody";
 export * from "./question";
 export * from "./redemption";
 export * from "./redemptionResult";
+export * from "./resolveReportBody";
+export * from "./resolveReportBodyStatus";
 export * from "./reward";
 export * from "./rewardType";
 export * from "./sendOpenaiMessageBody";
 export * from "./submitGameBody";
 export * from "./submitGameBodyAnswersItem";
+export * from "./updateAdminUserBody";
+export * from "./updateAdminUserBodyRole";
+export * from "./updateAdminUserBodyStatus";
 export * from "./video";
