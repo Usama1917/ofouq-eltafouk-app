@@ -1,0 +1,160 @@
+{
+  "colorScheme": "light",
+  "fonts": [
+    {
+      "family": "SF Pro Text",
+      "role": "body"
+    },
+    {
+      "family": "SF Pro Display",
+      "role": "heading"
+    },
+    {
+      "family": "Myriad Set Pro",
+      "role": "display"
+    }
+  ],
+  "colors": {
+    "primary": "#0071E3",
+    "accent": "#0071E3",
+    "background": "#FFFFFF",
+    "textPrimary": "#1D1D1F",
+    "link": "#0066CC"
+  },
+  "typography": {
+    "fontFamilies": {
+      "primary": "SF Pro Text",
+      "heading": "SF Pro Display"
+    },
+    "fontStacks": {
+      "heading": [
+        "SF Pro Text",
+        "SF Pro Icons",
+        "Helvetica Neue",
+        "Helvetica",
+        "Arial",
+        "sans-serif"
+      ],
+      "body": [
+        "SF Pro Text",
+        "SF Pro Icons",
+        "Helvetica Neue",
+        "Helvetica",
+        "Arial",
+        "sans-serif"
+      ],
+      "paragraph": [
+        "SF Pro Display",
+        "SF Pro Icons",
+        "Helvetica Neue",
+        "Helvetica",
+        "Arial",
+        "sans-serif"
+      ]
+    },
+    "fontSizes": {
+      "h1": "34px",
+      "h2": "12px",
+      "body": "28px"
+    }
+  },
+  "spacing": {
+    "baseUnit": 4,
+    "borderRadius": "6px"
+  },
+  "components": {
+    "input": {
+      "background": "transparent",
+      "textColor": "#333336",
+      "borderColor": null,
+      "borderRadius": "0px",
+      "borderRadiusCorners": {
+        "topLeft": "0px",
+        "topRight": "0px",
+        "bottomRight": "0px",
+        "bottomLeft": "0px"
+      },
+      "shadow": "none"
+    },
+    "buttonPrimary": {
+      "background": "#0071E3",
+      "textColor": "#FFFFFF",
+      "borderRadius": "980px",
+      "borderRadiusCorners": {
+        "topLeft": "980px",
+        "topRight": "980px",
+        "bottomRight": "980px",
+        "bottomLeft": "980px"
+      },
+      "shadow": "none"
+    },
+    "buttonSecondary": {
+      "background": "#F5F5F7",
+      "textColor": "#0066CC",
+      "borderColor": "#0066CC",
+      "borderRadius": "980px",
+      "borderRadiusCorners": {
+        "topLeft": "980px",
+        "topRight": "980px",
+        "bottomRight": "980px",
+        "bottomLeft": "980px"
+      },
+      "shadow": "none"
+    }
+  },
+  "images": {
+    "logo": "File saved at: attached_assets/logo.svg",
+    "favicon": null,
+    "ogImage": "https://www.apple.com/ac/structured-data/images/open_graph_logo.png?202110180743",
+    "logoHref": "File saved at: attached_assets/logoHref.html"
+  },
+  "__llm_logo_reasoning": {
+    "selectedIndex": 0,
+    "reasoning": "Selected #0 because it is visible, located in the header, and links to the homepage, which are strong indicators of the main brand logo for Apple.",
+    "confidence": 0.95,
+    "source": "llm"
+  },
+  "__llm_button_reasoning": {
+    "primary": {
+      "index": 0,
+      "text": "Read the letter from Tim",
+      "reasoning": "Button #0 uses the vibrant brand color #0071E3, which is a strong indicator of a primary CTA. The text 'Read the letter from Tim' suggests an important action, aligning with Apple's branding strategy."
+    },
+    "secondary": {
+      "index": 2,
+      "text": "Buy",
+      "reasoning": "Button #5 has a different background color (#F5F5F7) and uses the text 'Buy', which is a common secondary action. It complements the primary CTA by offering a direct purchase option."
+    },
+    "confidence": 0.95
+  },
+  "personality": {
+    "tone": "modern",
+    "energy": "high",
+    "targetAudience": "tech-savvy consumers"
+  },
+  "designSystem": {
+    "framework": "custom",
+    "componentLibrary": ""
+  },
+  "confidence": {
+    "buttons": 0.95,
+    "colors": 0.9,
+    "overall": 0.925
+  },
+  "__llm_metadata": {
+    "logoSelection": {
+      "llmCalled": true,
+      "llmSucceeded": true,
+      "finalSource": "llm",
+      "rawLogoSelection": {
+        "selectedLogoIndex": 0,
+        "selectedLogoReasoning": "Selected #0 because it is visible, located in the header, and links to the homepage, which are strong indicators of the main brand logo for Apple.",
+        "confidence": 0.95
+      }
+    },
+    "buttonClassification": {
+      "llmCalled": true,
+      "llmSucceeded": true
+    }
+  }
+}
