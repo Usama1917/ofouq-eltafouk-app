@@ -1,0 +1,135 @@
+Authentication, Registration, User Roles, Admin Panel, and Owner Panel
+
+The app must include separate login experiences for different platform roles:
+
+1. User Login Page
+This login page is for regular users of the platform.
+Users should be able to sign in using:
+- Email and password
+- Apple account login
+- Google account login
+
+2. Admin Login Page
+This login page is dedicated only to admins.
+
+3. Owner Login Page
+This login page is dedicated only to owners and high-level platform controllers.
+
+General Registration Flow for Regular Users
+During registration, the system should clearly identify that the user is not an admin or owner, then ask the user to choose their role from:
+- Student
+- Teacher
+- Parent
+
+Each role should have its own onboarding flow and its own customized interface inside the app.
+
+Student Registration Questions
+If the user selects Student, the registration flow should ask for:
+- Age
+- Phone number
+- Parent phone number
+- Address
+- How did you hear about us?
+
+Teacher Registration Questions
+If the user selects Teacher, the registration flow should ask for:
+- Age
+- Phone number
+- Address
+- Academic specialization
+- Qualifications
+- CV upload
+- How would you like Ofouq Eltafouk to support you?
+
+Parent Registration
+The parent role should exist as a valid role in the system and should have its own dedicated interface as well.
+The detailed onboarding for parents can be defined later.
+
+Role-Based Interfaces
+Each role must have a dedicated user experience and interface based on their needs:
+- Student interface
+- Teacher interface
+- Parent interface
+- Admin interface
+- Owner interface
+
+Current Product Focus
+For now, keep the current student-side perspective and flow as it is, and move the planning focus toward the Admin interface and Owner interface.
+
+Admin Panel
+The Admin panel should be a powerful management dashboard that allows admins to control and manage the educational platform in a professional and organized way.
+
+The Admin dashboard should include the ability to manage:
+- Users
+- Books
+- Educational videos
+- Posts
+- Content sections
+- Platform updates
+- Reports
+- General platform activity
+
+The Admin experience should feel like a professional modern control panel similar to high-quality admin dashboards, while still matching the minimal premium visual identity of the app.
+
+Preview Before Publish Workflow
+A very important feature is that whenever the admin creates, edits, or updates content, there should be a preview step before publishing.
+
+This preview-before-publish workflow should apply to actions such as:
+- Adding a new video
+- Editing a video
+- Creating a new post
+- Updating a post
+- Adding or editing educational content
+- Publishing banners or announcements
+- Any similar content publishing action
+
+This means the admin should be able to:
+- Review content before publishing
+- See how it will appear to users
+- Confirm or cancel publishing
+- Avoid accidental mistakes before content goes live
+
+This is an important core workflow in the admin experience.
+
+Admin Panel Concept
+At this stage, the Admin panel is still a general concept and will be expanded in more detail later.
+For now, it should be treated as a professional full-control content and operations dashboard with preview-before-publish functionality.
+
+Owner Panel
+The Owner panel should be very similar to the Admin panel in terms of structure and usability, but with much higher permissions and deeper access.
+
+The Owner should have all admin capabilities, plus additional high-level permissions such as:
+- Add a new admin
+- Remove an admin
+- Manage admin permissions
+- Add a new owner
+- Access more advanced system-level controls
+
+Advanced Analytics and Reports for Owner
+The Owner panel should include a richer data layer, more advanced reports, and professional analytics with graphs and visual dashboards.
+
+The Owner should be able to view insights such as:
+- User activity trends
+- Most used app features
+- Most active user types
+- Geographic distribution of users
+- Top governorates by user count
+- Best-selling books
+- Most viewed videos
+- Engagement trends
+- Purchase behavior
+- Reward and points usage
+- Content performance
+- Platform growth indicators
+- Any other useful analytics that support strategic planning and decision-making
+
+The analytics section should help the Owner understand the platform deeply and make smarter business and growth decisions.
+
+Owner Panel Concept
+At this stage, the Owner panel is also a simplified concept that will be expanded later.
+For now, it should be treated as an advanced executive dashboard with:
+- Full platform authority
+- Admin management powers
+- Strategic insights
+- Professional reporting
+- Rich visual analytics and graphs
