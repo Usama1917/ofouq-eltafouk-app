@@ -96,7 +96,6 @@ export function Layout({ children }: { children: ReactNode }) {
     <div className="min-h-screen flex flex-col md:flex-row" dir="rtl">
       {/* Ambient mesh background */}
       <div className="mesh-bg" aria-hidden />
-
       {/* ── Sidebar (desktop) ────────────────────────────────── */}
       <aside className="
         hidden md:flex flex-col
@@ -164,7 +163,7 @@ export function Layout({ children }: { children: ReactNode }) {
           {user && (
             <Link href="/points">
               <motion.div whileHover={{ y: -2 }}
-                className="glass-card cursor-pointer p-4 bg-gradient-to-br from-amber-50/80 to-orange-50/60 border-amber-200/40">
+                className="glass-card cursor-pointer p-4 bg-gradient-to-br from-amber-50/80 to-orange-50/60 border-amber-200/40 mt-[9px] mb-[9px]">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-muted-foreground font-medium mb-1">رصيد النقاط</p>
@@ -185,7 +184,6 @@ export function Layout({ children }: { children: ReactNode }) {
           <UserBadge />
         </div>
       </aside>
-
       {/* ── Mobile Header ────────────────────────────────────── */}
       <header className="
         md:hidden fixed top-0 left-0 right-0 z-50
@@ -222,7 +220,6 @@ export function Layout({ children }: { children: ReactNode }) {
           )}
         </div>
       </header>
-
       {/* ── Main content ─────────────────────────────────────── */}
       <main className="flex-1 md:mr-72 pt-16 md:pt-0 pb-24 md:pb-0 min-h-screen">
         <div className="max-w-6xl mx-auto px-4 md:px-8 py-8 md:py-10">
@@ -239,7 +236,6 @@ export function Layout({ children }: { children: ReactNode }) {
           </AnimatePresence>
         </div>
       </main>
-
       {/* ── Mobile bottom nav ────────────────────────────────── */}
       <nav className="
         md:hidden fixed bottom-0 left-0 right-0 z-50
