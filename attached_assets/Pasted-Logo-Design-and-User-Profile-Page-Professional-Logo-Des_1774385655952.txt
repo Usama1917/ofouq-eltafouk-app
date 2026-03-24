@@ -1,0 +1,86 @@
+Logo Design and User Profile Page
+
+Professional Logo Design
+The app must include a professional, premium, and memorable logo for the brand "Ofouq Eltafouk".
+
+The logo should reflect the identity of a modern educational platform that combines:
+- Learning
+- Growth
+- Technology
+- Intelligence
+- Trust
+- Progress
+- Premium quality
+
+Logo design direction:
+- Clean and minimal
+- Modern and elegant
+- Professional and scalable
+- Suitable for both mobile app icon and full brand identity
+- Visually strong but simple
+- Premium feel inspired by modern tech and education brands
+
+The logo should work well in:
+- App icon format
+- Splash screen
+- Login screens
+- Website or landing page
+- Social media branding
+- Printed brand materials
+
+The visual identity of the logo should match the overall app style:
+- Minimal
+- Premium
+- Smart
+- Calm
+- Modern
+- Apple-inspired simplicity
+- Glass-inspired design language where appropriate
+
+Possible symbolic themes for the logo may include:
+- Horizon
+- Future
+- Growth
+- Knowledge
+- Light
+- Direction
+- Intelligence
+- Progress
+- Educational advancement
+
+The final logo should feel unique, trustworthy, and suitable for a large educational brand.
+
+User Profile Page
+The app must include a dedicated User Profile page.
+
+The profile page should allow the user to:
+- View personal information
+- Edit account details
+- View role type
+- Manage profile image
+- View enrolled content or purchased items
+- Access saved books or favorite content
+- View points balance
+- View rewards or redeemed gifts
+- View recent activity
+- Access account settings
+- Manage notifications
+- Access support or help options
+
+The profile page should feel clean, modern, and organized, with a premium but simple layout.
+
+Profile Page Design Goals:
+- Easy to navigate
+- Clean sections
+- Clear information hierarchy
+- Soft premium visual style
+- Comfortable spacing
+- Smooth and modern UI
+- Consistent with the app’s Apple-inspired minimal glass design
+
+The profile page should be designed in a way that can later adapt based on the user role, such as:
+- Student profile
+- Teacher profile
+- Parent profile
+
+Each role can later have customized profile details depending on its needs, but the base experience should remain unified, elegant, and easy to use.
