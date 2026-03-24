@@ -1,7 +1,21 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useListGames, useGetGame, useSubmitGameAnswers } from "@workspace/api-client-react";
-import { Gamepad2, Trophy, Clock, Target, ArrowRight } from "lucide-react";
+import { Gamepad2, Trophy, Target, ArrowRight, Star, Zap } from "lucide-react";
+
+const difficultyConfig: Record<string, { label: string; color: string; dot: string }> = {
+  easy: { label: "سهل", color: "text-emerald-600", dot: "bg-emerald-400" },
+  medium: { label: "متوسط", color: "text-amber-600", dot: "bg-amber-400" },
+  hard: { label: "صعب", color: "text-rose-600", dot: "bg-rose-400" },
+};
+
+const stagger = {
+  container: { animate: { transition: { staggerChildren: 0.07 } } },
+  item: {
+    initial: { opacity: 0, y: 16 },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] } },
+  },
+};
 
 export default function Games() {
   const { data: games = [], isLoading } = useListGames();
@@ -12,156 +26,211 @@ export default function Games() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-display font-bold text-foreground mb-2 flex items-center gap-3">
-          <div className="p-2 bg-purple-500/10 text-purple-600 rounded-xl">
-            <Gamepad2 className="w-8 h-8" />
+    <motion.div variants={stagger.container} initial="initial" animate="animate" className="space-y-8">
+      <motion.div variants={stagger.item}>
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-violet-500/25">
+            <Gamepad2 className="w-5 h-5" />
           </div>
-          المسابقات التعليمية
-        </h1>
-        <p className="text-muted-foreground">اختبر معلوماتك، نافس أصدقائك، واكسب النقاط!</p>
-      </div>
+          <h1 className="text-3xl font-display font-black text-foreground">المسابقات التعليمية</h1>
+        </div>
+        <p className="text-muted-foreground font-medium">اختبر معلوماتك، نافس أصدقائك، واكسب النقاط!</p>
+      </motion.div>
 
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1,2,3].map(i => <div key={i} className="bg-card h-48 rounded-2xl animate-pulse" />)}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="glass-card h-52 animate-pulse bg-white/40" />
+          ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {games.map(game => (
-            <motion.div 
-              key={game.id}
-              whileHover={{ y: -5 }}
-              className="bg-card rounded-2xl p-6 border border-border/50 shadow-md hover:shadow-xl transition-all relative overflow-hidden group"
-            >
-              <div className={`absolute top-0 right-0 w-2 h-full ${
-                game.difficulty === 'easy' ? 'bg-emerald-500' : 
-                game.difficulty === 'medium' ? 'bg-orange-500' : 'bg-red-500'
-              }`} />
-              <div className="flex justify-between items-start mb-4">
-                <span className="bg-primary/10 text-primary px-3 py-1 rounded-full text-xs font-bold">
-                  {game.subject}
-                </span>
-                <span className="flex items-center gap-1 text-accent font-bold text-sm bg-accent/10 px-2 py-1 rounded-lg">
-                  <Trophy className="w-4 h-4" />
-                  {game.pointsReward} نقطة
-                </span>
-              </div>
-              <h3 className="text-xl font-bold mb-2">{game.title}</h3>
-              <p className="text-muted-foreground text-sm mb-6 line-clamp-2">{game.description}</p>
-              
-              <div className="flex items-center justify-between mt-auto">
-                <div className="flex gap-4 text-sm text-muted-foreground font-medium">
-                  <span className="flex items-center gap-1"><Target className="w-4 h-4"/> {game.questionsCount} أسئلة</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {games.map((game) => {
+            const diff = difficultyConfig[game.difficulty] ?? difficultyConfig.easy;
+            return (
+              <motion.div
+                key={game.id}
+                variants={stagger.item}
+                whileHover={{ y: -5 }}
+                className="glass-card p-6 flex flex-col"
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <span className="inline-flex items-center gap-1.5 bg-white/60 text-foreground border border-white/70 px-3 py-1 rounded-full text-xs font-bold">
+                    {game.subject}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 bg-amber-400/15 text-amber-600 px-2.5 py-1 rounded-lg text-xs font-bold">
+                    <Trophy className="w-3.5 h-3.5" />
+                    {game.pointsReward} نقطة
+                  </span>
                 </div>
-                <button 
-                  onClick={() => setActiveGameId(game.id)}
-                  className="bg-primary text-white px-5 py-2 rounded-xl font-bold shadow-md hover:bg-primary/90 transition-all flex items-center gap-2 group-hover:gap-3"
-                >
-                  ابدأ اللعب
-                  <ArrowRight className="w-4 h-4 rotate-180" />
-                </button>
-              </div>
-            </motion.div>
-          ))}
+
+                <h3 className="text-lg font-bold text-foreground mb-2">{game.title}</h3>
+                <p className="text-muted-foreground text-sm mb-5 line-clamp-2 leading-relaxed flex-1">
+                  {game.description}
+                </p>
+
+                <div className="flex items-center justify-between mt-auto">
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground font-medium">
+                    <span className="flex items-center gap-1.5">
+                      <Target className="w-3.5 h-3.5" />
+                      {game.questionsCount} أسئلة
+                    </span>
+                    <span className={`flex items-center gap-1.5 ${diff.color}`}>
+                      <span className={`w-2 h-2 rounded-full ${diff.dot}`} />
+                      {diff.label}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setActiveGameId(game.id)}
+                    className="flex items-center gap-1.5 bg-primary text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md shadow-primary/25 hover:bg-primary/90 transition-all group"
+                  >
+                    ابدأ
+                    <ArrowRight className="w-3.5 h-3.5 rotate-180 group-hover:-translate-x-0.5 transition-transform" />
+                  </button>
+                </div>
+              </motion.div>
+            );
+          })}
         </div>
       )}
     </motion.div>
   );
 }
 
-function ActiveGame({ gameId, onBack }: { gameId: number, onBack: () => void }) {
+function ActiveGame({ gameId, onBack }: { gameId: number; onBack: () => void }) {
   const { data: game, isLoading } = useGetGame(gameId);
   const submitAnswers = useSubmitGameAnswers();
-  
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState<{questionId: number, selectedIndex: number}[]>([]);
+  const [answers, setAnswers] = useState<{ questionId: number; selectedIndex: number }[]>([]);
   const [result, setResult] = useState<any>(null);
 
-  if (isLoading) return <div className="text-center py-20 animate-pulse font-bold text-xl">جاري تحميل الأسئلة...</div>;
-  if (!game || !game.questions) return <div>عفواً، حدث خطأ ما.</div>;
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <div className="text-center space-y-4">
+          <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto animate-pulse">
+            <Zap className="w-7 h-7 text-primary" />
+          </div>
+          <p className="font-bold text-muted-foreground">جاري تحميل الأسئلة...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!game?.questions) return <div>عفواً، حدث خطأ ما.</div>;
 
   const currentQuestion = game.questions[currentIndex];
-  const isFinished = currentIndex >= game.questions.length;
 
   const handleSelect = (idx: number) => {
     const newAnswers = [...answers, { questionId: currentQuestion.id, selectedIndex: idx }];
     setAnswers(newAnswers);
-    
     if (currentIndex + 1 < game.questions.length) {
       setCurrentIndex(currentIndex + 1);
     } else {
-      // Finished
-      submitAnswers.mutate({ id: gameId, data: { answers: newAnswers } }, {
-        onSuccess: (data) => setResult(data)
-      });
-      setCurrentIndex(currentIndex + 1); // trigger finish view
+      submitAnswers.mutate(
+        { id: gameId, data: { answers: newAnswers } },
+        { onSuccess: (data) => setResult(data) }
+      );
+      setCurrentIndex(currentIndex + 1);
     }
   };
 
+  if (submitAnswers.isPending) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <div className="text-center space-y-2">
+          <div className="w-14 h-14 rounded-2xl bg-amber-400/20 flex items-center justify-center mx-auto animate-bounce">
+            <Star className="w-7 h-7 text-amber-500" />
+          </div>
+          <p className="font-bold text-muted-foreground">جاري حساب النتيجة...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (result) {
     return (
-      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="max-w-md mx-auto mt-10 bg-card rounded-3xl p-8 text-center shadow-2xl border border-border/50">
-        <div className="w-24 h-24 bg-gradient-to-br from-accent to-orange-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg text-white">
-          <Trophy className="w-12 h-12" />
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="max-w-md mx-auto mt-10"
+      >
+        <div className="glass-float p-8 text-center space-y-6">
+          <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center mx-auto text-white shadow-xl shadow-amber-500/30">
+            <Trophy className="w-12 h-12" />
+          </div>
+          <div>
+            <h2 className="text-3xl font-display font-black mb-2">انتهت المسابقة!</h2>
+            <p className="text-muted-foreground text-sm">
+              أجبت بشكل صحيح على <strong className="text-foreground">{result.correctCount}</strong> من أصل{" "}
+              <strong className="text-foreground">{result.totalQuestions}</strong> سؤال
+            </p>
+          </div>
+          <div className="bg-white/60 backdrop-blur border border-white/70 rounded-2xl p-6">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">النقاط المكتسبة</p>
+            <p className="font-display font-black text-5xl text-primary">+{result.pointsEarned}</p>
+          </div>
+          <button
+            onClick={onBack}
+            className="w-full py-4 rounded-2xl font-bold bg-foreground text-background hover:bg-foreground/90 transition-all"
+          >
+            العودة لقائمة المسابقات
+          </button>
         </div>
-        <h2 className="text-3xl font-display font-extrabold mb-2">انتهت المسابقة!</h2>
-        <p className="text-lg text-muted-foreground mb-8">لقد أجبت بشكل صحيح على {result.correctCount} من أصل {result.totalQuestions}</p>
-        
-        <div className="bg-primary/5 rounded-2xl p-6 mb-8 border border-primary/10">
-          <p className="text-sm font-bold text-primary mb-1">النقاط المكتسبة</p>
-          <p className="text-5xl font-display font-black text-primary">+{result.pointsEarned}</p>
-        </div>
-        
-        <button onClick={onBack} className="w-full bg-foreground text-background py-4 rounded-xl font-bold hover:bg-foreground/90 transition-all">
-          العودة لقائمة المسابقات
-        </button>
       </motion.div>
     );
   }
 
-  if (submitAnswers.isPending) {
-    return <div className="text-center py-20 font-bold text-xl text-primary animate-pulse">جاري حساب النتيجة...</div>;
-  }
+  const progress = ((currentIndex) / game.questions.length) * 100;
 
   return (
-    <div className="max-w-2xl mx-auto pt-8">
-      <button onClick={onBack} className="text-muted-foreground hover:text-foreground mb-6 flex items-center gap-2 font-bold">
-        <ArrowRight className="w-5 h-5" /> خروج من المسابقة
+    <div className="max-w-2xl mx-auto pt-4 space-y-6">
+      <button
+        onClick={onBack}
+        className="flex items-center gap-2 text-muted-foreground hover:text-foreground font-semibold text-sm transition-colors"
+      >
+        <ArrowRight className="w-4 h-4" />
+        خروج من المسابقة
       </button>
 
-      <div className="mb-8 flex justify-between items-center bg-card p-4 rounded-2xl shadow-sm border border-border/50">
-        <div className="font-bold text-primary">السؤال {currentIndex + 1} من {game.questions.length}</div>
-        <div className="w-1/2 bg-muted h-3 rounded-full overflow-hidden">
-          <div 
-            className="bg-primary h-full transition-all duration-500"
-            style={{ width: `${((currentIndex) / game.questions.length) * 100}%` }}
+      {/* Progress */}
+      <div className="glass-card p-4 flex items-center gap-4">
+        <span className="font-bold text-primary text-sm whitespace-nowrap">
+          {currentIndex + 1} / {game.questions.length}
+        </span>
+        <div className="flex-1 bg-white/50 border border-white/60 h-2.5 rounded-full overflow-hidden">
+          <motion.div
+            className="bg-primary h-full rounded-full"
+            initial={{ width: 0 }}
+            animate={{ width: `${progress}%` }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
           />
         </div>
       </div>
 
       <AnimatePresence mode="wait">
-        <motion.div 
+        <motion.div
           key={currentIndex}
-          initial={{ x: -50, opacity: 0 }}
+          initial={{ x: -30, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
-          exit={{ x: 50, opacity: 0 }}
-          className="bg-card rounded-3xl p-6 md:p-10 shadow-xl border border-border/50"
+          exit={{ x: 30, opacity: 0 }}
+          transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+          className="glass-float p-7 md:p-10"
         >
-          <h2 className="text-2xl font-bold leading-relaxed mb-8 text-foreground text-center">
+          <h2 className="text-xl md:text-2xl font-bold leading-relaxed mb-8 text-foreground text-center">
             {currentQuestion.text}
           </h2>
-
-          <div className="space-y-4">
+          <div className="space-y-3">
             {currentQuestion.options.map((opt, i) => (
-              <button
+              <motion.button
                 key={i}
                 onClick={() => handleSelect(i)}
-                className="w-full p-4 rounded-xl text-right border-2 border-border/50 hover:border-primary hover:bg-primary/5 font-semibold text-lg transition-all"
+                whileHover={{ x: -4 }}
+                whileTap={{ scale: 0.98 }}
+                className="w-full p-4 rounded-2xl text-right text-sm font-semibold border-2 border-white/60 bg-white/50 backdrop-blur hover:border-primary/40 hover:bg-primary/5 transition-all"
               >
                 {opt}
-              </button>
+              </motion.button>
             ))}
           </div>
         </motion.div>

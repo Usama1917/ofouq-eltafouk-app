@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&family=Tajawal:wght@500;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&family=Tajawal:wght@300;400;500;700;800;900&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -35,74 +35,207 @@
 }
 
 :root {
-  /* Warm Off-White Background */
-  --background: 40 20% 98%;
-  --foreground: 220 20% 15%;
-  
-  /* White Cards with slight warmth */
+  /* Apple-like light background — barely-there blue tint */
+  --background: 220 30% 97%;
+  --foreground: 220 25% 10%;
+
+  /* Card surfaces — crisp white */
   --card: 0 0% 100%;
-  --card-foreground: 220 20% 15%;
-  
-  /* Primary: Vibrant Teal */
-  --primary: 184 80% 30%;
+  --card-foreground: 220 25% 10%;
+
+  /* Primary: refined deep blue */
+  --primary: 217 91% 45%;
   --primary-foreground: 0 0% 100%;
-  
-  /* Secondary/Accent: Vibrant Orange */
-  --secondary: 35 100% 55%;
-  --secondary-foreground: 0 0% 100%;
-  
-  --accent: 35 100% 55%;
+
+  /* Secondary */
+  --secondary: 220 20% 94%;
+  --secondary-foreground: 220 25% 15%;
+
+  /* Accent: warm amber-gold */
+  --accent: 38 95% 52%;
   --accent-foreground: 0 0% 100%;
-  
-  --muted: 220 15% 92%;
-  --muted-foreground: 220 10% 45%;
-  
-  --destructive: 0 84% 60%;
+
+  --muted: 220 20% 93%;
+  --muted-foreground: 220 12% 50%;
+
+  --destructive: 0 78% 58%;
   --destructive-foreground: 0 0% 100%;
-  
-  --border: 220 15% 90%;
-  --input: 220 15% 90%;
-  --ring: 184 80% 30%;
-  
-  --radius: 1rem;
+
+  --border: 220 20% 90%;
+  --input: 220 20% 92%;
+  --ring: 217 91% 45%;
+
+  --radius: 1.25rem;
 }
 
+/* ─── Base ─────────────────────────────────────────────────── */
 @layer base {
-  * {
-    @apply border-border;
-  }
+  * { @apply border-border; }
 
   body {
-    @apply font-sans antialiased bg-background text-foreground;
+    @apply font-sans antialiased text-foreground;
     direction: rtl;
+    background: linear-gradient(160deg,
+      hsl(215 60% 96%) 0%,
+      hsl(220 30% 97%) 40%,
+      hsl(260 30% 97%) 100%
+    );
+    min-height: 100vh;
   }
 
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
     @apply font-bold tracking-tight;
+    letter-spacing: -0.01em;
   }
 }
 
-/* Custom scrollbar for beautiful chat and feeds */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+/* ─── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.3);
-  border-radius: 10px;
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 99px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--primary) / 0.5);
-}
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--primary) / 0.3); }
 
+/* ─── Glass System ──────────────────────────────────────────── */
+
+/* Sidebar / nav glass */
 .glass-panel {
-  @apply bg-white/70 backdrop-blur-xl border border-white/50 shadow-[0_8px_30px_rgb(0,0,0,0.04)];
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.9) inset,
+    0 8px 40px rgba(100, 120, 200, 0.06);
 }
 
+/* Regular content cards */
+.glass-card {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.95) inset,
+    0 4px 24px rgba(100, 120, 200, 0.07),
+    0 1px 4px rgba(0,0,0,0.03);
+  border-radius: 1.25rem;
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+.glass-card:hover {
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.95) inset,
+    0 12px 40px rgba(80, 110, 220, 0.12),
+    0 2px 8px rgba(0,0,0,0.05);
+  transform: translateY(-2px);
+}
+
+/* Floating premium card (hero, feature) */
+.glass-float {
+  background: linear-gradient(135deg,
+    rgba(255,255,255,0.85) 0%,
+    rgba(255,255,255,0.65) 100%
+  );
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.7);
+  box-shadow:
+    0 2px 0 rgba(255,255,255,1) inset,
+    0 20px 60px rgba(80, 110, 220, 0.10),
+    0 4px 16px rgba(0,0,0,0.04);
+  border-radius: 2rem;
+}
+
+/* Dark/tinted glass for overlays */
+.glass-tint {
+  background: rgba(30, 40, 80, 0.55);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 1.25rem;
+}
+
+/* ─── Utility ────────────────────────────────────────────────── */
 .premium-shadow {
-  box-shadow: 0 10px 40px -10px rgba(0,0,0,0.08), 0 4px 10px -5px rgba(0,0,0,0.04);
+  box-shadow:
+    0 20px 60px -10px rgba(60, 80, 200, 0.10),
+    0 4px 16px -4px rgba(0,0,0,0.06);
+}
+
+.soft-shadow {
+  box-shadow:
+    0 4px 20px rgba(80, 100, 200, 0.07),
+    0 1px 4px rgba(0,0,0,0.04);
+}
+
+/* hide scrollbar but keep scroll */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+
+/* ─── Button styles ─────────────────────────────────────────── */
+.btn-primary {
+  @apply inline-flex items-center gap-2 px-7 py-3.5 rounded-full font-semibold text-white transition-all duration-200;
+  background: hsl(var(--primary));
+  box-shadow: 0 4px 16px hsl(var(--primary) / 0.35);
+}
+.btn-primary:hover {
+  box-shadow: 0 8px 28px hsl(var(--primary) / 0.45);
+  transform: translateY(-1px);
+}
+.btn-ghost {
+  @apply inline-flex items-center gap-2 px-7 py-3.5 rounded-full font-semibold transition-all duration-200;
+  background: rgba(255,255,255,0.25);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.35);
+  color: white;
+}
+.btn-ghost:hover {
+  background: rgba(255,255,255,0.35);
+}
+
+/* ─── Animated mesh background spots ───────────────────────── */
+.mesh-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.mesh-bg::before {
+  content: '';
+  position: absolute;
+  top: -20%;
+  right: -10%;
+  width: 70vw;
+  height: 70vw;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    hsl(217 91% 65% / 0.12) 0%,
+    transparent 70%
+  );
+  animation: mesh-drift 18s ease-in-out infinite alternate;
+}
+.mesh-bg::after {
+  content: '';
+  position: absolute;
+  bottom: -20%;
+  left: -10%;
+  width: 60vw;
+  height: 60vw;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    hsl(260 80% 65% / 0.08) 0%,
+    transparent 70%
+  );
+  animation: mesh-drift 22s ease-in-out infinite alternate-reverse;
+}
+@keyframes mesh-drift {
+  from { transform: translate(0, 0) scale(1); }
+  to   { transform: translate(4%, 3%) scale(1.05); }
 }

@@ -1,6 +1,14 @@
 import { motion } from "framer-motion";
 import { useListRewards, useRedeemReward, useListRedemptions, useGetPoints } from "@workspace/api-client-react";
-import { Gift, Coins, CheckCircle, Ticket } from "lucide-react";
+import { Gift, Coins, CheckCircle, BookOpen, Ticket } from "lucide-react";
+
+const stagger = {
+  container: { animate: { transition: { staggerChildren: 0.07 } } },
+  item: {
+    initial: { opacity: 0, y: 16 },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] } },
+  },
+};
 
 export default function Rewards() {
   const { data: rewards = [], isLoading } = useListRewards();
@@ -14,91 +22,115 @@ export default function Rewards() {
       return;
     }
     if (confirm("تأكيد استبدال النقاط بهذه المكافأة؟")) {
-      redeemReward.mutate({ id }, {
-        onSuccess: () => alert("تم الاستبدال بنجاح! مبروك!")
-      });
+      redeemReward.mutate({ id }, { onSuccess: () => alert("تم الاستبدال بنجاح! مبروك!") });
     }
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-12">
-      <div className="bg-gradient-to-br from-emerald-500 to-teal-700 rounded-3xl p-8 md:p-12 text-white shadow-xl relative overflow-hidden">
-        <div className="relative z-10 max-w-2xl">
-          <h1 className="text-4xl md:text-5xl font-display font-extrabold mb-4 flex items-center gap-4">
-            <Gift className="w-10 h-10" />
-            متجر المكافآت
-          </h1>
-          <p className="text-lg text-emerald-50">حول نقاطك إلى هدايا حقيقية، كتب، وبطاقات هدايا قيمة. الجهد الذي تبذله في التعلم يستحق التكريم.</p>
+    <motion.div variants={stagger.container} initial="initial" animate="animate" className="space-y-10">
+      {/* Hero */}
+      <motion.div variants={stagger.item} className="glass-float relative overflow-hidden p-8 md:p-12">
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-400/12 via-transparent to-teal-400/8 pointer-events-none" />
+        <div className="absolute -bottom-8 -left-8 w-48 h-48 rounded-full bg-emerald-400/15 blur-3xl pointer-events-none" />
+        <div className="relative z-10 flex flex-col md:flex-row items-center gap-6">
+          <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-white shadow-xl shadow-emerald-500/30 flex-shrink-0">
+            <Gift className="w-8 h-8" />
+          </div>
+          <div>
+            <h1 className="text-3xl md:text-4xl font-display font-black text-foreground mb-2">متجر المكافآت</h1>
+            <p className="text-muted-foreground leading-relaxed text-sm max-w-xl">
+              حوّل نقاطك إلى هدايا حقيقية، كتب، وبطاقات هدايا قيمة. كل جهد تبذله في التعلم يستحق التكريم.
+            </p>
+          </div>
+          {pointsData && (
+            <div className="flex-shrink-0 mr-auto bg-white/60 backdrop-blur border border-white/70 rounded-2xl px-5 py-4 text-center">
+              <p className="text-xs text-muted-foreground font-medium mb-1">رصيدك</p>
+              <p className="font-display font-black text-2xl text-amber-500 flex items-center gap-1.5 justify-center">
+                <Coins className="w-5 h-5" />
+                {pointsData.balance}
+              </p>
+            </div>
+          )}
         </div>
-        <div className="absolute -right-20 -top-20 opacity-20">
-          <Gift className="w-96 h-96" />
-        </div>
-      </div>
+      </motion.div>
 
-      <div className="space-y-6">
-        <h2 className="text-2xl font-display font-bold text-foreground">المكافآت المتاحة</h2>
-        
+      {/* Rewards Grid */}
+      <motion.div variants={stagger.item} className="space-y-5">
+        <h2 className="text-xl font-display font-bold text-foreground">المكافآت المتاحة</h2>
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {[1,2,3,4].map(i => <div key={i} className="bg-card h-64 rounded-2xl animate-pulse" />)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="glass-card h-64 animate-pulse bg-white/40" />
+            ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             {rewards.map((reward) => (
-              <div key={reward.id} className="bg-card rounded-2xl p-5 border border-border/50 shadow-md hover:shadow-xl transition-all flex flex-col">
-                <div className="w-full aspect-video bg-muted rounded-xl mb-4 overflow-hidden flex items-center justify-center text-primary/30">
+              <motion.div
+                key={reward.id}
+                variants={stagger.item}
+                whileHover={{ y: -4 }}
+                className={`glass-card p-5 flex flex-col ${!reward.available ? "opacity-55" : ""}`}
+              >
+                {/* Image / Icon */}
+                <div className="w-full aspect-video rounded-2xl mb-4 overflow-hidden bg-gradient-to-br from-muted/50 to-muted/30 flex items-center justify-center text-muted-foreground/30">
                   {reward.imageUrl ? (
                     <img src={reward.imageUrl} alt={reward.title} className="w-full h-full object-cover" />
+                  ) : reward.type === "book" ? (
+                    <BookOpen className="w-14 h-14" />
                   ) : (
-                    reward.type === 'book' ? <BookOpen className="w-16 h-16" /> : <Ticket className="w-16 h-16" />
+                    <Ticket className="w-14 h-14" />
                   )}
                 </div>
-                <h3 className="font-bold text-lg mb-1">{reward.title}</h3>
-                <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{reward.description}</p>
-                <div className="mt-auto flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 font-extrabold text-accent">
-                    <Coins className="w-5 h-5" />
+                <h3 className="font-bold text-base text-foreground mb-1">{reward.title}</h3>
+                <p className="text-xs text-muted-foreground mb-4 line-clamp-2 leading-relaxed flex-1">
+                  {reward.description}
+                </p>
+                <div className="flex items-center justify-between mt-auto">
+                  <span className="flex items-center gap-1 font-bold text-sm text-amber-500">
+                    <Coins className="w-4 h-4" />
                     {reward.pointsCost}
-                  </div>
-                  <button 
+                  </span>
+                  <button
                     onClick={() => handleRedeem(reward.id, reward.pointsCost)}
                     disabled={redeemReward.isPending || !reward.available}
-                    className="bg-primary text-white px-6 py-2 rounded-xl font-bold shadow-md hover:bg-primary/90 transition-all disabled:opacity-50"
+                    className="bg-primary text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm shadow-primary/20 hover:bg-primary/90 transition-all disabled:opacity-50"
                   >
                     استبدال
                   </button>
                 </div>
-              </div>
+              </motion.div>
             ))}
           </div>
         )}
-      </div>
+      </motion.div>
 
+      {/* Redemption history */}
       {redemptions.length > 0 && (
-        <div className="space-y-6 pt-8 border-t border-border/50">
-          <h2 className="text-2xl font-display font-bold text-foreground">سجل استبدال المكافآت</h2>
-          <div className="bg-card rounded-2xl shadow-sm border border-border/50 overflow-hidden">
+        <motion.div variants={stagger.item} className="space-y-5">
+          <h2 className="text-xl font-display font-bold text-foreground">سجل الاستبدال</h2>
+          <div className="glass-card overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-right">
-                <thead className="bg-muted/50 border-b border-border/50">
-                  <tr>
-                    <th className="p-4 font-bold text-muted-foreground">المكافأة</th>
-                    <th className="p-4 font-bold text-muted-foreground">النقاط المستهلكة</th>
-                    <th className="p-4 font-bold text-muted-foreground">التاريخ</th>
-                    <th className="p-4 font-bold text-muted-foreground">الحالة</th>
+              <table className="w-full text-right text-sm">
+                <thead>
+                  <tr className="border-b border-white/40">
+                    {["المكافأة", "النقاط", "التاريخ", "الحالة"].map((h) => (
+                      <th key={h} className="px-5 py-4 font-bold text-muted-foreground text-xs">{h}</th>
+                    ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border/50">
+                <tbody className="divide-y divide-white/30">
                   {redemptions.map((r) => (
-                    <tr key={r.id} className="hover:bg-muted/20 transition-colors">
-                      <td className="p-4 font-bold">{r.rewardTitle}</td>
-                      <td className="p-4 text-red-500 font-bold">-{r.pointsSpent}</td>
-                      <td className="p-4 text-muted-foreground">
-                        {new Date(r.createdAt).toLocaleDateString('ar-EG')}
+                    <tr key={r.id} className="hover:bg-white/30 transition-colors">
+                      <td className="px-5 py-4 font-semibold text-foreground">{r.rewardTitle}</td>
+                      <td className="px-5 py-4 text-rose-500 font-bold">-{r.pointsSpent}</td>
+                      <td className="px-5 py-4 text-muted-foreground">
+                        {new Date(r.createdAt).toLocaleDateString("ar-EG")}
                       </td>
-                      <td className="p-4">
-                        <span className="inline-flex items-center gap-1 text-emerald-600 bg-emerald-100 px-3 py-1 rounded-full text-xs font-bold">
-                          <CheckCircle className="w-3 h-3" /> تم الاستبدال
+                      <td className="px-5 py-4">
+                        <span className="inline-flex items-center gap-1.5 text-emerald-600 bg-emerald-100/80 border border-emerald-200/60 px-3 py-1 rounded-full text-xs font-bold">
+                          <CheckCircle className="w-3 h-3" />
+                          تم
                         </span>
                       </td>
                     </tr>
@@ -107,11 +139,8 @@ export default function Rewards() {
               </table>
             </div>
           </div>
-        </div>
+        </motion.div>
       )}
     </motion.div>
   );
 }
-
-// Needed simple stub for BookOpen in rewards fallback
-import { BookOpen } from "lucide-react";

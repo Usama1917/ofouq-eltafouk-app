@@ -1,0 +1,163 @@
+{
+  "colorScheme": "dark",
+  "fonts": [
+    {
+      "family": "SF Pro Text",
+      "role": "body"
+    },
+    {
+      "family": "SF Pro Display",
+      "role": "display"
+    },
+    {
+      "family": "Helvetica Neue",
+      "role": "body"
+    },
+    {
+      "family": "Arial",
+      "role": "body"
+    }
+  ],
+  "colors": {
+    "primary": "#2997FF",
+    "accent": "#0066CC",
+    "background": "#000000",
+    "textPrimary": "#999999",
+    "link": "#0066CC"
+  },
+  "typography": {
+    "fontFamilies": {
+      "primary": "SF Pro Text",
+      "heading": "SF Pro Display"
+    },
+    "fontStacks": {
+      "heading": [
+        "SF Pro Text",
+        "SF Pro Icons",
+        "Helvetica Neue",
+        "Helvetica",
+        "Arial",
+        "sans-serif"
+      ],
+      "body": [
+        "SF Pro Text",
+        "SF Pro Icons",
+        "Helvetica Neue",
+        "Helvetica",
+        "Arial",
+        "sans-serif"
+      ],
+      "paragraph": [
+        "SF Pro Text",
+        "SF Pro Icons",
+        "Helvetica Neue",
+        "Helvetica",
+        "Arial",
+        "sans-serif"
+      ]
+    },
+    "fontSizes": {
+      "h1": "34px",
+      "h2": "12px",
+      "body": "14px"
+    }
+  },
+  "spacing": {
+    "baseUnit": 4,
+    "borderRadius": "8px"
+  },
+  "components": {
+    "input": {
+      "background": "transparent",
+      "textColor": "#E8E8ED",
+      "borderColor": null,
+      "borderRadius": "0px",
+      "borderRadiusCorners": {
+        "topLeft": "0px",
+        "topRight": "0px",
+        "bottomRight": "0px",
+        "bottomLeft": "0px"
+      },
+      "shadow": "none"
+    },
+    "buttonPrimary": {
+      "background": "#0066CC",
+      "textColor": "#FFFFFF",
+      "borderRadius": "980px",
+      "borderRadiusCorners": {
+        "topLeft": "980px",
+        "topRight": "980px",
+        "bottomRight": "980px",
+        "bottomLeft": "980px"
+      },
+      "shadow": "none"
+    },
+    "buttonSecondary": {
+      "background": "transparent",
+      "textColor": "#F5F5F7",
+      "borderRadius": "170px",
+      "borderRadiusCorners": {
+        "topLeft": "170px",
+        "topRight": "170px",
+        "bottomRight": "170px",
+        "bottomLeft": "170px"
+      },
+      "shadow": "none"
+    }
+  },
+  "images": {
+    "logo": "File saved at: attached_assets/logo.svg",
+    "favicon": null,
+    "ogImage": "https://www.apple.com/v/iphone-17-pro/e/images/meta/iphone-17-pro_overview__eumhhclcpuaa_og.png?202603181540",
+    "logoHref": "File saved at: attached_assets/logoHref.html"
+  },
+  "__llm_logo_reasoning": {
+    "selectedIndex": 0,
+    "reasoning": "Selected #0 because it is visible, located in the header, and links to the homepage, which are strong indicators of the main brand logo for Apple.",
+    "confidence": 0.95,
+    "source": "llm"
+  },
+  "__llm_button_reasoning": {
+    "primary": {
+      "index": 0,
+      "text": "Buy",
+      "reasoning": "Button #0 with text 'Buy' has a vibrant blue background (#0066CC), which is a strong indicator of a primary CTA, especially given its action-oriented text."
+    },
+    "secondary": {
+      "index": 1,
+      "text": "Shared Features",
+      "reasoning": "Button #1 with text 'Shared Features' has a transparent background, making it a suitable secondary button as it contrasts with the primary button's vibrant color."
+    },
+    "confidence": 0.95
+  },
+  "personality": {
+    "tone": "modern",
+    "energy": "high",
+    "targetAudience": "tech-savvy consumers"
+  },
+  "designSystem": {
+    "framework": "custom",
+    "componentLibrary": ""
+  },
+  "confidence": {
+    "buttons": 0.95,
+    "colors": 0.9,
+    "overall": 0.925
+  },
+  "__llm_metadata": {
+    "logoSelection": {
+      "llmCalled": true,
+      "llmSucceeded": true,
+      "finalSource": "llm",
+      "rawLogoSelection": {
+        "selectedLogoIndex": 0,
+        "selectedLogoReasoning": "Selected #0 because it is visible, located in the header, and links to the homepage, which are strong indicators of the main brand logo for Apple.",
+        "confidence": 0.95
+      }
+    },
+    "buttonClassification": {
+      "llmCalled": true,
+      "llmSucceeded": true
+    }
+  }
+}

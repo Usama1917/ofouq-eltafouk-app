@@ -1,6 +1,14 @@
 import { motion } from "framer-motion";
 import { useGetPoints, useGetPointsHistory, usePurchasePoints } from "@workspace/api-client-react";
-import { Coins, ArrowUpRight, ArrowDownRight, ShieldCheck, Sparkles, History } from "lucide-react";
+import { Coins, ArrowUpRight, ArrowDownRight, Sparkles, History, TrendingUp } from "lucide-react";
+
+const stagger = {
+  container: { animate: { transition: { staggerChildren: 0.08 } } },
+  item: {
+    initial: { opacity: 0, y: 16 },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] } },
+  },
+};
 
 export default function Points() {
   const { data: pointsData } = useGetPoints();
@@ -8,104 +16,140 @@ export default function Points() {
   const purchasePoints = usePurchasePoints();
 
   const handlePurchase = (amount: number, packageName: string) => {
-    purchasePoints.mutate({ data: { amount, packageName } }, {
-      onSuccess: () => alert(`تم شراء ${amount} نقطة بنجاح!`)
-    });
+    purchasePoints.mutate(
+      { data: { amount, packageName } },
+      { onSuccess: () => alert(`تم إضافة ${amount} نقطة بنجاح!`) }
+    );
   };
 
   const packages = [
-    { name: "الباقة الأساسية", amount: 100, price: "$5", color: "from-blue-400 to-blue-600" },
-    { name: "الباقة المتقدمة", amount: 500, price: "$20", color: "from-purple-500 to-indigo-600", popular: true },
-    { name: "الباقة الذهبية", amount: 1500, price: "$50", color: "from-orange-400 to-amber-600" }
+    { name: "الأساسية", amount: 100, price: "$5", gradient: "from-sky-400 to-blue-600", glow: "shadow-sky-500/25" },
+    { name: "المتقدمة", amount: 500, price: "$20", gradient: "from-violet-500 to-indigo-600", glow: "shadow-violet-500/25", popular: true },
+    { name: "الذهبية", amount: 1500, price: "$50", gradient: "from-amber-400 to-orange-500", glow: "shadow-amber-500/25" },
   ];
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-      {/* Banner */}
-      <div className="relative rounded-3xl overflow-hidden shadow-xl bg-gradient-to-r from-accent to-orange-600 p-8 md:p-12 flex flex-col md:flex-row items-center justify-between">
-        <div className="text-white space-y-4 z-10">
-          <div className="inline-flex items-center gap-2 bg-white/20 px-4 py-2 rounded-full text-sm font-bold backdrop-blur-md">
-            <ShieldCheck className="w-4 h-4" />
-            رصيدك الحالي
+    <motion.div variants={stagger.container} initial="initial" animate="animate" className="space-y-8">
+      {/* Balance hero */}
+      <motion.div variants={stagger.item} className="glass-float relative overflow-hidden p-8 md:p-12">
+        <div className="absolute inset-0 bg-gradient-to-bl from-amber-400/10 via-transparent to-primary/10 pointer-events-none" />
+        <div className="absolute -top-10 -left-10 w-56 h-56 rounded-full bg-amber-400/15 blur-3xl pointer-events-none" />
+        <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+          <div className="space-y-4 text-center md:text-right">
+            <div className="inline-flex items-center gap-2 bg-amber-400/15 border border-amber-300/30 text-amber-700 rounded-full px-4 py-1.5 text-sm font-semibold">
+              <Coins className="w-3.5 h-3.5" />
+              رصيدك الحالي
+            </div>
+            <div className="flex items-baseline gap-3 justify-center md:justify-start">
+              <span className="font-display font-black text-7xl md:text-8xl text-foreground">
+                {pointsData?.balance ?? 0}
+              </span>
+              <span className="text-xl text-muted-foreground font-medium">نقطة</span>
+            </div>
+            <p className="text-muted-foreground text-sm max-w-sm leading-relaxed">
+              استخدم نقاطك لشراء الكتب، فتح المسابقات، والحصول على مكافآت قيمة.
+            </p>
           </div>
-          <h1 className="text-5xl md:text-7xl font-display font-extrabold flex items-center gap-4">
-            {pointsData?.balance || 0} <span className="text-2xl font-sans font-medium opacity-80">نقطة</span>
-          </h1>
-          <p className="text-white/90 text-lg">استخدم نقاطك لشراء الكتب، فتح المسابقات، والحصول على مكافآت قيمة.</p>
+          <div className="flex flex-col gap-3 text-sm font-medium">
+            {[
+              { label: "مكتسبة", value: pointsData?.totalEarned ?? 0, color: "text-emerald-600", bg: "bg-emerald-50/80", icon: TrendingUp },
+              { label: "مستخدمة", value: pointsData?.totalSpent ?? 0, color: "text-rose-500", bg: "bg-rose-50/80", icon: ArrowDownRight },
+            ].map((s) => (
+              <div key={s.label} className={`flex items-center gap-3 ${s.bg} border border-white/70 rounded-2xl px-4 py-3`}>
+                <s.icon className={`w-5 h-5 ${s.color}`} />
+                <div>
+                  <p className="text-xs text-muted-foreground">{s.label}</p>
+                  <p className={`font-bold text-lg ${s.color}`}>{s.value}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-        <img 
-          src={`${import.meta.env.BASE_URL}images/points-banner.png`} 
-          alt="Coins" 
-          className="w-48 h-48 md:w-64 md:h-64 object-contain mt-8 md:mt-0 drop-shadow-2xl z-10" 
-        />
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
-      </div>
+      </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Packages */}
-        <div className="lg:col-span-2 space-y-6">
-          <h2 className="text-2xl font-display font-bold text-foreground flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-accent" />
-            شراء النقاط
-          </h2>
+        <div className="lg:col-span-2 space-y-5">
+          <motion.div variants={stagger.item} className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-amber-400/20 flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-amber-500" />
+            </div>
+            <h2 className="text-xl font-display font-bold text-foreground">شراء النقاط</h2>
+          </motion.div>
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {packages.map((pkg, i) => (
-              <div key={i} className={`relative bg-card rounded-2xl border-2 p-6 flex flex-col items-center text-center shadow-sm hover:shadow-xl transition-all ${pkg.popular ? 'border-accent' : 'border-border/50'}`}>
+              <motion.div
+                key={i}
+                variants={stagger.item}
+                whileHover={{ y: -4 }}
+                className={`glass-card p-6 flex flex-col items-center text-center relative ${
+                  pkg.popular ? "ring-2 ring-violet-400/40" : ""
+                }`}
+              >
                 {pkg.popular && (
-                  <div className="absolute -top-3 bg-accent text-white px-4 py-1 rounded-full text-xs font-bold shadow-md">
+                  <div className="absolute -top-3 bg-gradient-to-r from-violet-500 to-indigo-600 text-white px-4 py-1 rounded-full text-xs font-bold shadow-md shadow-violet-500/30">
                     الأكثر طلباً
                   </div>
                 )}
-                <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${pkg.color} flex items-center justify-center text-white mb-4 shadow-lg`}>
-                  <Coins className="w-8 h-8" />
+                <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${pkg.gradient} flex items-center justify-center text-white mb-4 shadow-lg ${pkg.glow}`}>
+                  <Coins className="w-7 h-7" />
                 </div>
-                <h3 className="font-bold text-lg mb-1">{pkg.name}</h3>
-                <div className="text-3xl font-display font-extrabold text-foreground mb-4">{pkg.amount}</div>
-                <button 
+                <p className="font-semibold text-muted-foreground text-sm mb-1">{pkg.name}</p>
+                <p className="font-display font-black text-4xl text-foreground mb-5">{pkg.amount}</p>
+                <button
                   onClick={() => handlePurchase(pkg.amount, pkg.name)}
                   disabled={purchasePoints.isPending}
-                  className={`w-full py-3 rounded-xl font-bold transition-all ${
-                    pkg.popular ? 'bg-accent text-white hover:bg-accent/90' : 'bg-primary/10 text-primary hover:bg-primary hover:text-white'
+                  className={`w-full py-3 rounded-xl font-bold text-sm transition-all disabled:opacity-60 ${
+                    pkg.popular
+                      ? `bg-gradient-to-r ${pkg.gradient} text-white shadow-md ${pkg.glow}`
+                      : "bg-white/60 backdrop-blur border border-white/70 text-foreground hover:bg-white/90"
                   }`}
                 >
-                  شراء بـ {pkg.price}
+                  {pkg.price}
                 </button>
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>
 
         {/* History */}
-        <div className="bg-card rounded-2xl border border-border/50 p-6 shadow-sm">
-          <h2 className="text-xl font-display font-bold text-foreground mb-6 flex items-center gap-2">
-            <History className="w-5 h-5 text-primary" />
-            سجل العمليات
-          </h2>
-          <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+        <motion.div variants={stagger.item} className="glass-card p-5 flex flex-col">
+          <div className="flex items-center gap-2.5 mb-5">
+            <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+              <History className="w-4 h-4 text-primary" />
+            </div>
+            <h2 className="text-lg font-display font-bold text-foreground">السجل</h2>
+          </div>
+          <div className="flex-1 space-y-2 max-h-80 overflow-y-auto hide-scrollbar">
             {history.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">لا توجد عمليات سابقة</p>
+              <p className="text-center text-sm text-muted-foreground py-10">لا توجد عمليات سابقة</p>
             ) : (
               history.map((tx) => (
-                <div key={tx.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-muted/50 transition-colors">
+                <div
+                  key={tx.id}
+                  className="flex items-center justify-between p-3 rounded-2xl hover:bg-white/50 transition-colors"
+                >
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                      tx.type === 'spend' ? 'bg-red-100 text-red-500' : 'bg-emerald-100 text-emerald-500'
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                      tx.type === "spend"
+                        ? "bg-rose-100 text-rose-500"
+                        : "bg-emerald-100 text-emerald-600"
                     }`}>
-                      {tx.type === 'spend' ? <ArrowDownRight className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
+                      {tx.type === "spend" ? <ArrowDownRight className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
                     </div>
                     <div>
-                      <p className="font-bold text-sm text-foreground">{tx.description}</p>
-                      <p className="text-xs text-muted-foreground">اليوم</p>
+                      <p className="font-semibold text-xs text-foreground line-clamp-1">{tx.description}</p>
                     </div>
                   </div>
-                  <div className={`font-bold ${tx.type === 'spend' ? 'text-red-500' : 'text-emerald-500'}`}>
-                    {tx.type === 'spend' ? '-' : '+'}{tx.amount}
-                  </div>
+                  <span className={`font-bold text-sm flex-shrink-0 ${tx.type === "spend" ? "text-rose-500" : "text-emerald-600"}`}>
+                    {tx.type === "spend" ? "-" : "+"}{tx.amount}
+                  </span>
                 </div>
               ))
             )}
           </div>
-        </div>
+        </motion.div>
       </div>
     </motion.div>
   );
