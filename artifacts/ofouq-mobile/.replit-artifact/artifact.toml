@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/mobile/"
+title = "أفق التفوق — Mobile"
+version = "1.0.0"
+id = "artifacts/ofouq-mobile"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/mobile/" ]
+localPort = 18536
+
+[services.development]
+run = "pnpm --filter @workspace/ofouq-mobile run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ofouq-mobile", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/ofouq-mobile", "run", "serve" ]
+
+[services.env]
+PORT = "18536"
+BASE_PATH = "/mobile/"
