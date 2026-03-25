@@ -90,6 +90,10 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
+        name="academic"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
         name="books"
         options={{
           title: "الكتب",

@@ -1,18 +1,31 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import React, { useRef, useState } from "react";
 import {
   Animated,
   FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
   useColorScheme,
 } from "react-native";
-
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useQuery } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
+import { getBaseUrl } from "@/constants/api";
+
+interface AcademicYear { id: number; name: string; description: string; }
+interface Subject { id: number; name: string; icon: string; description: string; hasProviders: boolean; }
+
+async function apiFetch<T>(path: string): Promise<T> {
+  const res = await fetch(`${getBaseUrl()}${path}`);
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
 
 const SUBJECTS = ["الكل", "رياضيات", "فيزياء", "علوم", "لغة عربية", "إنجليزي"];
 
@@ -123,10 +136,96 @@ function VideoCard({ video, featured }: VideoCardProps) {
   );
 }
 
+function AcademicSection() {
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const colors = isDark ? COLORS.dark : COLORS.light;
+  const router = useRouter();
+
+  const { data: years = [], isLoading } = useQuery<AcademicYear[]>({
+    queryKey: ["academic", "years"],
+    queryFn: () => apiFetch("/api/academic/years"),
+  });
+
+  const [selectedYearId, setSelectedYearId] = useState<number | null>(null);
+
+  const { data: subjects = [] } = useQuery<Subject[]>({
+    queryKey: ["academic", "subjects", selectedYearId],
+    queryFn: () => apiFetch(`/api/academic/years/${selectedYearId}/subjects`),
+    enabled: !!selectedYearId,
+  });
+
+  return (
+    <View style={styles.academicSection}>
+      <View style={styles.sectionHeader}>
+        <Ionicons name="school" size={18} color={COLORS.primary} />
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>المحتوى الأكاديمي</Text>
+      </View>
+
+      {isLoading ? (
+        <View style={{ paddingHorizontal: 20, gap: 8 }}>
+          <View style={[styles.yearSkeleton, { backgroundColor: colors.surfaceSecondary }]} />
+          <View style={[styles.yearSkeleton, { backgroundColor: colors.surfaceSecondary }]} />
+        </View>
+      ) : years.length === 0 ? (
+        <View style={[styles.emptyAcademic, { backgroundColor: colors.surfaceSecondary }]}>
+          <Ionicons name="school-outline" size={32} color={colors.textTertiary} />
+          <Text style={[styles.emptyAcademicText, { color: colors.textSecondary }]}>لا توجد سنوات دراسية بعد</Text>
+        </View>
+      ) : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
+          {years.map(year => (
+            <Pressable
+              key={year.id}
+              onPress={() => setSelectedYearId(selectedYearId === year.id ? null : year.id)}
+              style={[
+                styles.yearCard,
+                selectedYearId === year.id
+                  ? { backgroundColor: COLORS.primary }
+                  : { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }
+              ]}
+            >
+              <Ionicons name="school" size={20} color={selectedYearId === year.id ? "#fff" : COLORS.primary} />
+              <View>
+                <Text style={[styles.yearName, { color: selectedYearId === year.id ? "#fff" : colors.text }]}>{year.name}</Text>
+                {year.description ? (
+                  <Text style={[styles.yearDesc, { color: selectedYearId === year.id ? "rgba(255,255,255,0.7)" : colors.textSecondary }]} numberOfLines={1}>{year.description}</Text>
+                ) : null}
+              </View>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+
+      {selectedYearId && subjects.length > 0 && (
+        <View style={styles.subjectsGrid}>
+          {subjects.map(subject => (
+            <Pressable
+              key={subject.id}
+              style={({ pressed }) => [styles.subjectCard, { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
+              onPress={() => {
+                if (subject.hasProviders) {
+                  router.push(`/(tabs)/academic/providers?yearId=${selectedYearId}&subjectId=${subject.id}&subjectName=${encodeURIComponent(subject.name)}`);
+                } else {
+                  router.push(`/(tabs)/academic/units?yearId=${selectedYearId}&subjectId=${subject.id}&subjectName=${encodeURIComponent(subject.name)}`);
+                }
+              }}
+            >
+              <Text style={styles.subjectEmoji}>{subject.icon}</Text>
+              <Text style={[styles.subjectName, { color: colors.text }]}>{subject.name}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 export default function VideosScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const colors = isDark ? COLORS.dark : COLORS.light;
+  const insets = useSafeAreaInsets();
 
   const [selectedSubject, setSelectedSubject] = useState("الكل");
   const [search, setSearch] = useState("");
@@ -141,9 +240,9 @@ export default function VideosScreen() {
   const regular = filtered.filter((v) => !v.featured);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       <View style={[styles.headerBar, { backgroundColor: colors.surface }]}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>الفيديوهات التعليمية</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>الدروس المرئية</Text>
         <View style={[styles.searchBox, { backgroundColor: colors.surfaceSecondary }]}>
           <Feather name="search" size={16} color={colors.textSecondary} />
           <TextInput
@@ -163,6 +262,13 @@ export default function VideosScreen() {
         contentInsetAdjustmentBehavior="automatic"
         ListHeaderComponent={
           <View>
+            <AcademicSection />
+
+            <View style={styles.sectionHeader}>
+              <Ionicons name="play-circle" size={18} color={COLORS.primaryLight} />
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>أحدث الفيديوهات</Text>
+            </View>
+
             <FlatList
               data={SUBJECTS}
               keyExtractor={(s) => s}
@@ -193,7 +299,7 @@ export default function VideosScreen() {
               </View>
             )}
             {regular.length > 0 && (
-              <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
+              <Text style={[styles.videoCountLabel, { color: colors.textSecondary }]}>
                 {regular.length} فيديو
               </Text>
             )}
@@ -218,10 +324,23 @@ const styles = StyleSheet.create({
   headerTitle: { fontFamily: "Cairo_700Bold", fontSize: 22, textAlign: "right" },
   searchBox: { flexDirection: "row", alignItems: "center", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, gap: 8 },
   searchInput: { flex: 1, fontFamily: "Cairo_400Regular", fontSize: 14 },
+  academicSection: { paddingVertical: 16, gap: 12 },
+  sectionHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 8, paddingHorizontal: 20, marginBottom: 8 },
+  sectionTitle: { fontFamily: "Cairo_700Bold", fontSize: 16 },
+  yearSkeleton: { height: 56, borderRadius: 16, marginHorizontal: 20 },
+  emptyAcademic: { marginHorizontal: 20, borderRadius: 16, padding: 24, alignItems: "center", gap: 8 },
+  emptyAcademicText: { fontFamily: "Cairo_400Regular", fontSize: 13 },
+  yearCard: { flexDirection: "row-reverse", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16 },
+  yearName: { fontFamily: "Cairo_700Bold", fontSize: 14, textAlign: "right" },
+  yearDesc: { fontFamily: "Cairo_400Regular", fontSize: 11, textAlign: "right" },
+  subjectsGrid: { flexDirection: "row-reverse", flexWrap: "wrap", paddingHorizontal: 16, gap: 10, marginTop: 12 },
+  subjectCard: { width: "30%", borderRadius: 16, borderWidth: 1, padding: 12, alignItems: "center", gap: 6 },
+  subjectEmoji: { fontSize: 28 },
+  subjectName: { fontFamily: "Cairo_700Bold", fontSize: 12, textAlign: "center" },
   filterBar: { paddingHorizontal: 20, paddingVertical: 10 },
   filterChip: { borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, marginLeft: 8 },
   filterChipText: { fontFamily: "Cairo_600SemiBold", fontSize: 13 },
-  sectionLabel: { fontFamily: "Cairo_400Regular", fontSize: 13, paddingHorizontal: 20, marginBottom: 8 },
+  videoCountLabel: { fontFamily: "Cairo_400Regular", fontSize: 13, paddingHorizontal: 20, marginBottom: 8 },
   featuredCard: { borderRadius: 20, padding: 20, minHeight: 160 },
   featuredBadge: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-end", backgroundColor: "rgba(255,255,255,0.25)", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 12 },
   featuredBadgeText: { fontFamily: "Cairo_600SemiBold", fontSize: 12, color: "#fff" },

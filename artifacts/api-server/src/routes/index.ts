@@ -10,6 +10,7 @@ import openaiRouter from "./openai";
 import adminRouter from "./admin";
 import moderatorRouter from "./moderator";
 import authRouter from "./auth";
+import academicRouter from "./academic";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(openaiRouter);
 router.use(adminRouter);
 router.use(moderatorRouter);
 router.use(authRouter);
+router.use(academicRouter);
 
 export default router;

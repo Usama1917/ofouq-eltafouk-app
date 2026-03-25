@@ -9,3 +9,4 @@ export * from "./messages";
 export * from "./users";
 export * from "./reports";
 export * from "./banners";
+export * from "./academic";

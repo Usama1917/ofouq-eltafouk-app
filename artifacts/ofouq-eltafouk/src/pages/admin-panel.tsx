@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, 
   Flag, Megaphone, Plus, Edit, Trash2, Eye, Check, X, 
-  TrendingUp, Coins, Award, FileText, LogOut, Crown
+  TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
@@ -16,12 +16,14 @@ import {
   useListAdminBanners, useCreateAdminBanner, useUpdateAdminBanner, useDeleteAdminBanner,
 } from "@workspace/api-client-react";
 import { Logo } from "@/components/logo";
+import { AcademicTab } from "./admin-academic";
 
-type Tab = "dashboard" | "users" | "books" | "videos" | "posts" | "reports" | "banners";
+type Tab = "dashboard" | "users" | "books" | "videos" | "posts" | "reports" | "banners" | "academic";
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "لوحة التحكم", icon: LayoutDashboard },
   { id: "users", label: "المستخدمون", icon: Users },
+  { id: "academic", label: "المحتوى الأكاديمي", icon: GraduationCap },
   { id: "books", label: "الكتب", icon: BookOpen },
   { id: "videos", label: "الفيديوهات", icon: Video },
   { id: "posts", label: "المنشورات", icon: MessageSquare },
@@ -548,6 +550,7 @@ export default function AdminPanel() {
   const TAB_CONTENT: Record<Tab, React.ReactNode> = {
     dashboard: <DashboardTab />,
     users: <UsersTab />,
+    academic: <AcademicTab />,
     books: <BooksTab />,
     videos: <VideosTab />,
     posts: <PostsTab />,
