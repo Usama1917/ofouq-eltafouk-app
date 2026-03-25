@@ -33,6 +33,17 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  const fillDemo = (role: "student" | "admin" | "owner" | "teacher") => {
+    const accounts: Record<string, { email: string; password: string }> = {
+      student: { email: "student@demo.com", password: "demo123" },
+      teacher: { email: "teacher@demo.com", password: "demo123" },
+      admin: { email: "admin@demo.com", password: "admin123" },
+      owner: { email: "owner@demo.com", password: "owner123" },
+    };
+    setEmail(accounts[role].email);
+    setPassword(accounts[role].password);
+  };
+
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
       Alert.alert("خطأ", "يرجى إدخال البريد الإلكتروني وكلمة المرور");
@@ -47,17 +58,6 @@ export default function LoginScreen() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const fillDemo = (role: "student" | "admin" | "owner" | "teacher") => {
-    const accounts: Record<string, { email: string; password: string }> = {
-      student: { email: "student@demo.com", password: "demo123" },
-      teacher: { email: "teacher@demo.com", password: "demo123" },
-      admin: { email: "admin@demo.com", password: "admin123" },
-      owner: { email: "owner@demo.com", password: "owner123" },
-    };
-    setEmail(accounts[role].email);
-    setPassword(accounts[role].password);
   };
 
   return (
