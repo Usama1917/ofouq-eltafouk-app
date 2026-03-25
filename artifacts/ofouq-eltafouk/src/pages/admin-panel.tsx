@@ -283,20 +283,209 @@ function BooksTab() {
 }
 
 // ── Videos Tab ────────────────────────────────────────────────────────────
+function getYouTubeEmbedUrl(url: string): string | null {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return `https://www.youtube.com/embed/${m[1]}`;
+  }
+  return null;
+}
+
+function isValidYouTubeUrl(url: string): boolean {
+  return getYouTubeEmbedUrl(url) !== null;
+}
+
+function VideoPreviewContent({
+  form,
+  videoFileUrl,
+  onLoaded,
+  onError,
+}: {
+  form: Record<string, string>;
+  videoFileUrl: string | null;
+  onLoaded?: () => void;
+  onError?: () => void;
+}) {
+  const embedUrl = form.videoType === "youtube" ? getYouTubeEmbedUrl(form.videoUrl) : null;
+  return (
+    <div className="flex flex-col lg:flex-row gap-4 text-right" dir="rtl">
+      <div className="flex-1 space-y-3">
+        <div className="w-full aspect-video rounded-xl overflow-hidden bg-black">
+          {form.videoType === "youtube" && embedUrl ? (
+            <iframe
+              src={embedUrl}
+              className="w-full h-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              onLoad={onLoaded}
+              onError={onError}
+            />
+          ) : form.videoType === "upload" && videoFileUrl ? (
+            <video
+              src={videoFileUrl}
+              controls
+              className="w-full h-full object-contain"
+              onCanPlay={onLoaded}
+              onError={onError}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-sky-100 to-blue-100">
+              <Video className="w-12 h-12 text-sky-400" />
+            </div>
+          )}
+        </div>
+        <h3 className="font-bold text-lg text-foreground">{form.title || "عنوان الفيديو"}</h3>
+        <div className="flex gap-2 flex-wrap items-center">
+          <span className="text-xs bg-primary text-white px-2.5 py-1 rounded-full font-bold">{form.subject}</span>
+          <span className="text-xs bg-sky-100 text-sky-700 px-2.5 py-1 rounded-full font-bold">{form.instructor || "المعلم"}</span>
+          <span className="text-xs text-muted-foreground">{form.duration} دقيقة</span>
+        </div>
+        <p className="text-sm text-muted-foreground leading-relaxed">{form.description || "وصف الفيديو سيظهر هنا"}</p>
+      </div>
+      <div className="lg:w-56 space-y-2">
+        <p className="text-xs font-bold text-muted-foreground mb-2">فيديوهات مشابهة</p>
+        {[1,2,3].map(i => (
+          <div key={i} className="flex gap-2 items-center rounded-xl bg-muted/40 p-2">
+            <div className="w-16 h-10 rounded-lg bg-gradient-to-br from-primary/10 to-sky-100 flex-shrink-0 flex items-center justify-center">
+              <Video className="w-4 h-4 text-primary/50" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold truncate text-foreground/60">فيديو تعليمي {i}</p>
+              <p className="text-xs text-muted-foreground">{form.subject}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function VideosTab() {
   const { data: videos = [], refetch } = useListAdminVideos();
   const createVideo = useCreateAdminVideo();
+  const updateVideo = useUpdateAdminVideo();
   const deleteVideo = useDeleteAdminVideo();
   const [adding, setAdding] = useState(false);
   const [preview, setPreview] = useState<null | Record<string, string>>(null);
-  const [pending, setPending] = useState<null | Record<string, string>>(null);
-  const [form, setForm] = useState({ title: "", instructor: "", subject: "علوم", duration: "30", videoUrl: "", description: "" });
+  const [previewRendered, setPreviewRendered] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
+  const [videoFileUrl, setVideoFileUrl] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [thumbnailUploadProgress, setThumbnailUploadProgress] = useState<number | null>(null);
+  const [form, setForm] = useState({
+    title: "", instructor: "", subject: "علوم", duration: "30",
+    videoUrl: "", description: "", videoType: "youtube", publishStatus: "published",
+    thumbnailUrl: "",
+  });
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
 
+  const youtubeValid = form.videoType === "youtube"
+    ? (form.videoUrl ? isValidYouTubeUrl(form.videoUrl) : null)
+    : null;
+
+  const videoUrlValid = form.videoType === "youtube" ? youtubeValid === true : !!form.videoUrl;
+
+  const handleFileUpload = (file: File) => {
+    setUploadProgress(0);
+    const fd = new FormData();
+    fd.append("video", file);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/admin/videos/upload");
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        const data = JSON.parse(xhr.responseText) as { url: string };
+        set("videoUrl", data.url);
+        setVideoFileUrl(data.url);
+      }
+      setUploadProgress(null);
+    };
+    xhr.onerror = () => setUploadProgress(null);
+    xhr.send(fd);
+  };
+
+  const handleThumbnailUpload = (file: File) => {
+    setThumbnailUploadProgress(0);
+    const fd = new FormData();
+    fd.append("thumbnail", file);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/admin/videos/upload-thumbnail");
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) setThumbnailUploadProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        const data = JSON.parse(xhr.responseText) as { url: string };
+        set("thumbnailUrl", data.url);
+      }
+      setThumbnailUploadProgress(null);
+    };
+    xhr.onerror = () => setThumbnailUploadProgress(null);
+    xhr.send(fd);
+  };
+
+  const canSubmit = !!form.title && videoUrlValid;
+
+  const resetForm = () => {
+    setAdding(false);
+    setPreview(null);
+    setVideoFileUrl(null);
+    setForm({ title: "", instructor: "", subject: "علوم", duration: "30", videoUrl: "", description: "", videoType: "youtube", publishStatus: "published", thumbnailUrl: "" });
+  };
+
   const handleConfirm = () => {
-    if (!pending) return;
-    createVideo.mutate({ data: { ...pending, duration: parseInt(pending.duration) } as any }, {
-      onSuccess: () => { refetch(); setAdding(false); setPreview(null); setPending(null); }
+    createVideo.mutate({
+      data: {
+        title: form.title,
+        description: form.description,
+        subject: form.subject,
+        videoUrl: form.videoUrl,
+        thumbnailUrl: form.thumbnailUrl || undefined,
+        duration: parseInt(form.duration) || 0,
+        instructor: form.instructor,
+        videoType: form.videoType,
+        publishStatus: form.publishStatus,
+      }
+    }, {
+      onSuccess: () => {
+        refetch();
+        resetForm();
+      }
+    });
+  };
+
+  const handleSaveDraft = () => {
+    if (!canSubmit) return;
+    createVideo.mutate({
+      data: {
+        title: form.title,
+        description: form.description,
+        subject: form.subject,
+        videoUrl: form.videoUrl,
+        thumbnailUrl: form.thumbnailUrl || undefined,
+        duration: parseInt(form.duration) || 0,
+        instructor: form.instructor,
+        videoType: form.videoType,
+        publishStatus: "draft",
+      }
+    }, {
+      onSuccess: () => {
+        refetch();
+        resetForm();
+      }
+    });
+  };
+
+  const togglePublishStatus = (id: number, currentStatus: string) => {
+    const newStatus = currentStatus === "published" ? "draft" : "published";
+    updateVideo.mutate({ id, data: { publishStatus: newStatus } }, {
+      onSuccess: () => refetch()
     });
   };
 
@@ -309,64 +498,206 @@ function VideosTab() {
       {adding && (
         <div className="glass-card p-5 space-y-4 border-primary/20">
           <h3 className="font-bold">إضافة فيديو جديد</h3>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { set("videoType", "youtube"); set("videoUrl", ""); setVideoFileUrl(null); }}
+              className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${form.videoType === "youtube" ? "bg-primary text-white border-primary" : "bg-white/60 text-foreground border-white/60 hover:bg-white/80"}`}
+            >رابط يوتيوب</button>
+            <button
+              onClick={() => { set("videoType", "upload"); set("videoUrl", ""); setVideoFileUrl(null); }}
+              className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${form.videoType === "upload" ? "bg-primary text-white border-primary" : "bg-white/60 text-foreground border-white/60 hover:bg-white/80"}`}
+            >رفع ملف فيديو</button>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {[["title","عنوان الفيديو"],["instructor","المعلم"],["duration","المدة (دقيقة)"],["videoUrl","رابط الفيديو"],["description","الوصف"]].map(([k,l]) => (
-              <div key={k} className={`space-y-1 ${["videoUrl","description"].includes(k)?"sm:col-span-2":""}`}>
-                <label className="text-xs font-semibold text-muted-foreground">{l}</label>
-                <input value={form[k as keyof typeof form]} onChange={e => set(k,e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50" />
-              </div>
-            ))}
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-muted-foreground">عنوان الفيديو</label>
+              <input value={form.title} onChange={e => set("title", e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-muted-foreground">المعلم</label>
+              <input value={form.instructor} onChange={e => set("instructor", e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-muted-foreground">المدة (دقيقة)</label>
+              <input value={form.duration} onChange={e => set("duration", e.target.value)} type="number"
+                className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50" />
+            </div>
             <div className="space-y-1">
               <label className="text-xs font-semibold text-muted-foreground">المادة</label>
-              <select value={form.subject} onChange={e => set("subject",e.target.value)}
+              <select value={form.subject} onChange={e => set("subject", e.target.value)}
                 className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none">
                 {["علوم","رياضيات","لغة عربية","لغة إنجليزية","تاريخ","برمجة"].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
+            {form.videoType === "youtube" ? (
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-xs font-semibold text-muted-foreground">رابط يوتيوب</label>
+                <div className="relative">
+                  <input value={form.videoUrl} onChange={e => set("videoUrl", e.target.value)}
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    className={`w-full px-3 py-2.5 pr-10 rounded-xl bg-white/70 border text-sm outline-none transition-all ${form.videoUrl === "" ? "border-white/70" : youtubeValid ? "border-green-400 focus:border-green-500" : "border-red-400 focus:border-red-500"}`} />
+                  {form.videoUrl !== "" && (
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2">
+                      {youtubeValid
+                        ? <Check className="w-4 h-4 text-green-500" />
+                        : <X className="w-4 h-4 text-red-500" />}
+                    </span>
+                  )}
+                </div>
+                {form.videoUrl && !youtubeValid && (
+                  <p className="text-xs text-red-500">رابط يوتيوب غير صالح</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-xs font-semibold text-muted-foreground">ملف الفيديو</label>
+                <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-white/60 rounded-xl bg-white/40 cursor-pointer hover:bg-white/60 transition-all">
+                  <Video className="w-6 h-6 text-muted-foreground mb-1" />
+                  <span className="text-xs text-muted-foreground">{form.videoUrl ? "تم رفع الملف بنجاح" : "انقر لاختيار ملف فيديو"}</span>
+                  <input type="file" accept="video/*" className="hidden" onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileUpload(file);
+                  }} />
+                </label>
+                {uploadProgress !== null && (
+                  <div className="w-full bg-white/50 rounded-full h-2 mt-1">
+                    <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
+                  </div>
+                )}
+                {form.videoUrl && (
+                  <p className="text-xs text-green-600 font-semibold flex items-center gap-1"><Check className="w-3 h-3" /> تم رفع الملف</p>
+                )}
+              </div>
+            )}
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-xs font-semibold text-muted-foreground">الصورة المصغرة (اختياري)</label>
+              <label className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 cursor-pointer hover:bg-white/90 transition-all">
+                {form.thumbnailUrl ? (
+                  <img src={form.thumbnailUrl} alt="thumbnail" className="w-12 h-8 rounded object-cover flex-shrink-0" />
+                ) : (
+                  <div className="w-12 h-8 rounded bg-muted/40 flex items-center justify-center flex-shrink-0">
+                    <Eye className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                )}
+                <span className="text-sm text-muted-foreground flex-1 truncate">
+                  {form.thumbnailUrl ? "تم رفع الصورة" : "انقر لرفع صورة مصغرة"}
+                </span>
+                {form.thumbnailUrl && <Check className="w-4 h-4 text-green-500 flex-shrink-0" />}
+                <input type="file" accept="image/*" className="hidden" onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) handleThumbnailUpload(file);
+                }} />
+              </label>
+              {thumbnailUploadProgress !== null && (
+                <div className="w-full bg-white/50 rounded-full h-2 mt-1">
+                  <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${thumbnailUploadProgress}%` }} />
+                </div>
+              )}
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-xs font-semibold text-muted-foreground">الوصف</label>
+              <textarea value={form.description} onChange={e => set("description", e.target.value)} rows={2}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50 resize-none" />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-xs font-semibold text-muted-foreground">حالة النشر</label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => set("publishStatus", "published")}
+                  className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${form.publishStatus === "published" ? "bg-emerald-500 text-white border-emerald-500" : "bg-white/60 text-foreground border-white/60 hover:bg-white/80"}`}
+                >منشور</button>
+                <button
+                  onClick={() => set("publishStatus", "draft")}
+                  className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${form.publishStatus === "draft" ? "bg-amber-400 text-amber-900 border-amber-400" : "bg-white/60 text-foreground border-white/60 hover:bg-white/80"}`}
+                >مسودة</button>
+              </div>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => { setPending({...form}); setPreview({...form}); }}
-              className="flex items-center gap-1.5 px-5 py-2.5 rounded-2xl bg-amber-400/20 text-amber-700 border border-amber-200/50 font-semibold text-sm hover:bg-amber-400/30 transition-all">
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => { if (canSubmit) { setPreview({...form}); setPreviewRendered(false); setPreviewError(false); } }}
+              disabled={!canSubmit}
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-2xl bg-amber-400/20 text-amber-700 border border-amber-200/50 font-semibold text-sm hover:bg-amber-400/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
               <Eye className="w-4 h-4" /> معاينة قبل النشر
             </button>
+            {form.publishStatus === "draft" && (
+              <button
+                onClick={handleSaveDraft}
+                disabled={!canSubmit || createVideo.isPending}
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-2xl bg-amber-50 text-amber-800 border border-amber-200 font-semibold text-sm hover:bg-amber-100 transition-all disabled:opacity-40"
+              >حفظ كمسودة</button>
+            )}
             <button onClick={() => setAdding(false)} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:bg-muted transition-all">إلغاء</button>
           </div>
         </div>
       )}
       {preview && (
-        <PreviewModal
-          title="معاينة الفيديو"
-          content={
-            <div className="space-y-3">
-              <div className="w-full h-32 rounded-xl bg-gradient-to-br from-sky-100 to-blue-100 flex items-center justify-center">
-                <Video className="w-12 h-12 text-sky-400" />
-              </div>
-              <h3 className="font-bold text-lg text-foreground">{preview.title}</h3>
-              <div className="flex gap-2 flex-wrap">
-                <span className="text-xs bg-primary text-white px-2 py-1 rounded-full font-bold">{preview.subject}</span>
-                <span className="text-xs text-muted-foreground">{preview.instructor} • {preview.duration} دقيقة</span>
-              </div>
-              <p className="text-sm text-muted-foreground">{preview.description}</p>
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4" dir="rtl">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="p-5 border-b flex items-center justify-between bg-muted/20 sticky top-0 bg-white z-10">
+              <h3 className="font-bold text-lg text-foreground flex items-center gap-2">
+                <Eye className="w-5 h-5 text-primary" /> معاينة الفيديو
+              </h3>
+              <button onClick={() => setPreview(null)} className="w-8 h-8 rounded-xl bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-          }
-          onConfirm={handleConfirm}
-          onCancel={() => setPreview(null)}
-        />
+            <div className="p-6 space-y-4">
+              <VideoPreviewContent
+                form={preview}
+                videoFileUrl={videoFileUrl}
+                onLoaded={() => { setPreviewRendered(true); setPreviewError(false); }}
+                onError={() => { setPreviewError(true); setPreviewRendered(false); }}
+              />
+              {previewError && (
+                <p className="text-xs text-red-600 font-semibold flex items-center gap-1">
+                  <X className="w-3 h-3" /> تعذّر تحميل الفيديو — يرجى التحقق من الرابط
+                </p>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={handleConfirm}
+                  disabled={!previewRendered || previewError || createVideo.isPending}
+                  className="flex-1 btn-primary justify-center py-3 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Check className="w-4 h-4" /> {form.publishStatus === "draft" ? "حفظ كمسودة" : "تأكيد النشر"}
+                </button>
+                <button onClick={() => setPreview(null)} className="flex-1 py-3 rounded-2xl border border-border text-foreground font-semibold text-sm hover:bg-muted transition-all">
+                  <X className="w-4 h-4 inline-block ml-1.5" /> تعديل
+                </button>
+              </div>
+              {!previewRendered && !previewError && (
+                <p className="text-xs text-muted-foreground text-center">جاري تحميل الفيديو… يُرجى الانتظار قبل النشر</p>
+              )}
+            </div>
+          </motion.div>
+        </div>
       )}
       <div className="glass-card overflow-hidden">
         <table className="w-full text-sm text-right">
           <thead><tr className="border-b border-white/40">
-            {["العنوان","المعلم","المادة","المدة","إجراءات"].map(h => <th key={h} className="px-5 py-4 font-bold text-muted-foreground text-xs">{h}</th>)}
+            {["العنوان","المعلم","المادة","المدة","الحالة","إجراءات"].map(h => <th key={h} className="px-4 py-4 font-bold text-muted-foreground text-xs">{h}</th>)}
           </tr></thead>
           <tbody className="divide-y divide-white/30">
             {videos.map(v => (
               <tr key={v.id} className="hover:bg-white/30 transition-colors">
-                <td className="px-5 py-3.5 font-semibold">{v.title}</td>
-                <td className="px-5 py-3.5 text-muted-foreground">{v.instructor}</td>
-                <td className="px-5 py-3.5"><span className="px-2.5 py-1 rounded-full text-xs font-bold bg-sky-100 text-sky-700">{v.subject}</span></td>
-                <td className="px-5 py-3.5 text-muted-foreground">{v.duration} د</td>
-                <td className="px-5 py-3.5">
+                <td className="px-4 py-3.5 font-semibold max-w-[180px] truncate">{v.title}</td>
+                <td className="px-4 py-3.5 text-muted-foreground">{v.instructor}</td>
+                <td className="px-4 py-3.5"><span className="px-2.5 py-1 rounded-full text-xs font-bold bg-sky-100 text-sky-700">{v.subject}</span></td>
+                <td className="px-4 py-3.5 text-muted-foreground">{v.duration} د</td>
+                <td className="px-4 py-3.5">
+                  <button
+                    onClick={() => togglePublishStatus(v.id, v.publishStatus ?? "published")}
+                    className={`px-2.5 py-1 rounded-full text-xs font-bold transition-all ${(v.publishStatus ?? "published") === "published" ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" : "bg-amber-100 text-amber-700 hover:bg-amber-200"}`}
+                  >
+                    {(v.publishStatus ?? "published") === "published" ? "منشور" : "مسودة"}
+                  </button>
+                </td>
+                <td className="px-4 py-3.5">
                   <button onClick={() => { if(confirm("حذف الفيديو؟")) deleteVideo.mutate({ id: v.id }, { onSuccess: () => refetch() }); }}
                     className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all">حذف</button>
                 </td>

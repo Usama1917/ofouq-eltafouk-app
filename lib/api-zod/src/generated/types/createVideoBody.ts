@@ -14,4 +14,6 @@ export interface CreateVideoBody {
   thumbnailUrl?: string;
   duration: number;
   instructor: string;
+  videoType?: string;
+  publishStatus?: string;
 }

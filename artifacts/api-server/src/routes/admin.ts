@@ -1,4 +1,7 @@
 import { Router, type IRouter } from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import {
   db,
   booksTable,
@@ -16,6 +19,55 @@ import {
   pointsTransactionsTable,
 } from "@workspace/db";
 import { eq, count, sql, desc } from "drizzle-orm";
+
+const videosUploadDir = path.resolve(process.cwd(), "uploads/videos");
+const thumbnailsUploadDir = path.resolve(process.cwd(), "uploads/thumbnails");
+fs.mkdirSync(videosUploadDir, { recursive: true });
+fs.mkdirSync(thumbnailsUploadDir, { recursive: true });
+
+const videoStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, videosUploadDir);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
+
+const uploadVideoFile = multer({
+  storage: videoStorage,
+  limits: { fileSize: 500 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("video/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only video files are allowed"));
+    }
+  },
+});
+
+const thumbnailStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, thumbnailsUploadDir);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
+
+const uploadThumbnailFile = multer({
+  storage: thumbnailStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"));
+    }
+  },
+});
 
 const router: IRouter = Router();
 
@@ -152,9 +204,38 @@ router.get("/admin/videos", async (req, res) => {
   }
 });
 
+router.post("/admin/videos/upload", uploadVideoFile.single("video"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No video file provided" });
+    }
+    const filename = req.file.filename;
+    const url = `/api/uploads/videos/${filename}`;
+    res.json({ url });
+  } catch (err) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/admin/videos/upload-thumbnail", uploadThumbnailFile.single("thumbnail"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No thumbnail file provided" });
+    }
+    const filename = req.file.filename;
+    const url = `/api/uploads/thumbnails/${filename}`;
+    res.json({ url });
+  } catch (err) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.post("/admin/videos", async (req, res) => {
   try {
-    const [video] = await db.insert(videosTable).values(req.body).returning();
+    const { title, description, subject, videoUrl, thumbnailUrl, duration, instructor, videoType = "youtube", publishStatus = "published" } = req.body;
+    const [video] = await db.insert(videosTable).values({
+      title, description, subject, videoUrl, thumbnailUrl, duration: parseInt(duration) || 0, instructor, videoType, publishStatus
+    }).returning();
     res.status(201).json(video);
   } catch (err) {
     res.status(500).json({ error: "Internal server error" });
@@ -164,7 +245,18 @@ router.post("/admin/videos", async (req, res) => {
 router.put("/admin/videos/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const [video] = await db.update(videosTable).set(req.body).where(eq(videosTable.id, id)).returning();
+    const { title, description, subject, videoUrl, thumbnailUrl, duration, instructor, videoType, publishStatus } = req.body;
+    const updateData: Record<string, unknown> = {};
+    if (title !== undefined) updateData.title = title;
+    if (description !== undefined) updateData.description = description;
+    if (subject !== undefined) updateData.subject = subject;
+    if (videoUrl !== undefined) updateData.videoUrl = videoUrl;
+    if (thumbnailUrl !== undefined) updateData.thumbnailUrl = thumbnailUrl;
+    if (duration !== undefined) updateData.duration = parseInt(duration) || 0;
+    if (instructor !== undefined) updateData.instructor = instructor;
+    if (videoType !== undefined) updateData.videoType = videoType;
+    if (publishStatus !== undefined) updateData.publishStatus = publishStatus;
+    const [video] = await db.update(videosTable).set(updateData).where(eq(videosTable.id, id)).returning();
     if (!video) return res.status(404).json({ error: "Not found" });
     res.json(video);
   } catch (err) {

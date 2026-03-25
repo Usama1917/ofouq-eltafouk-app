@@ -54,6 +54,8 @@ export interface Video {
   thumbnailUrl?: string;
   duration: number;
   instructor: string;
+  videoType: string;
+  publishStatus: string;
   createdAt: string;
 }
 
@@ -65,6 +67,12 @@ export interface CreateVideoBody {
   thumbnailUrl?: string;
   duration: number;
   instructor: string;
+  videoType?: string;
+  publishStatus?: string;
+}
+
+export interface UploadVideoResponse {
+  url: string;
 }
 
 export interface Post {

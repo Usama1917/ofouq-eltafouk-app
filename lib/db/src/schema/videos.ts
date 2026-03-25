@@ -11,6 +11,8 @@ export const videosTable = pgTable("videos", {
   thumbnailUrl: text("thumbnail_url"),
   duration: integer("duration").notNull().default(0),
   instructor: text("instructor").notNull(),
+  videoType: text("video_type").notNull().default("youtube"),
+  publishStatus: text("publish_status").notNull().default("published"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
