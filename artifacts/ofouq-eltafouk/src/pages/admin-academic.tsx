@@ -177,11 +177,33 @@ function ItemCard({
 }
 
 function AddForm({ fields, onSubmit, onCancel }: {
-  fields: { key: string; label: string; type?: string; options?: { value: string; label: string }[] }[];
-  onSubmit: (data: Record<string, string | boolean>) => void;
+  fields: { key: string; label: string; type?: string; required?: boolean; options?: { value: string; label: string }[] }[];
+  onSubmit: (data: Record<string, string | boolean>) => Promise<void>;
   onCancel: () => void;
 }) {
   const [form, setForm] = useState<Record<string, string | boolean>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit() {
+    setError(null);
+    const requiredFields = fields.filter(f => f.required === true);
+    for (const f of requiredFields) {
+      if (!form[f.key] || String(form[f.key]).trim() === "") {
+        setError(`الحقل "${f.label}" مطلوب`);
+        return;
+      }
+    }
+    setLoading(true);
+    try {
+      await onSubmit(form);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "حدث خطأ، حاول مرة أخرى");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="glass-card p-4 space-y-3 border-primary/20">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -211,18 +233,27 @@ function AddForm({ fields, onSubmit, onCancel }: {
               <input
                 type={f.type ?? "text"}
                 value={String(form[f.key] ?? "")}
-                onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
+                onChange={e => { setError(null); setForm(p => ({ ...p, [f.key]: e.target.value })); }}
+                onKeyDown={e => { if (e.key === "Enter") handleSubmit(); }}
                 className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50"
+                disabled={loading}
               />
             )}
           </div>
         ))}
       </div>
+      {error && (
+        <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+          <X className="w-4 h-4 flex-shrink-0" />
+          {error}
+        </div>
+      )}
       <div className="flex gap-2">
-        <button onClick={() => onSubmit(form)} className="btn-primary text-sm py-2 px-5">
-          <Check className="w-4 h-4" /> إضافة
+        <button onClick={handleSubmit} disabled={loading} className="btn-primary text-sm py-2 px-5 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5">
+          {loading ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Check className="w-4 h-4" />}
+          {loading ? "جاري الإضافة..." : "إضافة"}
         </button>
-        <button onClick={onCancel} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:bg-muted transition-all">إلغاء</button>
+        <button onClick={onCancel} disabled={loading} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:bg-muted transition-all disabled:opacity-60">إلغاء</button>
       </div>
     </div>
   );
@@ -331,7 +362,7 @@ export function AcademicTab() {
             {current.level === "years" && (
               <AddForm
                 fields={[
-                  { key: "name", label: "اسم السنة الدراسية" },
+                  { key: "name", label: "اسم السنة الدراسية", required: true },
                   { key: "description", label: "الوصف" },
                 ]}
                 onSubmit={async data => {
@@ -344,7 +375,7 @@ export function AcademicTab() {
             {current.level === "subjects" && current.yearId && (
               <AddForm
                 fields={[
-                  { key: "name", label: "اسم المادة" },
+                  { key: "name", label: "اسم المادة", required: true },
                   { key: "icon", label: "أيقونة (إيموجي)" },
                   { key: "description", label: "الوصف" },
                   { key: "hasProviders", label: "لها جهات تعليمية", type: "checkbox" },
@@ -359,7 +390,7 @@ export function AcademicTab() {
             {current.level === "providers" && current.subjectId && (
               <AddForm
                 fields={[
-                  { key: "name", label: "اسم الجهة التعليمية" },
+                  { key: "name", label: "اسم الجهة التعليمية", required: true },
                   { key: "description", label: "الوصف" },
                 ]}
                 onSubmit={async data => {
@@ -372,7 +403,7 @@ export function AcademicTab() {
             {current.level === "units" && (
               <AddForm
                 fields={[
-                  { key: "name", label: "اسم الوحدة/الفصل" },
+                  { key: "name", label: "اسم الوحدة/الفصل", required: true },
                   { key: "description", label: "الوصف" },
                 ]}
                 onSubmit={async data => {
@@ -388,7 +419,7 @@ export function AcademicTab() {
             {current.level === "lessons" && current.unitId && (
               <AddForm
                 fields={[
-                  { key: "title", label: "عنوان الدرس" },
+                  { key: "title", label: "عنوان الدرس", required: true },
                   { key: "description", label: "الوصف" },
                   {
                     key: "videoId",
