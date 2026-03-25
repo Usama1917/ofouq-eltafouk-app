@@ -54,7 +54,7 @@ function UserBadge() {
     <div className="space-y-2">
       <Link href="/profile">
         <motion.div whileHover={{ y: -1 }}
-          className="glass-card cursor-pointer p-3.5 flex items-center gap-3 hover:border-primary/30 transition-all">
+          className="glass-card cursor-pointer p-3.5 flex items-center gap-3 hover:border-primary/30 transition-all mt-[10px] mb-[10px]">
           <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${ROLE_COLORS[user.role] || ROLE_COLORS.student} flex items-center justify-center text-white font-display font-black text-sm`}>
             {user.name.charAt(0)}
           </div>
