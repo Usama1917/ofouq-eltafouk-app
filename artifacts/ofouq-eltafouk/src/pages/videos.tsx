@@ -40,7 +40,7 @@ function getYouTubeId(url: string): string | null {
   return m ? m[1] : null;
 }
 
-function VideoModal({ video, onClose }: { video: PlayingVideo; onClose: () => void }) {
+function VideoModal({ video, autoPlay, onClose }: { video: PlayingVideo; autoPlay: boolean; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const ytId = video.videoUrl ? getYouTubeId(video.videoUrl) : null;
 
@@ -49,6 +49,10 @@ function VideoModal({ video, onClose }: { video: PlayingVideo; onClose: () => vo
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
+
+  const ytSrc = ytId
+    ? `https://www.youtube.com/embed/${ytId}?autoplay=${autoPlay ? 1 : 0}&rel=0`
+    : null;
 
   return (
     <AnimatePresence>
@@ -77,10 +81,10 @@ function VideoModal({ video, onClose }: { video: PlayingVideo; onClose: () => vo
 
           {/* Video area */}
           <div className="relative aspect-video w-full bg-black">
-            {ytId ? (
+            {ytSrc ? (
               <iframe
                 className="w-full h-full"
-                src={`https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0`}
+                src={ytSrc}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
                 title={video.title}
@@ -89,7 +93,7 @@ function VideoModal({ video, onClose }: { video: PlayingVideo; onClose: () => vo
               <video
                 ref={videoRef}
                 src={video.videoUrl}
-                autoPlay
+                autoPlay={autoPlay}
                 controls
                 className="w-full h-full"
                 poster={video.thumbnailUrl ?? undefined}
@@ -122,7 +126,7 @@ function VideoModal({ video, onClose }: { video: PlayingVideo; onClose: () => vo
 export default function Videos() {
   const [search, setSearch] = useState("");
   const { data: videos = [], isLoading: videosLoading } = useListVideos({ search: search || undefined });
-  const [playingVideo, setPlayingVideo] = useState<PlayingVideo | null>(null);
+  const [playingVideo, setPlayingVideo] = useState<{ video: PlayingVideo; autoPlay: boolean } | null>(null);
 
   const { data: years = [], isLoading: yearsLoading } = useQuery<AcademicYear[]>({
     queryKey: ["academic", "years"],
@@ -139,7 +143,7 @@ export default function Videos() {
 
   return (
     <>
-    {playingVideo && <VideoModal video={playingVideo} onClose={() => setPlayingVideo(null)} />}
+    {playingVideo && <VideoModal video={playingVideo.video} autoPlay={playingVideo.autoPlay} onClose={() => setPlayingVideo(null)} />}
     <motion.div variants={stagger.container} initial="initial" animate="animate" className="space-y-8">
       {/* Header */}
       <motion.div variants={stagger.item} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-5">
@@ -314,10 +318,11 @@ export default function Videos() {
                 key={video.id}
                 variants={stagger.item}
                 whileHover={{ y: -5 }}
-                className="glass-card overflow-hidden group cursor-pointer"
-                onClick={() => setPlayingVideo(video as PlayingVideo)}
+                className="glass-card overflow-hidden group"
               >
-                <div className="relative h-48 overflow-hidden">
+                <div className="relative h-48 overflow-hidden cursor-pointer"
+                  onClick={() => setPlayingVideo({ video: video as PlayingVideo, autoPlay: true })}
+                >
                   {video.thumbnailUrl ? (
                     <img src={video.thumbnailUrl} alt={video.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                   ) : (
@@ -340,11 +345,20 @@ export default function Videos() {
                 </div>
                 <div className="p-5">
                   <h3 className="font-bold text-foreground mb-3 line-clamp-2 leading-snug">{video.title}</h3>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
-                      <User className="w-3.5 h-3.5 text-primary" />
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => setPlayingVideo({ video: video as PlayingVideo, autoPlay: false })}
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                      title="فتح بدون تشغيل تلقائي"
+                    >
+                      <Maximize2 className="w-4 h-4" />
+                    </button>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
+                        <User className="w-3.5 h-3.5 text-primary" />
+                      </div>
+                      <span className="font-semibold">{video.instructor}</span>
                     </div>
-                    <span className="font-semibold">{video.instructor}</span>
                   </div>
                 </div>
               </motion.div>
