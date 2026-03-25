@@ -1,11 +1,11 @@
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useListVideos } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import {
   Play, Clock, User, Search, Video as VideoIcon,
-  GraduationCap, ChevronLeft, BookOpen, Users2, Star,
+  GraduationCap, ChevronLeft, BookOpen, Users2, Star, X, Maximize2,
 } from "lucide-react";
 
 interface AcademicYear { id: number; name: string; description: string; }
@@ -25,9 +25,104 @@ const stagger = {
   },
 };
 
+interface PlayingVideo {
+  id: number;
+  title: string;
+  instructor: string;
+  subject: string;
+  videoUrl?: string | null;
+  thumbnailUrl?: string | null;
+  duration?: number | null;
+}
+
+function getYouTubeId(url: string): string | null {
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([^&?/\s]{11})/);
+  return m ? m[1] : null;
+}
+
+function VideoModal({ video, onClose }: { video: PlayingVideo; onClose: () => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const ytId = video.videoUrl ? getYouTubeId(video.videoUrl) : null;
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ scale: 0.92, opacity: 0, y: 20 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.92, opacity: 0, y: 20 }}
+          transition={{ type: "spring", stiffness: 300, damping: 28 }}
+          className="relative w-full max-w-3xl bg-black rounded-2xl overflow-hidden shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Close button */}
+          <button
+            onClick={onClose}
+            className="absolute top-3 left-3 z-10 w-9 h-9 rounded-full bg-black/60 backdrop-blur flex items-center justify-center text-white hover:bg-black/80 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+
+          {/* Video area */}
+          <div className="relative aspect-video w-full bg-black">
+            {ytId ? (
+              <iframe
+                className="w-full h-full"
+                src={`https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0`}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                title={video.title}
+              />
+            ) : video.videoUrl ? (
+              <video
+                ref={videoRef}
+                src={video.videoUrl}
+                autoPlay
+                controls
+                className="w-full h-full"
+                poster={video.thumbnailUrl ?? undefined}
+              />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-white/60">
+                <VideoIcon className="w-16 h-16 opacity-30" />
+                <p className="text-sm font-medium">رابط الفيديو غير متوفر بعد</p>
+              </div>
+            )}
+          </div>
+
+          {/* Info bar */}
+          <div className="p-4 bg-[#111] flex items-start justify-between gap-4">
+            <div className="flex items-center gap-2 text-sm text-white/60 shrink-0">
+              <User className="w-3.5 h-3.5" />
+              <span>{video.instructor}</span>
+            </div>
+            <div className="text-right flex-1 min-w-0">
+              <p className="font-bold text-white text-sm line-clamp-1">{video.title}</p>
+              <p className="text-xs text-white/50 mt-0.5">{video.subject}</p>
+            </div>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
 export default function Videos() {
   const [search, setSearch] = useState("");
   const { data: videos = [], isLoading: videosLoading } = useListVideos({ search: search || undefined });
+  const [playingVideo, setPlayingVideo] = useState<PlayingVideo | null>(null);
 
   const { data: years = [], isLoading: yearsLoading } = useQuery<AcademicYear[]>({
     queryKey: ["academic", "years"],
@@ -43,6 +138,8 @@ export default function Videos() {
   });
 
   return (
+    <>
+    {playingVideo && <VideoModal video={playingVideo} onClose={() => setPlayingVideo(null)} />}
     <motion.div variants={stagger.container} initial="initial" animate="animate" className="space-y-8">
       {/* Header */}
       <motion.div variants={stagger.item} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-5">
@@ -218,6 +315,7 @@ export default function Videos() {
                 variants={stagger.item}
                 whileHover={{ y: -5 }}
                 className="glass-card overflow-hidden group cursor-pointer"
+                onClick={() => setPlayingVideo(video as PlayingVideo)}
               >
                 <div className="relative h-48 overflow-hidden">
                   {video.thumbnailUrl ? (
@@ -271,5 +369,6 @@ export default function Videos() {
         )}
       </motion.div>
     </motion.div>
+    </>
   );
 }
