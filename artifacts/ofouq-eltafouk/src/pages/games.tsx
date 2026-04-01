@@ -13,12 +13,13 @@ const stagger = {
   container: { animate: { transition: { staggerChildren: 0.07 } } },
   item: {
     initial: { opacity: 0, y: 16 },
-    animate: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] } },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] as const } },
   },
 };
 
 export default function Games() {
-  const { data: games = [], isLoading } = useListGames();
+  const { data: gamesData, isLoading } = useListGames();
+  const games = Array.isArray(gamesData) ? gamesData : [];
   const [activeGameId, setActiveGameId] = useState<number | null>(null);
 
   if (activeGameId) {

@@ -39,8 +39,29 @@ async function apiCall(path: string, opts: RequestInit) {
       ...(opts.headers || {}),
     },
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "حدث خطأ");
+  const raw = await res.text();
+  const data =
+    raw.trim().length === 0
+      ? {}
+      : (() => {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return null;
+          }
+        })();
+
+  if (!res.ok) {
+    if (data && typeof data === "object" && "error" in data && typeof (data as any).error === "string") {
+      throw new Error((data as any).error);
+    }
+    throw new Error(raw.trim() || "حدث خطأ");
+  }
+
+  if (data === null) {
+    throw new Error("استجابة غير صالحة من الخادم");
+  }
+
   return data;
 }
 

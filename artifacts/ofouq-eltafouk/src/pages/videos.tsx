@@ -21,7 +21,7 @@ const stagger = {
   container: { animate: { transition: { staggerChildren: 0.07 } } },
   item: {
     initial: { opacity: 0, y: 16 },
-    animate: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] } },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] as const } },
   },
 };
 
@@ -125,7 +125,8 @@ function VideoModal({ video, autoPlay, onClose }: { video: PlayingVideo; autoPla
 
 export default function Videos() {
   const [search, setSearch] = useState("");
-  const { data: videos = [], isLoading: videosLoading } = useListVideos({ search: search || undefined });
+  const { data: videosData, isLoading: videosLoading } = useListVideos({ search: search || undefined });
+  const videos = Array.isArray(videosData) ? videosData : [];
   const [playingVideo, setPlayingVideo] = useState<{ video: PlayingVideo; autoPlay: boolean } | null>(null);
 
   const { data: years = [], isLoading: yearsLoading } = useQuery<AcademicYear[]>({

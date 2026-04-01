@@ -205,7 +205,7 @@ function AnalyticsTab() {
 // ── Admins Tab ────────────────────────────────────────────────────────────
 function AdminsTab() {
   const { data: allUsers = [], refetch } = useListAdminUsers();
-  const admins = allUsers.filter(u => u.role === "admin" || u.role === "owner");
+  const admins = allUsers.filter((u) => (u.role as unknown as string) === "admin" || (u.role as unknown as string) === "owner");
   const updateUser = useUpdateAdminUser();
   const deleteUser = useDeleteAdminUser();
   const createUser = useCreateAdminUser();
@@ -251,20 +251,22 @@ function AdminsTab() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {admins.map(u => (
+        {admins.map((u) => {
+          const isOwner = (u.role as unknown as string) === "owner";
+          return (
           <div key={u.id} className="glass-card p-5 flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-display font-black text-lg flex-shrink-0 ${u.role === "owner" ? "bg-gradient-to-br from-amber-400 to-orange-500" : "bg-gradient-to-br from-violet-500 to-purple-600"}`}>
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-display font-black text-lg flex-shrink-0 ${isOwner ? "bg-gradient-to-br from-amber-400 to-orange-500" : "bg-gradient-to-br from-violet-500 to-purple-600"}`}>
               {u.name.charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-bold text-foreground">{u.name}</p>
               <p className="text-sm text-muted-foreground">{u.email}</p>
-              <span className={`inline-block mt-1 text-xs font-bold px-2.5 py-0.5 rounded-full ${u.role === "owner" ? "bg-amber-100 text-amber-700" : "bg-violet-100 text-violet-700"}`}>
-                {u.role === "owner" ? "مالك" : "مشرف"}
+              <span className={`inline-block mt-1 text-xs font-bold px-2.5 py-0.5 rounded-full ${isOwner ? "bg-amber-100 text-amber-700" : "bg-violet-100 text-violet-700"}`}>
+                {isOwner ? "مالك" : "مشرف"}
               </span>
             </div>
             <div className="flex flex-col gap-2 flex-shrink-0">
-              {u.role !== "owner" && (
+              {!isOwner && (
                 <button onClick={() => updateUser.mutate({ id: u.id, data: { role: "owner" } as any }, { onSuccess: () => refetch() })}
                   className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition-all">ترقية لمالك</button>
               )}
@@ -272,7 +274,8 @@ function AdminsTab() {
                 className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all">إزالة الصلاحيات</button>
             </div>
           </div>
-        ))}
+        );
+        })}
       </div>
     </div>
   );
@@ -328,7 +331,7 @@ function AllUsersTab() {
                   <td className="px-5 py-3.5">
                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${u.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>{u.status === "active" ? "نشط" : "موقوف"}</span>
                   </td>
-                  <td className="px-5 py-3.5 text-muted-foreground text-xs">{u.governorate || "—"}</td>
+                  <td className="px-5 py-3.5 text-muted-foreground text-xs">{(u as any).governorate || "—"}</td>
                   <td className="px-5 py-3.5">
                     <button onClick={() => updateUser.mutate({ id: u.id, data: { status: u.status === "active" ? "suspended" : "active" } as any }, { onSuccess: () => refetch() })}
                       className="px-3 py-1.5 rounded-lg text-xs font-bold bg-muted hover:bg-muted/80 transition-all">

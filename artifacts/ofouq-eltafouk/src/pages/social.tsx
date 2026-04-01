@@ -120,7 +120,8 @@ function CommentsModal({ postId, onClose }: { postId: number; onClose: () => voi
 }
 
 export default function Social() {
-  const { data: posts = [], isLoading } = useListPosts({});
+  const { data: postsData, isLoading } = useListPosts({});
+  const posts = Array.isArray(postsData) ? postsData : [];
   const createPost = useCreatePost();
   const [content, setContent] = useState("");
   const [activeCommentPost, setActiveCommentPost] = useState<number | null>(null);

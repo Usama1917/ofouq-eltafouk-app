@@ -484,7 +484,7 @@ function VideosTab() {
 
   const togglePublishStatus = (id: number, currentStatus: string) => {
     const newStatus = currentStatus === "published" ? "draft" : "published";
-    updateVideo.mutate({ id, data: { publishStatus: newStatus } }, {
+    updateVideo.mutate({ id, data: { publishStatus: newStatus } as any }, {
       onSuccess: () => refetch()
     });
   };

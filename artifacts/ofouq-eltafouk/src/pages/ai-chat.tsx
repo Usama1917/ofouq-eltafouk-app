@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
-import { useListOpenaiConversations, useCreateOpenaiConversation, useGetOpenaiConversation } from "@workspace/api-client-react";
+import { getGetOpenaiConversationQueryKey, useListOpenaiConversations, useCreateOpenaiConversation, useGetOpenaiConversation } from "@workspace/api-client-react";
 import { useChatStream } from "@/hooks/use-ai-chat";
 import { Bot, User, Send, Plus, MessageSquare, Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
 export default function AiChat() {
-  const { data: conversations = [], refetch: refetchConvos } = useListOpenaiConversations();
+  const { data: conversationsData, refetch: refetchConvos } = useListOpenaiConversations();
+  const conversations = Array.isArray(conversationsData) ? conversationsData : [];
   const createConvo = useCreateOpenaiConversation();
   const [activeId, setActiveId] = useState<number | null>(null);
 
@@ -93,7 +94,7 @@ export default function AiChat() {
 
 function ActiveChat({ conversationId }: { conversationId: number }) {
   const { data: conversation, refetch } = useGetOpenaiConversation(conversationId, {
-    query: { refetchInterval: false },
+    query: { queryKey: getGetOpenaiConversationQueryKey(conversationId), refetchInterval: false },
   });
   const { sendMessage, isStreaming, streamedText } = useChatStream(conversationId);
   const [input, setInput] = useState("");
