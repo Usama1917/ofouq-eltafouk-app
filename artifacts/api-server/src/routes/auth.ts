@@ -75,6 +75,10 @@ router.post("/auth/login", async (req, res) => {
     res.json({ user: safeUser, token: `session_${user.id}` });
   } catch (err) {
     req.log.error({ err }, "Login error");
+    if (process.env.NODE_ENV === "development") {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return res.status(500).json({ error: `خطأ في الخادم: ${message}` });
+    }
     res.status(500).json({ error: "خطأ في الخادم" });
   }
 });
@@ -137,6 +141,11 @@ router.post("/auth/seed-demo", async (req, res) => {
     }
     res.json({ message: "تم إنشاء الحسابات التجريبية" });
   } catch (err) {
+    req.log.error({ err }, "Seed demo error");
+    if (process.env.NODE_ENV === "development") {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return res.status(500).json({ error: `خطأ في الخادم: ${message}` });
+    }
     res.status(500).json({ error: "خطأ في الخادم" });
   }
 });

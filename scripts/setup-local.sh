@@ -81,13 +81,20 @@ echo "   ✅ API server built"
 # ── Step 8: Seed demo accounts ──────────────────
 echo ""
 echo "🌱 Seeding demo accounts..."
-DATABASE_URL="$DB_URL" node --enable-source-maps "$ROOT_DIR/artifacts/api-server/dist/index.mjs" &
-API_PID=$!
-sleep 3
+API_PID=""
+if curl -sf http://localhost:8080/api/healthz >/dev/null 2>&1; then
+  echo "   ℹ️  API already running on port 8080, using existing server for seed..."
+else
+  PORT=8080 DATABASE_URL="$DB_URL" node --enable-source-maps "$ROOT_DIR/artifacts/api-server/dist/index.mjs" &
+  API_PID=$!
+  sleep 3
+fi
 curl -s -X POST http://localhost:8080/api/auth/seed-demo \
   -H "Content-Type: application/json" | grep -o '"message":"[^"]*"' || echo "   ⚠️  Could not seed (check if API started)"
-kill $API_PID 2>/dev/null || true
-wait $API_PID 2>/dev/null || true
+if [ -n "$API_PID" ]; then
+  kill $API_PID 2>/dev/null || true
+  wait $API_PID 2>/dev/null || true
+fi
 
 echo ""
 echo "════════════════════════════════════════════"
@@ -100,7 +107,7 @@ echo "    owner@demo.com   / owner123   → /owner-login"
 echo "    student@demo.com / demo123    → /login"
 echo ""
 echo " 🚀 To run the full stack:"
-echo "    Terminal 1 (API):      pnpm run api:dev"
+echo "    Terminal 1 (API):      PORT=8080 pnpm --filter @workspace/api-server run dev"
 echo "    Terminal 2 (Frontend): PORT=18936 BASE_PATH=/ pnpm --filter @workspace/ofouq-eltafouk run dev"
 echo ""
 echo " Or use: bash scripts/start-local.sh"

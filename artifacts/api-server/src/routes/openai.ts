@@ -1,11 +1,29 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { conversations, messages } from "@workspace/db/schema";
-import { openai } from "@workspace/integrations-openai-ai-server";
 import { eq, desc } from "drizzle-orm";
 import { SendOpenaiMessageBody, CreateOpenaiConversationBody } from "@workspace/api-zod";
+import OpenAI from "openai";
 
 const router: IRouter = Router();
+
+let openaiClient: OpenAI | null = null;
+
+function getConfiguredOpenAIClient(): OpenAI | null {
+  if (openaiClient) {
+    return openaiClient;
+  }
+
+  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+
+  if (!baseURL || !apiKey) {
+    return null;
+  }
+
+  openaiClient = new OpenAI({ apiKey, baseURL });
+  return openaiClient;
+}
 
 const SYSTEM_PROMPT = `أنت مساعد تعليمي ذكي لمنصة "أفق التفوق". مهمتك مساعدة الطلاب في:
 - فهم المواد الدراسية والمناهج التعليمية
@@ -77,6 +95,14 @@ router.get("/openai/conversations/:id/messages", async (req, res) => {
 
 router.post("/openai/conversations/:id/messages", async (req, res) => {
   try {
+    const openai = getConfiguredOpenAIClient();
+    if (!openai) {
+      return res.status(503).json({
+        error:
+          "خدمة الذكاء الاصطناعي غير مفعلة في البيئة المحلية. أضف AI_INTEGRATIONS_OPENAI_BASE_URL و AI_INTEGRATIONS_OPENAI_API_KEY في ملف البيئة.",
+      });
+    }
+
     const conversationId = parseInt(req.params.id);
     const body = SendOpenaiMessageBody.parse(req.body);
 

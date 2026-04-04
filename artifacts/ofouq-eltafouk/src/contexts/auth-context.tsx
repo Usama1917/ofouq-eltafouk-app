@@ -32,13 +32,18 @@ const AuthContext = createContext<AuthContextType | null>(null);
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 async function apiCall(path: string, opts: RequestInit) {
-  const res = await fetch(`${BASE}${path}`, {
-    ...opts,
-    headers: {
-      "Content-Type": "application/json",
-      ...(opts.headers || {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...opts,
+      headers: {
+        "Content-Type": "application/json",
+        ...(opts.headers || {}),
+      },
+    });
+  } catch {
+    throw new Error(`تعذر الوصول إلى الخادم المحلي (${path}). تأكد أن الـ backend يعمل على http://localhost:8080`);
+  }
   const raw = await res.text();
   const data =
     raw.trim().length === 0
@@ -55,7 +60,11 @@ async function apiCall(path: string, opts: RequestInit) {
     if (data && typeof data === "object" && "error" in data && typeof (data as any).error === "string") {
       throw new Error((data as any).error);
     }
-    throw new Error(raw.trim() || "حدث خطأ");
+    const fallback = raw.trim();
+    if (fallback) {
+      throw new Error(fallback);
+    }
+    throw new Error(`فشل الطلب (${res.status}) على ${path}`);
   }
 
   if (data === null) {
