@@ -53,7 +53,7 @@ export default function Login() {
           <h2 className="text-3xl font-display font-black">أفق التفوق</h2>
           <p className="text-blue-100 leading-relaxed">المنصة التعليمية الشاملة التي تجمع بين التعلم الرقمي، الكتب القيمة، والمجتمع التفاعلي.</p>
           <div className="flex flex-col gap-3 text-sm font-medium text-blue-100">
-            {["✦ مكتبة كتب تعليمية غنية", "✦ دروس مرئية متميزة", "✦ مساعد ذكي بالذكاء الاصطناعي", "✦ مسابقات ومكافآت"].map(f => (
+            {["✦ مكتبة كتب تعليمية غنية", "✦ دروس مرئية متميزة", "✦ Ai التفوق", "✦ مسابقات ومكافآت"].map(f => (
               <span key={f}>{f}</span>
             ))}
           </div>

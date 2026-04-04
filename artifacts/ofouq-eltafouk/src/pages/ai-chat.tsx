@@ -73,7 +73,7 @@ export default function AiChat() {
               <Bot className="w-10 h-10" />
             </div>
             <div className="space-y-1">
-              <h2 className="text-2xl font-display font-bold text-foreground">المساعد الذكي</h2>
+              <h2 className="text-2xl font-display font-bold text-foreground">Ai التفوق</h2>
               <p className="max-w-sm text-sm leading-relaxed">
                 أنا هنا لمساعدتك في فهم الدروس، حل المسائل، والإجابة على أي استفسارات تعليمية.
               </p>

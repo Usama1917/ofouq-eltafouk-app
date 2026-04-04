@@ -131,7 +131,7 @@ export default function Dashboard() {
                     soft-shadow
                   ">
                     <Bot className="w-4 h-4 text-primary" />
-                    اسأل المساعد الذكي
+                    اسأل Ai التفوق
                   </button>
                 </Link>
               </div>
@@ -218,7 +218,7 @@ export default function Dashboard() {
               <Bot className="w-7 h-7" />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="font-bold text-foreground text-lg mb-1">المساعد الذكي التعليمي</h3>
+              <h3 className="font-bold text-foreground text-lg mb-1">Ai التفوق</h3>
               <p className="text-sm text-muted-foreground">
                 اسأل أي سؤال تعليمي واحصل على إجابات فورية ومفصّلة بالعربية
               </p>

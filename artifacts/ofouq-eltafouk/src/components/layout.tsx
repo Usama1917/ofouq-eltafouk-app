@@ -1,21 +1,44 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, Video, MessageSquare, Bot,
   Gamepad2, Gift, LayoutDashboard, Coins,
-  ChevronLeft, User, ShieldCheck, Crown, LogIn,
+  ChevronLeft, User, ShieldCheck, Crown, LogIn, ShoppingCart, Truck, History,
 } from "lucide-react";
 import { useGetPoints } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth-context";
 import { Logo } from "@/components/logo";
 
-const NAV_ITEMS = [
+type NavSubItem = {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+};
+
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  children?: NavSubItem[];
+};
+
+const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "الرئيسية", icon: LayoutDashboard },
-  { href: "/books", label: "المكتبة", icon: BookOpen },
+  {
+    href: "/books",
+    label: "المكتبة",
+    icon: BookOpen,
+    children: [
+      { href: "/books", label: "إضافة إلى السلة", icon: BookOpen },
+      { href: "/books/cart", label: "السلة", icon: ShoppingCart },
+      { href: "/books/tracking", label: "تتبع الأوردرات", icon: Truck },
+      { href: "/books/orders", label: "سجل الأوردرات", icon: History },
+    ],
+  },
   { href: "/videos", label: "الدروس المرئية", icon: Video },
   { href: "/social", label: "المجتمع", icon: MessageSquare },
-  { href: "/ai-chat", label: "المساعد الذكي", icon: Bot },
+  { href: "/ai-chat", label: "Ai التفوق", icon: Bot },
   { href: "/games", label: "المسابقات", icon: Gamepad2 },
   { href: "/rewards", label: "المكافآت", icon: Gift },
 ];
@@ -88,9 +111,19 @@ function UserBadge() {
 }
 
 export function Layout({ children }: { children: ReactNode }) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const { data: pointsData } = useGetPoints();
   const { user } = useAuth();
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
+    "/books": location.startsWith("/books"),
+  });
+
+  useEffect(() => {
+    if (!location.startsWith("/books")) return;
+    setExpandedGroups((prev) => ({ ...prev, "/books": true }));
+  }, [location]);
+
+  const isRouteActive = (href: string) => location === href || (href !== "/" && location.startsWith(href));
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row" dir="rtl">
@@ -118,15 +151,60 @@ export function Layout({ children }: { children: ReactNode }) {
         {/* Nav items */}
         <nav className="flex-1 px-4 py-5 space-y-1 overflow-y-auto hide-scrollbar">
           {NAV_ITEMS.map((item) => {
-            const isActive = location === item.href ||
-              (item.href !== "/" && location.startsWith(item.href));
+            const hasChildren = Array.isArray(item.children) && item.children.length > 0;
+            const isActive = isRouteActive(item.href);
+            if (!hasChildren) {
+              return (
+                <Link key={item.href} href={item.href}>
+                  <motion.div
+                    whileHover={{ x: -3 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`
+                      relative flex items-center gap-3.5 px-4 py-3.5 rounded-2xl cursor-pointer
+                      transition-all duration-200 select-none
+                      ${isActive
+                        ? "bg-primary text-white shadow-lg shadow-primary/25"
+                        : "text-muted-foreground hover:text-foreground hover:bg-white/60"
+                      }
+                    `}
+                  >
+                    {isActive && (
+                      <motion.div
+                        layoutId="nav-active"
+                        className="absolute inset-0 rounded-2xl bg-primary"
+                        style={{ zIndex: -1 }}
+                        transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                      />
+                    )}
+                    <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? "text-white/90" : ""}`} />
+                    <span className={`font-semibold text-sm ${isActive ? "text-white" : ""}`}>
+                      {item.label}
+                    </span>
+                    {isActive && (
+                      <ChevronLeft className="w-3.5 h-3.5 mr-auto text-white/70" />
+                    )}
+                  </motion.div>
+                </Link>
+              );
+            }
+
+            const isExpanded = Boolean(expandedGroups[item.href]);
             return (
-              <Link key={item.href} href={item.href}>
-                <motion.div
+              <div key={item.href} className="space-y-1">
+                <motion.button
+                  type="button"
                   whileHover={{ x: -3 }}
                   whileTap={{ scale: 0.98 }}
+                  onClick={() => {
+                    if (!location.startsWith(item.href)) {
+                      setLocation(item.href);
+                      setExpandedGroups((prev) => ({ ...prev, [item.href]: true }));
+                      return;
+                    }
+                    setExpandedGroups((prev) => ({ ...prev, [item.href]: !prev[item.href] }));
+                  }}
                   className={`
-                    relative flex items-center gap-3.5 px-4 py-3.5 rounded-2xl cursor-pointer
+                    relative w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl cursor-pointer
                     transition-all duration-200 select-none
                     ${isActive
                       ? "bg-primary text-white shadow-lg shadow-primary/25"
@@ -146,11 +224,48 @@ export function Layout({ children }: { children: ReactNode }) {
                   <span className={`font-semibold text-sm ${isActive ? "text-white" : ""}`}>
                     {item.label}
                   </span>
-                  {isActive && (
-                    <ChevronLeft className="w-3.5 h-3.5 mr-auto text-white/70" />
+                  <ChevronLeft className={`w-3.5 h-3.5 mr-auto transition-transform ${isActive ? "text-white/70" : "text-muted-foreground"} ${isExpanded ? "rotate-[-90deg]" : ""}`} />
+                </motion.button>
+
+                <AnimatePresence initial={false}>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden pl-1 pr-5"
+                    >
+                      <div className="space-y-1.5 border-r border-white/50 pr-3 mr-3">
+                        {item.children!.map((child) => {
+                          const isChildActive =
+                            child.href === "/books"
+                              ? location === "/books"
+                              : location === child.href || location.startsWith(`${child.href}/`);
+                          return (
+                            <Link key={child.href} href={child.href}>
+                              <motion.div
+                                whileHover={{ x: -2 }}
+                                whileTap={{ scale: 0.98 }}
+                                className={`
+                                  flex items-center gap-2.5 px-3 py-2 rounded-xl cursor-pointer transition-all text-xs font-semibold
+                                  ${isChildActive
+                                    ? "bg-primary/12 text-primary border border-primary/15"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-white/55 border border-transparent"
+                                  }
+                                `}
+                              >
+                                <child.icon className={`w-4 h-4 flex-shrink-0 ${isChildActive ? "text-primary" : ""}`} />
+                                <span>{child.label}</span>
+                              </motion.div>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
                   )}
-                </motion.div>
-              </Link>
+                </AnimatePresence>
+              </div>
             );
           })}
         </nav>

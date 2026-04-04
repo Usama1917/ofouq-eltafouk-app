@@ -12,6 +12,7 @@ import OwnerLogin from "@/pages/owner-login";
 // Main app pages
 import Dashboard from "@/pages/dashboard";
 import Books from "@/pages/books";
+import { BooksCartPage, BooksTrackingPage, BooksOrdersHistoryPage } from "@/pages/books-subpages";
 import Videos from "@/pages/videos";
 import { AcademicYearsPage, AcademicSubjectsPage, AcademicProvidersPage, AcademicSubjectUnitsPage, AcademicProviderUnitsPage, AcademicSubjectLessonsPage, AcademicProviderLessonsPage, AcademicLessonPage } from "@/pages/academic";
 import Social from "@/pages/social";
@@ -50,6 +51,9 @@ function Router() {
         <Layout>
           <Switch>
             <Route path="/" component={Dashboard} />
+            <Route path="/books/cart" component={BooksCartPage} />
+            <Route path="/books/tracking" component={BooksTrackingPage} />
+            <Route path="/books/orders" component={BooksOrdersHistoryPage} />
             <Route path="/books" component={Books} />
             {/* Academic drill-down routes under /videos — most specific first */}
             <Route path="/videos/years/:yearId/subjects/:subjectId/providers/:providerId/units/:unitId/lessons/:lessonId" component={AcademicLessonPage} />

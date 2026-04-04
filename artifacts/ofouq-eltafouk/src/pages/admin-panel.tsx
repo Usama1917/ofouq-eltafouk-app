@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, 
-  Flag, Megaphone, Plus, Edit, Trash2, Eye, Check, X, 
-  TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap
+  Flag, Megaphone, Plus, Edit, Trash2, Eye, Check, X, ArrowUp, ArrowDown,
+  TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap, ImagePlus, TicketPercent, Truck
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
@@ -18,7 +18,8 @@ import {
 import { Logo } from "@/components/logo";
 import { AcademicTab } from "./admin-academic";
 
-type Tab = "dashboard" | "users" | "books" | "videos" | "posts" | "reports" | "banners" | "academic";
+type Tab = "dashboard" | "users" | "books" | "videos" | "posts" | "reports" | "banners" | "academic" | "materials";
+type Material = { id: number; name: string; classification?: string; sortOrder?: number; createdAt?: string };
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "لوحة التحكم", icon: LayoutDashboard },
@@ -30,6 +31,8 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "reports", label: "التقارير", icon: Flag },
   { id: "banners", label: "البنرات", icon: Megaphone },
 ];
+
+const DEFAULT_MATERIAL_OPTIONS = ["علوم", "رياضيات", "لغة عربية", "لغة إنجليزية", "تاريخ", "برمجة"];
 
 // ── Preview Modal ──────────────────────────────────────────────────────────
 function PreviewModal({ title, content, onConfirm, onCancel }: {
@@ -82,7 +85,7 @@ function StatCard({ label, value, icon: Icon, color, bg }: any) {
 }
 
 // ── Dashboard Tab ─────────────────────────────────────────────────────────
-function DashboardTab() {
+function DashboardTab({ onOpenMaterials }: { onOpenMaterials: () => void }) {
   const { data: stats } = useGetAdminStats();
   return (
     <div className="space-y-6">
@@ -96,6 +99,214 @@ function DashboardTab() {
         <StatCard label="المكافآت" value={stats?.totalRewards} icon={Award} color="text-amber-500" bg="from-amber-50/80 to-yellow-50/60" />
         <StatCard label="النقاط المتداولة" value={stats?.totalPointsCirculating} icon={Coins} color="text-amber-600" bg="from-amber-50/80 to-orange-50/60" />
         <StatCard label="التقارير المعلقة" value={stats?.pendingReports} icon={Flag} color="text-rose-500" bg="from-rose-50/80 to-pink-50/60" />
+      </div>
+      <div className="glass-card p-5 border-primary/20">
+        <button
+          onClick={onOpenMaterials}
+          className="w-full flex items-center justify-between px-5 py-4 rounded-2xl bg-primary/10 border border-primary/20 text-primary font-bold hover:bg-primary/15 transition-all"
+        >
+          <span className="text-base">إدارة المواد (إضافة / حذف / ترتيب)</span>
+          <FileText className="w-5 h-5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Materials Tab ────────────────────────────────────────────────────────
+function MaterialsTab() {
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [reorderLoadingId, setReorderLoadingId] = useState<number | null>(null);
+  const [newMaterialForm, setNewMaterialForm] = useState({ name: "", classification: "" });
+
+  const loadMaterials = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch("/api/admin/materials");
+      const data = await res.json().catch(() => []);
+      if (res.ok && Array.isArray(data)) {
+        setMaterials(data);
+      }
+    } catch {
+      // no-op
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadMaterials();
+  }, []);
+
+  const handleCreate = async () => {
+    const name = newMaterialForm.name.trim();
+    const classification = newMaterialForm.classification.trim();
+    if (!name) {
+      alert("اكتب اسم المادة أولًا");
+      return;
+    }
+    if (!classification) {
+      alert("اكتب التصنيف أولًا");
+      return;
+    }
+    try {
+      setCreating(true);
+      const res = await fetch("/api/admin/materials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, classification }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "تعذر إضافة المادة");
+      }
+      setNewMaterialForm({ name: "", classification: "" });
+      await loadMaterials();
+    } catch (err: any) {
+      alert(err?.message || "تعذر إضافة المادة");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDelete = async (material: Material) => {
+    if (!confirm(`حذف المادة "${material.name}"؟`)) return;
+    try {
+      const res = await fetch(`/api/admin/materials/${material.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "تعذر حذف المادة");
+      }
+      await loadMaterials();
+    } catch (err: any) {
+      alert(err?.message || "تعذر حذف المادة");
+    }
+  };
+
+  const handleReorderMaterial = async (materialId: number, direction: "up" | "down") => {
+    const currentIndex = materials.findIndex((material) => material.id === materialId);
+    if (currentIndex === -1) return;
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= materials.length) return;
+
+    const reordered = [...materials];
+    const temp = reordered[currentIndex];
+    reordered[currentIndex] = reordered[targetIndex];
+    reordered[targetIndex] = temp;
+    const orderedIds = reordered.map((material) => material.id);
+
+    try {
+      setReorderLoadingId(materialId);
+      const res = await fetch("/api/admin/materials/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: orderedIds }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "تعذر حفظ ترتيب المواد");
+      }
+      await loadMaterials();
+    } catch (err: any) {
+      alert(err?.message || "تعذر حفظ ترتيب المواد");
+    } finally {
+      setReorderLoadingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-display font-bold">إدارة المواد ({materials.length})</h2>
+      </div>
+
+      <div className="glass-card p-5 border-primary/20 space-y-3">
+        <h3 className="font-bold text-foreground">إضافة مادة جديدة</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">اسم المادة</label>
+            <input
+              value={newMaterialForm.name}
+              onChange={(e) => setNewMaterialForm((prev) => ({ ...prev, name: e.target.value }))}
+              placeholder="مثال: الأحياء الصف الثالث الثانوي"
+              className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">التصنيف</label>
+            <input
+              value={newMaterialForm.classification}
+              onChange={(e) => setNewMaterialForm((prev) => ({ ...prev, classification: e.target.value }))}
+              placeholder="مثال: الأحياء"
+              className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50"
+            />
+          </div>
+        </div>
+        <div className="flex justify-start">
+          <button onClick={handleCreate} disabled={creating} className="btn-primary text-sm py-2.5 px-5 disabled:opacity-60">
+            {creating ? "جاري الإضافة..." : "إضافة المادة"}
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">سيتم استخدام التصنيف مباشرة في فلترة الكتب واختيارات مادة الكتب والفيديوهات.</p>
+      </div>
+
+      <div className="glass-card overflow-hidden">
+        <table className="w-full text-sm text-right">
+          <thead>
+            <tr className="border-b border-white/40">
+              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">اسم المادة</th>
+              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">التصنيف</th>
+              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">تاريخ الإضافة</th>
+              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">إجراء</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/30">
+            {materials.map((material, rowIndex) => (
+              <tr key={material.id} className="hover:bg-white/30 transition-colors">
+                <td className="px-5 py-3.5 font-semibold text-foreground">{material.name}</td>
+                <td className="px-5 py-3.5">
+                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-primary/10 text-primary whitespace-nowrap">{material.classification || material.name}</span>
+                </td>
+                <td className="px-5 py-3.5 text-muted-foreground">
+                  {material.createdAt ? new Date(material.createdAt).toLocaleDateString("ar-EG") : "—"}
+                </td>
+                <td className="px-5 py-3.5">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleReorderMaterial(material.id, "up")}
+                      disabled={rowIndex === 0 || reorderLoadingId === material.id}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleReorderMaterial(material.id, "down")}
+                      disabled={rowIndex === materials.length - 1 || reorderLoadingId === material.id}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(material)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all"
+                    >
+                      حذف
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {!loading && materials.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground text-sm">
+                  لا توجد مواد حتى الآن
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -185,54 +396,391 @@ function UsersTab() {
 
 // ── Books Tab ─────────────────────────────────────────────────────────────
 function BooksTab() {
-  const { data: books = [], refetch } = useListAdminBooks();
+  const { data: booksData = [], refetch } = useListAdminBooks();
+  const books = Array.isArray(booksData) ? (booksData as any[]) : [];
   const createBook = useCreateAdminBook();
   const updateBook = useUpdateAdminBook();
   const deleteBook = useDeleteAdminBook();
   const [adding, setAdding] = useState(false);
-  const [preview, setPreview] = useState<null | Record<string, string>>(null);
-  const [pending, setPending] = useState<null | Record<string, string>>(null);
-  const [newBook, setNewBook] = useState({ title: "", author: "", category: "علوم", description: "", pointsPrice: "100", pages: "100" });
-  const set = (k: string, v: string) => setNewBook(p => ({ ...p, [k]: v }));
+  const [editingBookId, setEditingBookId] = useState<number | null>(null);
+  const [preview, setPreview] = useState<null | Record<string, string | boolean>>(null);
+  const [pending, setPending] = useState<null | Record<string, string | boolean>>(null);
+  const [coverUploadProgress, setCoverUploadProgress] = useState<number | null>(null);
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [vouchers, setVouchers] = useState<any[]>([]);
+  const [voucherLoading, setVoucherLoading] = useState(false);
+  const [reorderLoadingId, setReorderLoadingId] = useState<number | null>(null);
+  const [voucherForm, setVoucherForm] = useState({
+    bookId: "",
+    code: "",
+    discountType: "percent",
+    discountValue: "10",
+    usageLimit: "",
+    expiresAt: "",
+    active: true,
+  });
+  const [newBook, setNewBook] = useState({
+    title: "",
+    subject: DEFAULT_MATERIAL_OPTIONS[0],
+    description: "",
+    priceEgp: "250",
+    originalPriceEgp: "300",
+    freeShipping: false,
+    coverUrl: "",
+  });
+  const set = (k: string, v: string) => setNewBook((p) => ({ ...p, [k]: v }));
+  const setVoucher = (k: string, v: string | boolean) => setVoucherForm((p) => ({ ...p, [k]: v }));
+  const materialClassifications =
+    materials.length > 0
+      ? Array.from(
+          new Set(
+            materials.map((material) => String(material.classification ?? "").trim() || material.name).filter(Boolean),
+          ),
+        )
+      : DEFAULT_MATERIAL_OPTIONS;
+  const materialOptions = materialClassifications.includes(newBook.subject)
+    ? materialClassifications
+    : [newBook.subject, ...materialClassifications];
 
-  const handlePreview = () => { setPending({ ...newBook }); setPreview({ ...newBook }); };
+  const resetBookEditor = () => {
+    setEditingBookId(null);
+    setPreview(null);
+    setPending(null);
+    setCoverUploadProgress(null);
+    setNewBook({
+      title: "",
+      subject: materialClassifications[0] ?? DEFAULT_MATERIAL_OPTIONS[0],
+      description: "",
+      priceEgp: "250",
+      originalPriceEgp: "300",
+      freeShipping: false,
+      coverUrl: "",
+    });
+  };
+
+  const buildBookPayload = (bookForm: Record<string, string | boolean>) => ({
+    title: bookForm.title,
+    description: bookForm.description,
+    subject: bookForm.subject,
+    category: bookForm.subject,
+    priceEgp: parseInt(String(bookForm.priceEgp || 0), 10),
+    originalPriceEgp: parseInt(String(bookForm.originalPriceEgp || 0), 10),
+    pointsPrice: parseInt(String(bookForm.priceEgp || 0), 10),
+    freeShipping: Boolean(bookForm.freeShipping),
+    coverUrl: bookForm.coverUrl || undefined,
+    author: "غير محدد",
+  });
+
+  const loadVouchers = async () => {
+    try {
+      setVoucherLoading(true);
+      const res = await fetch("/api/admin/book-vouchers");
+      const data = await res.json();
+      if (res.ok && Array.isArray(data)) {
+        setVouchers(data);
+      }
+    } catch {
+      // no-op
+    } finally {
+      setVoucherLoading(false);
+    }
+  };
+
+  const loadMaterials = async () => {
+    try {
+      const res = await fetch("/api/admin/materials");
+      const data = await res.json().catch(() => []);
+      if (res.ok && Array.isArray(data)) {
+        setMaterials(data);
+      }
+    } catch {
+      // no-op
+    }
+  };
+
+  useEffect(() => {
+    void loadMaterials();
+    void loadVouchers();
+  }, []);
+
+  useEffect(() => {
+    if (!materialOptions.includes(newBook.subject)) {
+      setNewBook((prev) => ({ ...prev, subject: materialOptions[0] ?? DEFAULT_MATERIAL_OPTIONS[0] }));
+    }
+  }, [materialOptions, newBook.subject]);
+
+  useEffect(() => {
+    if (!voucherForm.bookId && books.length > 0) {
+      setVoucherForm((p) => ({ ...p, bookId: String(books[0].id) }));
+    }
+  }, [books, voucherForm.bookId]);
+
+  const handleCoverUpload = (file: File) => {
+    const fd = new FormData();
+    fd.append("cover", file);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/admin/books/upload-cover");
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      setCoverUploadProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      setCoverUploadProgress(null);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const data = JSON.parse(xhr.responseText);
+        set("coverUrl", data.url);
+      } else {
+        alert("فشل رفع صورة الغلاف");
+      }
+    };
+    xhr.onerror = () => {
+      setCoverUploadProgress(null);
+      alert("فشل رفع صورة الغلاف");
+    };
+    xhr.send(fd);
+  };
+
+  const handlePreview = () => {
+    if (!newBook.title.trim()) {
+      alert("عنوان الكتاب مطلوب");
+      return;
+    }
+    setPending({ ...newBook });
+    setPreview({ ...newBook });
+  };
+
   const handleConfirm = () => {
     if (!pending) return;
-    createBook.mutate({ data: { ...pending, pointsPrice: parseInt(pending.pointsPrice), pages: parseInt(pending.pages) } as any }, {
-      onSuccess: () => { refetch(); setAdding(false); setPreview(null); setPending(null); setNewBook({ title: "", author: "", category: "علوم", description: "", pointsPrice: "100", pages: "100" }); }
+    const payload = buildBookPayload(pending);
+
+    if (editingBookId !== null) {
+      updateBook.mutate({ id: editingBookId, data: payload as any }, {
+        onSuccess: () => {
+          refetch();
+          setAdding(false);
+          resetBookEditor();
+        },
+      });
+      return;
+    }
+
+    createBook.mutate({ data: payload as any }, {
+      onSuccess: () => {
+        refetch();
+        setAdding(false);
+        resetBookEditor();
+      },
     });
+  };
+
+  const handleEditBook = (book: any) => {
+    setEditingBookId(book.id);
+    setAdding(true);
+    setPreview(null);
+    setPending(null);
+    setCoverUploadProgress(null);
+    setNewBook({
+      title: book.title ?? "",
+      subject: book.subject ?? book.category ?? "علوم",
+      description: book.description ?? "",
+      priceEgp: String(book.priceEgp ?? book.pointsPrice ?? 0),
+      originalPriceEgp: String(book.originalPriceEgp ?? book.priceEgp ?? book.pointsPrice ?? 0),
+      freeShipping: Boolean(book.freeShipping),
+      coverUrl: book.coverUrl ?? "",
+    });
+  };
+
+  const handleCreateVoucher = async () => {
+    try {
+      if (!voucherForm.bookId) {
+        alert("اختر الكتاب أولًا");
+        return;
+      }
+      if (!voucherForm.code.trim()) {
+        alert("اكتب كود الخصم");
+        return;
+      }
+
+      const discountType = String(voucherForm.discountType || "percent");
+      let discountValue = Number.parseInt(String(voucherForm.discountValue || "0"), 10) || 0;
+      if (discountType === "percent") {
+        discountValue = Math.max(1, Math.min(100, discountValue));
+      } else if (discountType === "amount") {
+        discountValue = Math.max(1, discountValue);
+      } else {
+        discountValue = 0;
+      }
+
+      const res = await fetch("/api/admin/book-vouchers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookId: parseInt(voucherForm.bookId, 10),
+          code: voucherForm.code,
+          discountType,
+          discountValue,
+          discountPercent: discountType === "percent" ? discountValue : 0,
+          usageLimit: voucherForm.usageLimit ? parseInt(voucherForm.usageLimit, 10) : null,
+          expiresAt: voucherForm.expiresAt || null,
+          active: voucherForm.active,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "فشل إنشاء الكود");
+      setVoucherForm({
+        bookId: books.length > 0 ? String(books[0].id) : "",
+        code: "",
+        discountType: "percent",
+        discountValue: "10",
+        usageLimit: "",
+        expiresAt: "",
+        active: true,
+      });
+      await loadVouchers();
+    } catch (err: any) {
+      alert(err?.message || "فشل إنشاء كود الخصم");
+    }
+  };
+
+  const handleDeleteVoucher = async (id: number) => {
+    if (!confirm("حذف كود الخصم؟")) return;
+    await fetch(`/api/admin/book-vouchers/${id}`, { method: "DELETE" });
+    await loadVouchers();
+  };
+
+  const handleReorderBook = async (bookId: number, direction: "up" | "down") => {
+    const currentIndex = books.findIndex((book) => book.id === bookId);
+    if (currentIndex === -1) return;
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= books.length) return;
+
+    const reorderedBooks = [...books];
+    const temp = reorderedBooks[currentIndex];
+    reorderedBooks[currentIndex] = reorderedBooks[targetIndex];
+    reorderedBooks[targetIndex] = temp;
+    const orderedIds = reorderedBooks.map((book) => book.id);
+
+    try {
+      setReorderLoadingId(bookId);
+      const res = await fetch("/api/admin/books/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: orderedIds }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "فشل حفظ ترتيب الكتب");
+      await refetch();
+    } catch (err: any) {
+      alert(err?.message || "فشل ترتيب الكتب");
+    } finally {
+      setReorderLoadingId(null);
+    }
+  };
+
+  const discountLabel = voucherForm.discountType === "amount" ? "الخصم (ج.م)" : voucherForm.discountType === "free_shipping" ? "نوع الخصم" : "الخصم (%)";
+
+  const formatVoucherDiscount = (voucher: any) => {
+    const type = String(voucher.discountType ?? "percent");
+    const percentFallback = Number(voucher.discountPercent ?? 0);
+    const rawValue = Number(voucher.discountValue ?? 0);
+    const value = type === "percent" && rawValue <= 0 ? percentFallback : rawValue;
+    if (type === "amount") return `${value.toLocaleString("ar-EG")} ج.م`;
+    if (type === "free_shipping") return "شحن مجاني";
+    return `${value}%`;
   };
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-display font-bold">الكتب ({books.length})</h2>
-        <button onClick={() => setAdding(!adding)} className="btn-primary text-sm py-2.5 px-5"><Plus className="w-4 h-4" /> إضافة كتاب</button>
+        <button
+          onClick={() => {
+            if (adding) {
+              setAdding(false);
+              resetBookEditor();
+              return;
+            }
+            resetBookEditor();
+            setAdding(true);
+          }}
+          className="btn-primary text-sm py-2.5 px-5"
+        >
+          <Plus className="w-4 h-4" /> {adding ? "إغلاق النموذج" : "إضافة كتاب"}
+        </button>
       </div>
       {adding && (
         <div className="glass-card p-5 space-y-4 border-primary/20">
-          <h3 className="font-bold">إضافة كتاب جديد</h3>
+          <h3 className="font-bold">{editingBookId !== null ? "تعديل كتاب منشور" : "إضافة كتاب جديد"}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {[["title","عنوان الكتاب"],["author","المؤلف"],["description","الوصف"],["pointsPrice","السعر (نقاط)"],["pages","عدد الصفحات"]].map(([k,l]) => (
+            {[["title","عنوان الكتاب"],["description","الوصف"],["priceEgp","سعر البيع (ج.م)"],["originalPriceEgp","السعر قبل الخصم (ج.م)"]].map(([k,l]) => (
               <div key={k} className={`space-y-1 ${k==="description"?"sm:col-span-2":""}`}>
                 <label className="text-xs font-semibold text-muted-foreground">{l}</label>
-                <input value={newBook[k as keyof typeof newBook]} onChange={e => set(k,e.target.value)}
+                <input value={String(newBook[k as keyof typeof newBook] ?? "")} onChange={e => set(k,e.target.value)}
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50" />
               </div>
             ))}
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground">التصنيف</label>
-              <select value={newBook.category} onChange={e => set("category",e.target.value)}
+              <label className="text-xs font-semibold text-muted-foreground">المادة</label>
+              <select value={newBook.subject} onChange={e => set("subject",e.target.value)}
                 className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none">
-                {["علوم","رياضيات","لغات","تاريخ","برمجة"].map(c => <option key={c} value={c}>{c}</option>)}
+                {materialOptions.map((materialName) => <option key={materialName} value={materialName}>{materialName}</option>)}
               </select>
             </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-xs font-semibold text-muted-foreground">صورة الغلاف</label>
+              <label className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 cursor-pointer hover:bg-white transition-all">
+                <div className="flex items-center gap-2 text-sm">
+                  <ImagePlus className="w-4 h-4 text-primary" />
+                  <span>{newBook.coverUrl ? "تم رفع صورة الغلاف" : "اختر صورة الغلاف"}</span>
+                </div>
+                {newBook.coverUrl && <img src={newBook.coverUrl} alt="cover" className="w-10 h-14 object-cover rounded-md border border-white/70" />}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) handleCoverUpload(file);
+                  }}
+                />
+              </label>
+              {coverUploadProgress !== null && (
+                <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                  <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${coverUploadProgress}%` }} />
+                </div>
+              )}
+            </div>
+            <label className="sm:col-span-2 inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+              <input
+                type="checkbox"
+                checked={newBook.freeShipping}
+                onChange={e => setNewBook(p => ({ ...p, freeShipping: e.target.checked }))}
+                className="w-4 h-4 rounded border-border"
+              />
+              تفعيل الشحن المجاني لهذا الكتاب
+            </label>
           </div>
           <div className="flex gap-2">
             <button onClick={handlePreview} className="flex items-center gap-1.5 px-5 py-2.5 rounded-2xl bg-amber-400/20 text-amber-700 border border-amber-200/50 font-semibold text-sm hover:bg-amber-400/30 transition-all">
-              <Eye className="w-4 h-4" /> معاينة قبل النشر
+              <Eye className="w-4 h-4" /> {editingBookId !== null ? "معاينة التعديلات" : "معاينة قبل النشر"}
             </button>
-            <button onClick={() => setAdding(false)} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:bg-muted transition-all">إلغاء</button>
+            {editingBookId !== null && (
+              <button
+                onClick={() => resetBookEditor()}
+                className="px-4 py-2 rounded-xl border border-primary/30 text-sm font-semibold text-primary hover:bg-primary/5 transition-all"
+              >
+                بدء إضافة كتاب جديد
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setAdding(false);
+                resetBookEditor();
+              }}
+              className="px-4 py-2 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:bg-muted transition-all"
+            >
+              إلغاء
+            </button>
           </div>
         </div>
       )}
@@ -241,15 +789,20 @@ function BooksTab() {
           title="معاينة الكتاب"
           content={
             <div className="flex gap-4">
-              <div className="w-20 h-28 rounded-xl bg-gradient-to-br from-indigo-100 to-primary/20 flex items-center justify-center flex-shrink-0">
-                <BookOpen className="w-8 h-8 text-primary/40" />
-              </div>
+              {preview.coverUrl ? (
+                <img src={String(preview.coverUrl)} alt="preview" className="w-20 h-28 rounded-xl object-cover border border-white/70 flex-shrink-0" />
+              ) : (
+                <div className="w-20 h-28 rounded-xl bg-gradient-to-br from-indigo-100 to-primary/20 flex items-center justify-center flex-shrink-0">
+                  <BookOpen className="w-8 h-8 text-primary/40" />
+                </div>
+              )}
               <div>
                 <h3 className="font-bold text-xl text-foreground mb-1">{preview.title}</h3>
-                <p className="text-muted-foreground text-sm mb-2">{preview.author}</p>
-                <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full font-bold">{preview.category}</span>
+                <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full font-bold">{preview.subject}</span>
                 <p className="text-sm text-foreground mt-2">{preview.description}</p>
-                <p className="text-amber-500 font-bold mt-2">{preview.pointsPrice} نقطة</p>
+                <p className="text-muted-foreground line-through text-xs mt-2">{preview.originalPriceEgp} ج.م</p>
+                <p className="text-amber-500 font-bold">{preview.priceEgp} ج.م</p>
+                {Boolean(preview.freeShipping) && <p className="text-emerald-600 text-xs font-bold mt-1 flex items-center gap-1"><Truck className="w-3.5 h-3.5" /> شحن مجاني</p>}
               </div>
             </div>
           }
@@ -260,23 +813,153 @@ function BooksTab() {
       <div className="glass-card overflow-hidden">
         <table className="w-full text-sm text-right">
           <thead><tr className="border-b border-white/40">
-            {["العنوان","المؤلف","التصنيف","السعر","إجراءات"].map(h => <th key={h} className="px-5 py-4 font-bold text-muted-foreground text-xs">{h}</th>)}
+            {["العنوان","المادة","سعر البيع","قبل الخصم","شحن مجاني","إجراءات"].map(h => <th key={h} className="px-5 py-4 font-bold text-muted-foreground text-xs">{h}</th>)}
           </tr></thead>
           <tbody className="divide-y divide-white/30">
-            {books.map(b => (
+            {books.map((b, rowIndex) => (
               <tr key={b.id} className="hover:bg-white/30 transition-colors">
-                <td className="px-5 py-3.5 font-semibold text-foreground">{b.title}</td>
-                <td className="px-5 py-3.5 text-muted-foreground">{b.author}</td>
-                <td className="px-5 py-3.5"><span className="px-2.5 py-1 rounded-full text-xs font-bold bg-primary/10 text-primary">{b.category}</span></td>
-                <td className="px-5 py-3.5 font-bold text-amber-500">{b.pointsPrice}</td>
+                <td className="px-5 py-3.5 font-semibold text-foreground">
+                  <div className="flex items-center gap-2">
+                    {b.coverUrl ? <img src={b.coverUrl} alt={b.title} className="w-8 h-10 rounded object-cover border border-white/70" /> : null}
+                    <span>{b.title}</span>
+                  </div>
+                </td>
                 <td className="px-5 py-3.5">
-                  <button onClick={() => { if(confirm("حذف الكتاب؟")) deleteBook.mutate({ id: b.id }, { onSuccess: () => refetch() }); }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all">حذف</button>
+                  <span
+                    className="inline-flex max-w-[260px] px-2.5 py-1 rounded-2xl text-xs font-bold bg-primary/10 text-primary leading-relaxed whitespace-normal break-words"
+                    title={b.subject || b.category}
+                  >
+                    {b.subject || b.category}
+                  </span>
+                </td>
+                <td className="px-5 py-3.5 font-bold text-amber-600">{(b.priceEgp ?? b.pointsPrice ?? 0).toLocaleString("ar-EG")} ج.م</td>
+                <td className="px-5 py-3.5 text-muted-foreground">{(b.originalPriceEgp ?? b.priceEgp ?? b.pointsPrice ?? 0).toLocaleString("ar-EG")} ج.م</td>
+                <td className="px-5 py-3.5">{b.freeShipping ? <span className="text-emerald-600 font-bold text-xs">مفعل</span> : <span className="text-muted-foreground text-xs">غير مفعل</span>}</td>
+                <td className="px-5 py-3.5">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleReorderBook(b.id, "up")}
+                      disabled={rowIndex === 0 || reorderLoadingId === b.id}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleReorderBook(b.id, "down")}
+                      disabled={rowIndex === books.length - 1 || reorderLoadingId === b.id}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleEditBook(b)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-all inline-flex items-center gap-1"
+                    >
+                      <Edit className="w-3.5 h-3.5" />
+                      تعديل
+                    </button>
+                    <button onClick={() => { if(confirm("حذف الكتاب؟")) deleteBook.mutate({ id: b.id }, { onSuccess: () => refetch() }); }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all">حذف</button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="glass-card p-5 space-y-4">
+        <h3 className="font-bold text-lg flex items-center gap-2"><TicketPercent className="w-5 h-5 text-primary" /> أكواد الخصم (Voucher)</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">الكتاب المستهدف</label>
+            <select
+              value={voucherForm.bookId}
+              onChange={e => setVoucher("bookId", e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50"
+            >
+              {books.length === 0 && <option value="">لا توجد كتب</option>}
+              {books.map((b) => (
+                <option key={b.id} value={String(b.id)}>{b.title}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">الكود</label>
+            <input value={voucherForm.code} onChange={e => setVoucher("code", e.target.value)}
+              placeholder="SAVE20"
+              className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">نوع الخصم</label>
+            <select
+              value={voucherForm.discountType}
+              onChange={e => setVoucher("discountType", e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50"
+            >
+              <option value="percent">نسبة مئوية</option>
+              <option value="amount">مبلغ ثابت</option>
+              <option value="free_shipping">شحن مجاني</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">{discountLabel}</label>
+            <input
+              value={voucherForm.discountType === "free_shipping" ? "" : voucherForm.discountValue}
+              onChange={e => setVoucher("discountValue", e.target.value)}
+              disabled={voucherForm.discountType === "free_shipping"}
+              placeholder={voucherForm.discountType === "amount" ? "مثال: 50" : voucherForm.discountType === "percent" ? "مثال: 20" : "لا يحتاج قيمة"}
+              className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50 disabled:opacity-60 disabled:cursor-not-allowed"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">حد الاستخدام (اختياري)</label>
+            <input value={voucherForm.usageLimit} onChange={e => setVoucher("usageLimit", e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">تاريخ الانتهاء (اختياري)</label>
+            <input type="datetime-local" value={voucherForm.expiresAt} onChange={e => setVoucher("expiresAt", e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50" />
+          </div>
+          <div className="flex items-end gap-2">
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-foreground pb-2">
+              <input type="checkbox" checked={voucherForm.active} onChange={e => setVoucher("active", e.target.checked)} />
+              مفعل
+            </label>
+            <button onClick={handleCreateVoucher} className="btn-primary text-sm py-2.5 px-4" disabled={books.length === 0}>إضافة الكود</button>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border border-white/50">
+          <table className="w-full text-sm text-right">
+            <thead className="bg-white/50">
+              <tr>
+                {["الكود","الكتاب","الخصم","الاستخدام","ينتهي","الحالة","إجراء"].map(h => <th key={h} className="px-4 py-3 text-xs font-bold text-muted-foreground">{h}</th>)}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/40">
+              {vouchers.map((v) => (
+                <tr key={v.id} className="hover:bg-white/30">
+                  <td className="px-4 py-3 font-bold text-foreground">{v.code}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{v.bookTitle || `#${v.bookId ?? "-"}`}</td>
+                  <td className="px-4 py-3 text-primary font-bold">{formatVoucherDiscount(v)}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{v.usedCount}/{v.usageLimit ?? "∞"}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{v.expiresAt ? new Date(v.expiresAt).toLocaleString("ar-EG") : "غير محدد"}</td>
+                  <td className="px-4 py-3">{v.active ? <span className="text-emerald-600 text-xs font-bold">مفعل</span> : <span className="text-rose-600 text-xs font-bold">متوقف</span>}</td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => handleDeleteVoucher(v.id)} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all">حذف</button>
+                  </td>
+                </tr>
+              ))}
+              {!voucherLoading && vouchers.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-6 text-center text-muted-foreground text-sm">لا توجد أكواد خصم حتى الآن</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -369,6 +1052,7 @@ function VideosTab() {
   const createVideo = useCreateAdminVideo();
   const updateVideo = useUpdateAdminVideo();
   const deleteVideo = useDeleteAdminVideo();
+  const [materials, setMaterials] = useState<Material[]>([]);
   const [adding, setAdding] = useState(false);
   const [preview, setPreview] = useState<null | Record<string, string>>(null);
   const [previewRendered, setPreviewRendered] = useState(false);
@@ -377,17 +1061,50 @@ function VideosTab() {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [thumbnailUploadProgress, setThumbnailUploadProgress] = useState<number | null>(null);
   const [form, setForm] = useState({
-    title: "", instructor: "", subject: "علوم", duration: "30",
+    title: "", instructor: "", subject: DEFAULT_MATERIAL_OPTIONS[0], duration: "30",
     videoUrl: "", description: "", videoType: "youtube", publishStatus: "published",
     thumbnailUrl: "",
   });
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
+  const materialClassifications =
+    materials.length > 0
+      ? Array.from(
+          new Set(
+            materials.map((material) => String(material.classification ?? "").trim() || material.name).filter(Boolean),
+          ),
+        )
+      : DEFAULT_MATERIAL_OPTIONS;
+  const videoMaterialOptions = materialClassifications.includes(form.subject)
+    ? materialClassifications
+    : [form.subject, ...materialClassifications];
 
   const youtubeValid = form.videoType === "youtube"
     ? (form.videoUrl ? isValidYouTubeUrl(form.videoUrl) : null)
     : null;
 
   const videoUrlValid = form.videoType === "youtube" ? youtubeValid === true : !!form.videoUrl;
+
+  const loadMaterials = async () => {
+    try {
+      const res = await fetch("/api/admin/materials");
+      const data = await res.json().catch(() => []);
+      if (res.ok && Array.isArray(data)) {
+        setMaterials(data);
+      }
+    } catch {
+      // no-op
+    }
+  };
+
+  useEffect(() => {
+    void loadMaterials();
+  }, []);
+
+  useEffect(() => {
+    if (!videoMaterialOptions.includes(form.subject)) {
+      set("subject", videoMaterialOptions[0] ?? DEFAULT_MATERIAL_OPTIONS[0]);
+    }
+  }, [videoMaterialOptions, form.subject]);
 
   const handleFileUpload = (file: File) => {
     setUploadProgress(0);
@@ -436,7 +1153,17 @@ function VideosTab() {
     setAdding(false);
     setPreview(null);
     setVideoFileUrl(null);
-    setForm({ title: "", instructor: "", subject: "علوم", duration: "30", videoUrl: "", description: "", videoType: "youtube", publishStatus: "published", thumbnailUrl: "" });
+    setForm({
+      title: "",
+      instructor: "",
+      subject: videoMaterialOptions[0] ?? DEFAULT_MATERIAL_OPTIONS[0],
+      duration: "30",
+      videoUrl: "",
+      description: "",
+      videoType: "youtube",
+      publishStatus: "published",
+      thumbnailUrl: "",
+    });
   };
 
   const handleConfirm = () => {
@@ -528,7 +1255,7 @@ function VideosTab() {
               <label className="text-xs font-semibold text-muted-foreground">المادة</label>
               <select value={form.subject} onChange={e => set("subject", e.target.value)}
                 className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none">
-                {["علوم","رياضيات","لغة عربية","لغة إنجليزية","تاريخ","برمجة"].map(s => <option key={s} value={s}>{s}</option>)}
+                {videoMaterialOptions.map((materialName) => <option key={materialName} value={materialName}>{materialName}</option>)}
               </select>
             </div>
             {form.videoType === "youtube" ? (
@@ -879,9 +1606,10 @@ export default function AdminPanel() {
   }
 
   const TAB_CONTENT: Record<Tab, React.ReactNode> = {
-    dashboard: <DashboardTab />,
+    dashboard: <DashboardTab onOpenMaterials={() => setTab("materials")} />,
     users: <UsersTab />,
     academic: <AcademicTab />,
+    materials: <MaterialsTab />,
     books: <BooksTab />,
     videos: <VideosTab />,
     posts: <PostsTab />,
