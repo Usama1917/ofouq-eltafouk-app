@@ -45,6 +45,8 @@ export default function Dashboard() {
     },
   ];
 
+  const topStats = [stats[2], stats[1], stats[0]];
+
   const quickLinks = [
     {
       title: "المسابقات",
@@ -87,83 +89,88 @@ export default function Dashboard() {
       animate="animate"
       className="space-y-10"
     >
-      {/* ── Hero ────────────────────────────────────────────── */}
-      <motion.div variants={stagger.item} className="relative">
-        {/* Glow layers */}
-        <div className="absolute -top-10 -right-10 w-72 h-72 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-10 -left-10 w-56 h-56 rounded-full bg-violet-400/10 blur-3xl pointer-events-none" />
+      {/* ── Hero + Stats ────────────────────────────────────── */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-stretch">
+        <motion.div variants={stagger.item} className="relative min-w-0 md:flex md:flex-1">
+          {/* Glow layers */}
+          <div className="absolute -top-10 -right-10 w-72 h-72 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-10 -left-10 w-56 h-56 rounded-full bg-violet-400/10 blur-3xl pointer-events-none" />
 
-        <div className="glass-float relative overflow-hidden p-8 md:p-12">
-          {/* Subtle inner gradient */}
-          <div className="absolute inset-0 bg-gradient-to-bl from-primary/5 via-transparent to-violet-500/5 pointer-events-none" />
+          <div className="glass-float relative overflow-hidden p-8 md:flex md:h-full md:min-h-[23.5rem] md:items-center md:p-10 lg:p-12">
+            {/* Subtle inner gradient */}
+            <div className="absolute inset-0 bg-gradient-to-bl from-primary/5 via-transparent to-violet-500/5 pointer-events-none" />
 
-          <div className="relative z-10 max-w-2xl space-y-5">
-            <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/20 text-primary rounded-full px-4 py-1.5 text-sm font-semibold">
-              <Sparkles className="w-3.5 h-3.5" />
-              منصة التعليم المتميز
-            </div>
+            <div className="relative z-10 max-w-xl space-y-5 lg:pl-20 xl:max-w-2xl xl:pl-24">
+              <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/20 text-primary rounded-full px-4 py-1.5 text-sm font-semibold">
+                <Sparkles className="w-3.5 h-3.5" />
+                منصة التعليم المتميز
+              </div>
 
-            <h1 className="text-4xl md:text-5xl font-display font-black text-foreground leading-tight">
-              مرحباً بك في{" "}
-              <span className="text-primary">أفق التفوق</span>
-            </h1>
+              <h1 className="text-4xl md:text-5xl font-display font-black text-foreground leading-tight">
+                مرحباً بك في{" "}
+                <span className="text-primary">أفق التفوق</span>
+              </h1>
 
-            <p className="text-lg text-muted-foreground font-medium leading-relaxed">
-              المنصة التعليمية الشاملة — تعلّم، شارك، واربح المكافآت في رحلة تعليمية فريدة.
-            </p>
+              <p className="text-lg text-muted-foreground font-medium leading-relaxed">
+                المنصة التعليمية الشاملة — تعلّم، شارك، واربح المكافآت في رحلة تعليمية فريدة.
+              </p>
 
-            <div className="flex flex-wrap gap-3 pt-2">
-              <Link href="/books">
-                <button className="btn-primary text-sm">
-                  تصفح المكتبة
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-              </Link>
-              <Link href="/ai-chat">
-                <button className="
-                  inline-flex items-center gap-2 px-6 py-3.5 rounded-full
-                  font-semibold text-sm text-foreground
-                  bg-white/60 backdrop-blur border border-white/80
-                  hover:bg-white/80 transition-all duration-200
-                  soft-shadow
-                ">
-                  <Bot className="w-4 h-4 text-primary" />
-                  اسأل المساعد الذكي
-                </button>
-              </Link>
-            </div>
-          </div>
-
-          {/* Decorative icon cluster */}
-          <div className="absolute left-8 top-1/2 -translate-y-1/2 hidden lg:flex flex-col gap-4 opacity-30">
-            {[BookOpen, Star, Sparkles].map((Icon, i) => (
-              <Icon key={i} className="w-8 h-8 text-primary" />
-            ))}
-          </div>
-        </div>
-      </motion.div>
-
-      {/* ── Stats ───────────────────────────────────────────── */}
-      <motion.div variants={stagger.item} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {stats.map((stat, i) => (
-          <motion.div
-            key={i}
-            whileHover={{ y: -3 }}
-            className={`glass-card p-6 bg-gradient-to-br ${stat.bg} ${stat.border}`}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-semibold text-muted-foreground">{stat.title}</p>
-              <div className={`w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center ${stat.color}`}>
-                <stat.icon className="w-4.5 h-4.5" />
+              <div className="flex flex-wrap gap-3 pt-2">
+                <Link href="/books">
+                  <button className="btn-primary text-sm">
+                    تصفح المكتبة
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
+                </Link>
+                <Link href="/ai-chat">
+                  <button className="
+                    inline-flex items-center gap-2 px-6 py-3.5 rounded-full
+                    font-semibold text-sm text-foreground
+                    bg-white/60 backdrop-blur border border-white/80
+                    hover:bg-white/80 transition-all duration-200
+                    soft-shadow
+                  ">
+                    <Bot className="w-4 h-4 text-primary" />
+                    اسأل المساعد الذكي
+                  </button>
+                </Link>
               </div>
             </div>
-            <p className={`font-display font-black text-4xl ${stat.color}`}>
-              {stat.value.toLocaleString("ar-EG")}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">نقطة</p>
-          </motion.div>
-        ))}
-      </motion.div>
+
+            {/* Decorative icon cluster */}
+            <div className="absolute left-8 top-1/2 -translate-y-1/2 hidden lg:flex flex-col gap-4 opacity-30">
+              {[BookOpen, Star, Sparkles].map((Icon, i) => (
+                <Icon key={i} className="w-8 h-8 text-primary" />
+              ))}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* ── Stats ─────────────────────────────────────────── */}
+        <motion.div
+          variants={stagger.item}
+          className="grid grid-cols-1 gap-3 md:w-64 md:flex-shrink-0 lg:w-72 xl:w-80"
+        >
+          {topStats.map((stat, i) => (
+            <motion.div
+              key={i}
+              whileHover={{ y: -3 }}
+              className={`glass-card p-5 bg-gradient-to-br ${stat.bg} ${stat.border}`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-muted-foreground">{stat.title}</p>
+                <div className={`w-8 h-8 rounded-xl bg-white/70 flex items-center justify-center ${stat.color}`}>
+                  <stat.icon className="w-4 h-4" />
+                </div>
+              </div>
+              <p className={`font-display font-black text-3xl md:text-[2rem] ${stat.color}`}>
+                {stat.value.toLocaleString("en-US")}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">نقطة</p>
+            </motion.div>
+          ))}
+        </motion.div>
+      </div>
 
       {/* ── Quick Access ────────────────────────────────────── */}
       <motion.div variants={stagger.item} className="space-y-5">
