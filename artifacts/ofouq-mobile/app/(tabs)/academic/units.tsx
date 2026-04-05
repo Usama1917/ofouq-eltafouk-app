@@ -20,23 +20,20 @@ export default function UnitsScreen() {
   const colors = isDark ? COLORS.dark : COLORS.light;
   const router = useRouter();
   const navigation = useNavigation();
-  const { yearId, yearName, subjectId, subjectName, providerId, providerName } = useLocalSearchParams<{
+  const { yearId, yearName, subjectId, subjectName } = useLocalSearchParams<{
     yearId: string; yearName: string; subjectId: string; subjectName: string;
-    providerId?: string; providerName?: string;
   }>();
 
-  const title = providerName ?? subjectName ?? "الوحدات";
+  const title = subjectName ?? "الوحدات";
 
   useEffect(() => {
     navigation.setOptions({ title });
   }, [title]);
 
   const { data: units = [], isLoading } = useQuery<Unit[]>({
-    queryKey: ["academic", "units", providerId ?? subjectId],
-    queryFn: () => providerId
-      ? apiFetch(`/api/academic/providers/${providerId}/units`)
-      : apiFetch(`/api/academic/subjects/${subjectId}/units`),
-    enabled: !!(providerId ?? subjectId),
+    queryKey: ["academic", "units", subjectId],
+    queryFn: () => apiFetch(`/api/academic/subjects/${subjectId}/units`),
+    enabled: !!subjectId,
   });
 
   return (
@@ -61,7 +58,7 @@ export default function UnitsScreen() {
         renderItem={({ item, index }) => (
           <Pressable
             style={({ pressed }) => [styles.card, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.8 : 1 }]}
-            onPress={() => router.push(`./lessons?yearId=${yearId}&yearName=${encodeURIComponent(String(yearName))}&subjectId=${subjectId}&subjectName=${encodeURIComponent(String(subjectName))}&providerId=${providerId ?? ""}&providerName=${encodeURIComponent(String(providerName ?? ""))}&unitId=${item.id}&unitName=${encodeURIComponent(item.name)}`)}
+            onPress={() => router.push(`./lessons?yearId=${yearId}&yearName=${encodeURIComponent(String(yearName))}&subjectId=${subjectId}&subjectName=${encodeURIComponent(String(subjectName))}&unitId=${item.id}&unitName=${encodeURIComponent(item.name)}`)}
           >
             <View style={[styles.indexBadge, { backgroundColor: COLORS.primary + "18" }]}>
               <Text style={[styles.indexText, { color: COLORS.primary }]}>{index + 1}</Text>

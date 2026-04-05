@@ -26,6 +26,9 @@ if (!basePath) {
   );
 }
 
+const apiProxyTarget =
+  process.env.API_PROXY_TARGET || `http://127.0.0.1:${process.env.API_PORT ?? "8080"}`;
+
 export default defineConfig({
   base: basePath,
   plugins: [
@@ -64,7 +67,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       "/api": {
-        target: "http://localhost:8080",
+        target: apiProxyTarget,
         changeOrigin: true,
         secure: false,
       },

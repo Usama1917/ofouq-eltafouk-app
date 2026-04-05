@@ -10,7 +10,6 @@ import { useLocation } from "wouter";
 import {
   useGetAdminStats, useListAdminUsers, useDeleteAdminUser, useUpdateAdminUser, useCreateAdminUser,
   useListAdminBooks, useCreateAdminBook, useUpdateAdminBook, useDeleteAdminBook,
-  useListAdminVideos, useCreateAdminVideo, useUpdateAdminVideo, useDeleteAdminVideo,
   useListModeratorPosts, useDeleteModeratorPost,
   useListAdminReports, useResolveAdminReport,
   useListAdminBanners, useCreateAdminBanner, useUpdateAdminBanner, useDeleteAdminBanner,
@@ -18,21 +17,46 @@ import {
 import { Logo } from "@/components/logo";
 import { AcademicTab } from "./admin-academic";
 
-type Tab = "dashboard" | "users" | "books" | "videos" | "posts" | "reports" | "banners" | "academic" | "materials";
+type Tab = "dashboard" | "users" | "books" | "posts" | "reports" | "banners" | "academic" | "subscriptionRequests" | "materials";
 type Material = { id: number; name: string; classification?: string; sortOrder?: number; createdAt?: string };
+type SubscriptionRequestItem = {
+  id: number;
+  code: string;
+  codeImageUrl?: string | null;
+  status: "pending" | "approved" | "rejected";
+  reviewNotes: string;
+  submittedAt: string;
+  reviewedAt?: string | null;
+  student: {
+    id: number;
+    name: string;
+    email: string;
+    phone?: string | null;
+  };
+  year: {
+    id: number;
+    name: string;
+  };
+  subject: {
+    id: number;
+    name: string;
+  };
+};
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "لوحة التحكم", icon: LayoutDashboard },
   { id: "users", label: "المستخدمون", icon: Users },
   { id: "academic", label: "المحتوى الأكاديمي", icon: GraduationCap },
+  { id: "subscriptionRequests", label: "طلبات الاشتراك", icon: TicketPercent },
   { id: "books", label: "الكتب", icon: BookOpen },
-  { id: "videos", label: "الفيديوهات", icon: Video },
   { id: "posts", label: "المنشورات", icon: MessageSquare },
   { id: "reports", label: "التقارير", icon: Flag },
   { id: "banners", label: "البنرات", icon: Megaphone },
 ];
 
 const DEFAULT_MATERIAL_OPTIONS = ["علوم", "رياضيات", "لغة عربية", "لغة إنجليزية", "تاريخ", "برمجة"];
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const apiPath = (path: string) => `${BASE}${path}`;
 
 // ── Preview Modal ──────────────────────────────────────────────────────────
 function PreviewModal({ title, content, onConfirm, onCancel }: {
@@ -117,6 +141,7 @@ function DashboardTab({ onOpenMaterials }: { onOpenMaterials: () => void }) {
 function MaterialsTab() {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [creating, setCreating] = useState(false);
   const [reorderLoadingId, setReorderLoadingId] = useState<number | null>(null);
   const [newMaterialForm, setNewMaterialForm] = useState({ name: "", classification: "" });
@@ -124,13 +149,19 @@ function MaterialsTab() {
   const loadMaterials = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/admin/materials");
-      const data = await res.json().catch(() => []);
-      if (res.ok && Array.isArray(data)) {
-        setMaterials(data);
+      setLoadError("");
+      const res = await fetch(apiPath("/api/admin/materials"));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as any)?.error || "تعذر تحميل المواد");
       }
-    } catch {
-      // no-op
+      if (!Array.isArray(data)) {
+        throw new Error("استجابة غير متوقعة من الخادم");
+      }
+      setMaterials(data);
+    } catch (err: any) {
+      setLoadError(err?.message || "تعذر تحميل المواد");
+      setMaterials([]);
     } finally {
       setLoading(false);
     }
@@ -153,7 +184,7 @@ function MaterialsTab() {
     }
     try {
       setCreating(true);
-      const res = await fetch("/api/admin/materials", {
+      const res = await fetch(apiPath("/api/admin/materials"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, classification }),
@@ -174,7 +205,7 @@ function MaterialsTab() {
   const handleDelete = async (material: Material) => {
     if (!confirm(`حذف المادة "${material.name}"؟`)) return;
     try {
-      const res = await fetch(`/api/admin/materials/${material.id}`, { method: "DELETE" });
+      const res = await fetch(apiPath(`/api/admin/materials/${material.id}`), { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data?.error || "تعذر حذف المادة");
@@ -199,7 +230,7 @@ function MaterialsTab() {
 
     try {
       setReorderLoadingId(materialId);
-      const res = await fetch("/api/admin/materials/reorder", {
+      const res = await fetch(apiPath("/api/admin/materials/reorder"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: orderedIds }),
@@ -251,6 +282,12 @@ function MaterialsTab() {
         </div>
         <p className="text-xs text-muted-foreground">سيتم استخدام التصنيف مباشرة في فلترة الكتب واختيارات مادة الكتب والفيديوهات.</p>
       </div>
+
+      {loadError && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm font-medium">
+          فشل تحميل المواد: {loadError}
+        </div>
+      )}
 
       <div className="glass-card overflow-hidden">
         <table className="w-full text-sm text-right">
@@ -474,7 +511,7 @@ function BooksTab() {
   const loadVouchers = async () => {
     try {
       setVoucherLoading(true);
-      const res = await fetch("/api/admin/book-vouchers");
+      const res = await fetch(apiPath("/api/admin/book-vouchers"));
       const data = await res.json();
       if (res.ok && Array.isArray(data)) {
         setVouchers(data);
@@ -488,7 +525,7 @@ function BooksTab() {
 
   const loadMaterials = async () => {
     try {
-      const res = await fetch("/api/admin/materials");
+      const res = await fetch(apiPath("/api/admin/materials"));
       const data = await res.json().catch(() => []);
       if (res.ok && Array.isArray(data)) {
         setMaterials(data);
@@ -519,7 +556,7 @@ function BooksTab() {
     const fd = new FormData();
     fd.append("cover", file);
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/admin/books/upload-cover");
+    xhr.open("POST", apiPath("/api/admin/books/upload-cover"));
     xhr.upload.onprogress = (e) => {
       if (!e.lengthComputable) return;
       setCoverUploadProgress(Math.round((e.loaded / e.total) * 100));
@@ -611,7 +648,7 @@ function BooksTab() {
         discountValue = 0;
       }
 
-      const res = await fetch("/api/admin/book-vouchers", {
+      const res = await fetch(apiPath("/api/admin/book-vouchers"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -644,7 +681,7 @@ function BooksTab() {
 
   const handleDeleteVoucher = async (id: number) => {
     if (!confirm("حذف كود الخصم؟")) return;
-    await fetch(`/api/admin/book-vouchers/${id}`, { method: "DELETE" });
+    await fetch(apiPath(`/api/admin/book-vouchers/${id}`), { method: "DELETE" });
     await loadVouchers();
   };
 
@@ -662,7 +699,7 @@ function BooksTab() {
 
     try {
       setReorderLoadingId(bookId);
-      const res = await fetch("/api/admin/books/reorder", {
+      const res = await fetch(apiPath("/api/admin/books/reorder"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: orderedIds }),
@@ -965,478 +1002,6 @@ function BooksTab() {
   );
 }
 
-// ── Videos Tab ────────────────────────────────────────────────────────────
-function getYouTubeEmbedUrl(url: string): string | null {
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
-  ];
-  for (const p of patterns) {
-    const m = url.match(p);
-    if (m) return `https://www.youtube.com/embed/${m[1]}`;
-  }
-  return null;
-}
-
-function isValidYouTubeUrl(url: string): boolean {
-  return getYouTubeEmbedUrl(url) !== null;
-}
-
-function VideoPreviewContent({
-  form,
-  videoFileUrl,
-  onLoaded,
-  onError,
-}: {
-  form: Record<string, string>;
-  videoFileUrl: string | null;
-  onLoaded?: () => void;
-  onError?: () => void;
-}) {
-  const embedUrl = form.videoType === "youtube" ? getYouTubeEmbedUrl(form.videoUrl) : null;
-  return (
-    <div className="flex flex-col lg:flex-row gap-4 text-right" dir="rtl">
-      <div className="flex-1 space-y-3">
-        <div className="w-full aspect-video rounded-xl overflow-hidden bg-black">
-          {form.videoType === "youtube" && embedUrl ? (
-            <iframe
-              src={embedUrl}
-              className="w-full h-full"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              onLoad={onLoaded}
-              onError={onError}
-            />
-          ) : form.videoType === "upload" && videoFileUrl ? (
-            <video
-              src={videoFileUrl}
-              controls
-              className="w-full h-full object-contain"
-              onCanPlay={onLoaded}
-              onError={onError}
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-sky-100 to-blue-100">
-              <Video className="w-12 h-12 text-sky-400" />
-            </div>
-          )}
-        </div>
-        <h3 className="font-bold text-lg text-foreground">{form.title || "عنوان الفيديو"}</h3>
-        <div className="flex gap-2 flex-wrap items-center">
-          <span className="text-xs bg-primary text-white px-2.5 py-1 rounded-full font-bold">{form.subject}</span>
-          <span className="text-xs bg-sky-100 text-sky-700 px-2.5 py-1 rounded-full font-bold">{form.instructor || "المعلم"}</span>
-          <span className="text-xs text-muted-foreground">{form.duration} دقيقة</span>
-        </div>
-        <p className="text-sm text-muted-foreground leading-relaxed">{form.description || "وصف الفيديو سيظهر هنا"}</p>
-      </div>
-      <div className="lg:w-56 space-y-2">
-        <p className="text-xs font-bold text-muted-foreground mb-2">فيديوهات مشابهة</p>
-        {[1,2,3].map(i => (
-          <div key={i} className="flex gap-2 items-center rounded-xl bg-muted/40 p-2">
-            <div className="w-16 h-10 rounded-lg bg-gradient-to-br from-primary/10 to-sky-100 flex-shrink-0 flex items-center justify-center">
-              <Video className="w-4 h-4 text-primary/50" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold truncate text-foreground/60">فيديو تعليمي {i}</p>
-              <p className="text-xs text-muted-foreground">{form.subject}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function VideosTab() {
-  const { data: videos = [], refetch } = useListAdminVideos();
-  const createVideo = useCreateAdminVideo();
-  const updateVideo = useUpdateAdminVideo();
-  const deleteVideo = useDeleteAdminVideo();
-  const [materials, setMaterials] = useState<Material[]>([]);
-  const [adding, setAdding] = useState(false);
-  const [preview, setPreview] = useState<null | Record<string, string>>(null);
-  const [previewRendered, setPreviewRendered] = useState(false);
-  const [previewError, setPreviewError] = useState(false);
-  const [videoFileUrl, setVideoFileUrl] = useState<string | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [thumbnailUploadProgress, setThumbnailUploadProgress] = useState<number | null>(null);
-  const [form, setForm] = useState({
-    title: "", instructor: "", subject: DEFAULT_MATERIAL_OPTIONS[0], duration: "30",
-    videoUrl: "", description: "", videoType: "youtube", publishStatus: "published",
-    thumbnailUrl: "",
-  });
-  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
-  const materialClassifications =
-    materials.length > 0
-      ? Array.from(
-          new Set(
-            materials.map((material) => String(material.classification ?? "").trim() || material.name).filter(Boolean),
-          ),
-        )
-      : DEFAULT_MATERIAL_OPTIONS;
-  const videoMaterialOptions = materialClassifications.includes(form.subject)
-    ? materialClassifications
-    : [form.subject, ...materialClassifications];
-
-  const youtubeValid = form.videoType === "youtube"
-    ? (form.videoUrl ? isValidYouTubeUrl(form.videoUrl) : null)
-    : null;
-
-  const videoUrlValid = form.videoType === "youtube" ? youtubeValid === true : !!form.videoUrl;
-
-  const loadMaterials = async () => {
-    try {
-      const res = await fetch("/api/admin/materials");
-      const data = await res.json().catch(() => []);
-      if (res.ok && Array.isArray(data)) {
-        setMaterials(data);
-      }
-    } catch {
-      // no-op
-    }
-  };
-
-  useEffect(() => {
-    void loadMaterials();
-  }, []);
-
-  useEffect(() => {
-    if (!videoMaterialOptions.includes(form.subject)) {
-      set("subject", videoMaterialOptions[0] ?? DEFAULT_MATERIAL_OPTIONS[0]);
-    }
-  }, [videoMaterialOptions, form.subject]);
-
-  const handleFileUpload = (file: File) => {
-    setUploadProgress(0);
-    const fd = new FormData();
-    fd.append("video", file);
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/admin/videos/upload");
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () => {
-      if (xhr.status === 200) {
-        const data = JSON.parse(xhr.responseText) as { url: string };
-        set("videoUrl", data.url);
-        setVideoFileUrl(data.url);
-      }
-      setUploadProgress(null);
-    };
-    xhr.onerror = () => setUploadProgress(null);
-    xhr.send(fd);
-  };
-
-  const handleThumbnailUpload = (file: File) => {
-    setThumbnailUploadProgress(0);
-    const fd = new FormData();
-    fd.append("thumbnail", file);
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/admin/videos/upload-thumbnail");
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) setThumbnailUploadProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () => {
-      if (xhr.status === 200) {
-        const data = JSON.parse(xhr.responseText) as { url: string };
-        set("thumbnailUrl", data.url);
-      }
-      setThumbnailUploadProgress(null);
-    };
-    xhr.onerror = () => setThumbnailUploadProgress(null);
-    xhr.send(fd);
-  };
-
-  const canSubmit = !!form.title && videoUrlValid;
-
-  const resetForm = () => {
-    setAdding(false);
-    setPreview(null);
-    setVideoFileUrl(null);
-    setForm({
-      title: "",
-      instructor: "",
-      subject: videoMaterialOptions[0] ?? DEFAULT_MATERIAL_OPTIONS[0],
-      duration: "30",
-      videoUrl: "",
-      description: "",
-      videoType: "youtube",
-      publishStatus: "published",
-      thumbnailUrl: "",
-    });
-  };
-
-  const handleConfirm = () => {
-    createVideo.mutate({
-      data: {
-        title: form.title,
-        description: form.description,
-        subject: form.subject,
-        videoUrl: form.videoUrl,
-        thumbnailUrl: form.thumbnailUrl || undefined,
-        duration: parseInt(form.duration) || 0,
-        instructor: form.instructor,
-        videoType: form.videoType,
-        publishStatus: form.publishStatus,
-      }
-    }, {
-      onSuccess: () => {
-        refetch();
-        resetForm();
-      }
-    });
-  };
-
-  const handleSaveDraft = () => {
-    if (!canSubmit) return;
-    createVideo.mutate({
-      data: {
-        title: form.title,
-        description: form.description,
-        subject: form.subject,
-        videoUrl: form.videoUrl,
-        thumbnailUrl: form.thumbnailUrl || undefined,
-        duration: parseInt(form.duration) || 0,
-        instructor: form.instructor,
-        videoType: form.videoType,
-        publishStatus: "draft",
-      }
-    }, {
-      onSuccess: () => {
-        refetch();
-        resetForm();
-      }
-    });
-  };
-
-  const togglePublishStatus = (id: number, currentStatus: string) => {
-    const newStatus = currentStatus === "published" ? "draft" : "published";
-    updateVideo.mutate({ id, data: { publishStatus: newStatus } as any }, {
-      onSuccess: () => refetch()
-    });
-  };
-
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-display font-bold">الفيديوهات ({videos.length})</h2>
-        <button onClick={() => setAdding(!adding)} className="btn-primary text-sm py-2.5 px-5"><Plus className="w-4 h-4" /> إضافة فيديو</button>
-      </div>
-      {adding && (
-        <div className="glass-card p-5 space-y-4 border-primary/20">
-          <h3 className="font-bold">إضافة فيديو جديد</h3>
-          <div className="flex gap-2">
-            <button
-              onClick={() => { set("videoType", "youtube"); set("videoUrl", ""); setVideoFileUrl(null); }}
-              className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${form.videoType === "youtube" ? "bg-primary text-white border-primary" : "bg-white/60 text-foreground border-white/60 hover:bg-white/80"}`}
-            >رابط يوتيوب</button>
-            <button
-              onClick={() => { set("videoType", "upload"); set("videoUrl", ""); setVideoFileUrl(null); }}
-              className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${form.videoType === "upload" ? "bg-primary text-white border-primary" : "bg-white/60 text-foreground border-white/60 hover:bg-white/80"}`}
-            >رفع ملف فيديو</button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground">عنوان الفيديو</label>
-              <input value={form.title} onChange={e => set("title", e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground">المعلم</label>
-              <input value={form.instructor} onChange={e => set("instructor", e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground">المدة (دقيقة)</label>
-              <input value={form.duration} onChange={e => set("duration", e.target.value)} type="number"
-                className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground">المادة</label>
-              <select value={form.subject} onChange={e => set("subject", e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none">
-                {videoMaterialOptions.map((materialName) => <option key={materialName} value={materialName}>{materialName}</option>)}
-              </select>
-            </div>
-            {form.videoType === "youtube" ? (
-              <div className="space-y-1 sm:col-span-2">
-                <label className="text-xs font-semibold text-muted-foreground">رابط يوتيوب</label>
-                <div className="relative">
-                  <input value={form.videoUrl} onChange={e => set("videoUrl", e.target.value)}
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    className={`w-full px-3 py-2.5 pr-10 rounded-xl bg-white/70 border text-sm outline-none transition-all ${form.videoUrl === "" ? "border-white/70" : youtubeValid ? "border-green-400 focus:border-green-500" : "border-red-400 focus:border-red-500"}`} />
-                  {form.videoUrl !== "" && (
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2">
-                      {youtubeValid
-                        ? <Check className="w-4 h-4 text-green-500" />
-                        : <X className="w-4 h-4 text-red-500" />}
-                    </span>
-                  )}
-                </div>
-                {form.videoUrl && !youtubeValid && (
-                  <p className="text-xs text-red-500">رابط يوتيوب غير صالح</p>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-1 sm:col-span-2">
-                <label className="text-xs font-semibold text-muted-foreground">ملف الفيديو</label>
-                <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-white/60 rounded-xl bg-white/40 cursor-pointer hover:bg-white/60 transition-all">
-                  <Video className="w-6 h-6 text-muted-foreground mb-1" />
-                  <span className="text-xs text-muted-foreground">{form.videoUrl ? "تم رفع الملف بنجاح" : "انقر لاختيار ملف فيديو"}</span>
-                  <input type="file" accept="video/*" className="hidden" onChange={e => {
-                    const file = e.target.files?.[0];
-                    if (file) handleFileUpload(file);
-                  }} />
-                </label>
-                {uploadProgress !== null && (
-                  <div className="w-full bg-white/50 rounded-full h-2 mt-1">
-                    <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
-                  </div>
-                )}
-                {form.videoUrl && (
-                  <p className="text-xs text-green-600 font-semibold flex items-center gap-1"><Check className="w-3 h-3" /> تم رفع الملف</p>
-                )}
-              </div>
-            )}
-            <div className="space-y-1 sm:col-span-2">
-              <label className="text-xs font-semibold text-muted-foreground">الصورة المصغرة (اختياري)</label>
-              <label className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 cursor-pointer hover:bg-white/90 transition-all">
-                {form.thumbnailUrl ? (
-                  <img src={form.thumbnailUrl} alt="thumbnail" className="w-12 h-8 rounded object-cover flex-shrink-0" />
-                ) : (
-                  <div className="w-12 h-8 rounded bg-muted/40 flex items-center justify-center flex-shrink-0">
-                    <Eye className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                )}
-                <span className="text-sm text-muted-foreground flex-1 truncate">
-                  {form.thumbnailUrl ? "تم رفع الصورة" : "انقر لرفع صورة مصغرة"}
-                </span>
-                {form.thumbnailUrl && <Check className="w-4 h-4 text-green-500 flex-shrink-0" />}
-                <input type="file" accept="image/*" className="hidden" onChange={e => {
-                  const file = e.target.files?.[0];
-                  if (file) handleThumbnailUpload(file);
-                }} />
-              </label>
-              {thumbnailUploadProgress !== null && (
-                <div className="w-full bg-white/50 rounded-full h-2 mt-1">
-                  <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${thumbnailUploadProgress}%` }} />
-                </div>
-              )}
-            </div>
-            <div className="space-y-1 sm:col-span-2">
-              <label className="text-xs font-semibold text-muted-foreground">الوصف</label>
-              <textarea value={form.description} onChange={e => set("description", e.target.value)} rows={2}
-                className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50 resize-none" />
-            </div>
-            <div className="space-y-1 sm:col-span-2">
-              <label className="text-xs font-semibold text-muted-foreground">حالة النشر</label>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => set("publishStatus", "published")}
-                  className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${form.publishStatus === "published" ? "bg-emerald-500 text-white border-emerald-500" : "bg-white/60 text-foreground border-white/60 hover:bg-white/80"}`}
-                >منشور</button>
-                <button
-                  onClick={() => set("publishStatus", "draft")}
-                  className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${form.publishStatus === "draft" ? "bg-amber-400 text-amber-900 border-amber-400" : "bg-white/60 text-foreground border-white/60 hover:bg-white/80"}`}
-                >مسودة</button>
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => { if (canSubmit) { setPreview({...form}); setPreviewRendered(false); setPreviewError(false); } }}
-              disabled={!canSubmit}
-              className="flex items-center gap-1.5 px-5 py-2.5 rounded-2xl bg-amber-400/20 text-amber-700 border border-amber-200/50 font-semibold text-sm hover:bg-amber-400/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Eye className="w-4 h-4" /> معاينة قبل النشر
-            </button>
-            {form.publishStatus === "draft" && (
-              <button
-                onClick={handleSaveDraft}
-                disabled={!canSubmit || createVideo.isPending}
-                className="flex items-center gap-1.5 px-5 py-2.5 rounded-2xl bg-amber-50 text-amber-800 border border-amber-200 font-semibold text-sm hover:bg-amber-100 transition-all disabled:opacity-40"
-              >حفظ كمسودة</button>
-            )}
-            <button onClick={() => setAdding(false)} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:bg-muted transition-all">إلغاء</button>
-          </div>
-        </div>
-      )}
-      {preview && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4" dir="rtl">
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="p-5 border-b flex items-center justify-between bg-muted/20 sticky top-0 bg-white z-10">
-              <h3 className="font-bold text-lg text-foreground flex items-center gap-2">
-                <Eye className="w-5 h-5 text-primary" /> معاينة الفيديو
-              </h3>
-              <button onClick={() => setPreview(null)} className="w-8 h-8 rounded-xl bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <VideoPreviewContent
-                form={preview}
-                videoFileUrl={videoFileUrl}
-                onLoaded={() => { setPreviewRendered(true); setPreviewError(false); }}
-                onError={() => { setPreviewError(true); setPreviewRendered(false); }}
-              />
-              {previewError && (
-                <p className="text-xs text-red-600 font-semibold flex items-center gap-1">
-                  <X className="w-3 h-3" /> تعذّر تحميل الفيديو — يرجى التحقق من الرابط
-                </p>
-              )}
-              <div className="flex gap-3 pt-2">
-                <button
-                  onClick={handleConfirm}
-                  disabled={!previewRendered || previewError || createVideo.isPending}
-                  className="flex-1 btn-primary justify-center py-3 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Check className="w-4 h-4" /> {form.publishStatus === "draft" ? "حفظ كمسودة" : "تأكيد النشر"}
-                </button>
-                <button onClick={() => setPreview(null)} className="flex-1 py-3 rounded-2xl border border-border text-foreground font-semibold text-sm hover:bg-muted transition-all">
-                  <X className="w-4 h-4 inline-block ml-1.5" /> تعديل
-                </button>
-              </div>
-              {!previewRendered && !previewError && (
-                <p className="text-xs text-muted-foreground text-center">جاري تحميل الفيديو… يُرجى الانتظار قبل النشر</p>
-              )}
-            </div>
-          </motion.div>
-        </div>
-      )}
-      <div className="glass-card overflow-hidden">
-        <table className="w-full text-sm text-right">
-          <thead><tr className="border-b border-white/40">
-            {["العنوان","المعلم","المادة","المدة","الحالة","إجراءات"].map(h => <th key={h} className="px-4 py-4 font-bold text-muted-foreground text-xs">{h}</th>)}
-          </tr></thead>
-          <tbody className="divide-y divide-white/30">
-            {videos.map(v => (
-              <tr key={v.id} className="hover:bg-white/30 transition-colors">
-                <td className="px-4 py-3.5 font-semibold max-w-[180px] truncate">{v.title}</td>
-                <td className="px-4 py-3.5 text-muted-foreground">{v.instructor}</td>
-                <td className="px-4 py-3.5"><span className="px-2.5 py-1 rounded-full text-xs font-bold bg-sky-100 text-sky-700">{v.subject}</span></td>
-                <td className="px-4 py-3.5 text-muted-foreground">{v.duration} د</td>
-                <td className="px-4 py-3.5">
-                  <button
-                    onClick={() => togglePublishStatus(v.id, v.publishStatus ?? "published")}
-                    className={`px-2.5 py-1 rounded-full text-xs font-bold transition-all ${(v.publishStatus ?? "published") === "published" ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" : "bg-amber-100 text-amber-700 hover:bg-amber-200"}`}
-                  >
-                    {(v.publishStatus ?? "published") === "published" ? "منشور" : "مسودة"}
-                  </button>
-                </td>
-                <td className="px-4 py-3.5">
-                  <button onClick={() => { if(confirm("حذف الفيديو؟")) deleteVideo.mutate({ id: v.id }, { onSuccess: () => refetch() }); }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all">حذف</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 // ── Posts Tab ─────────────────────────────────────────────────────────────
 function PostsTab() {
   const { data: posts = [], refetch } = useListModeratorPosts();
@@ -1594,9 +1159,180 @@ function BannersTab() {
   );
 }
 
+function SubscriptionRequestsTab({ token }: { token: string | null }) {
+  const [requests, setRequests] = useState<SubscriptionRequestItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [processingId, setProcessingId] = useState<number | null>(null);
+
+  const loadRequests = async () => {
+    if (!token) return;
+    try {
+      setLoading(true);
+      setError("");
+      const res = await fetch(apiPath("/api/admin/subscription-requests"), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as any)?.error || "تعذر تحميل طلبات الاشتراك");
+      }
+      if (!Array.isArray(data)) {
+        throw new Error("استجابة غير متوقعة من الخادم");
+      }
+      setRequests(data);
+    } catch (err: any) {
+      setError(err?.message || "تعذر تحميل طلبات الاشتراك");
+      setRequests([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadRequests();
+  }, [token]);
+
+  const handleReview = async (requestId: number, status: "approved" | "rejected") => {
+    if (!token) return;
+
+    let reviewNotes = "";
+    if (status === "rejected") {
+      reviewNotes = prompt("سبب الرفض (اختياري):")?.trim() ?? "";
+    }
+
+    try {
+      setProcessingId(requestId);
+      const res = await fetch(apiPath(`/api/admin/subscription-requests/${requestId}/status`), {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status, reviewNotes }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as any)?.error || "تعذر تحديث حالة الطلب");
+      }
+      await loadRequests();
+    } catch (err: any) {
+      alert(err?.message || "تعذر تحديث حالة الطلب");
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-display font-bold">طلبات الاشتراك ({requests.length})</h2>
+        <button onClick={() => void loadRequests()} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold hover:bg-muted transition-all">
+          تحديث
+        </button>
+      </div>
+
+      {error ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm font-medium">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="glass-card overflow-hidden">
+        <table className="w-full text-sm text-right">
+          <thead>
+            <tr className="border-b border-white/40">
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">الطالب</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">السنة / المادة</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">الكود</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">الصورة</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">الحالة</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">التاريخ</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">إجراء</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/30">
+            {requests.map((request) => (
+              <tr key={request.id} className="hover:bg-white/30 transition-colors align-top">
+                <td className="px-4 py-3.5">
+                  <p className="font-semibold text-foreground">{request.student.name}</p>
+                  <p className="text-xs text-muted-foreground">{request.student.email}</p>
+                  {request.student.phone ? <p className="text-xs text-muted-foreground">{request.student.phone}</p> : null}
+                </td>
+                <td className="px-4 py-3.5">
+                  <p className="font-semibold text-foreground">{request.year.name}</p>
+                  <p className="text-xs text-muted-foreground">{request.subject.name}</p>
+                </td>
+                <td className="px-4 py-3.5 font-mono text-xs">{request.code}</td>
+                <td className="px-4 py-3.5">
+                  {request.codeImageUrl ? (
+                    <a
+                      href={apiPath(request.codeImageUrl)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-all inline-flex"
+                    >
+                      فتح الصورة
+                    </a>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">لا توجد صورة</span>
+                  )}
+                </td>
+                <td className="px-4 py-3.5">
+                  <span
+                    className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                      request.status === "approved"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : request.status === "rejected"
+                        ? "bg-rose-100 text-rose-700"
+                        : "bg-amber-100 text-amber-700"
+                    }`}
+                  >
+                    {request.status === "approved" ? "مقبول" : request.status === "rejected" ? "مرفوض" : "قيد المراجعة"}
+                  </span>
+                  {request.reviewNotes ? <p className="text-xs text-muted-foreground mt-1 max-w-[180px]">{request.reviewNotes}</p> : null}
+                </td>
+                <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
+                  {new Date(request.submittedAt).toLocaleString("ar-EG")}
+                </td>
+                <td className="px-4 py-3.5">
+                  <div className="flex flex-col gap-2 min-w-[120px]">
+                    <button
+                      onClick={() => void handleReview(request.id, "approved")}
+                      disabled={processingId === request.id || request.status === "approved"}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-all disabled:opacity-50"
+                    >
+                      اعتماد
+                    </button>
+                    <button
+                      onClick={() => void handleReview(request.id, "rejected")}
+                      disabled={processingId === request.id || request.status === "rejected"}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-100 text-rose-700 hover:bg-rose-200 transition-all disabled:opacity-50"
+                    >
+                      رفض
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+
+            {!loading && requests.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-7 text-center text-muted-foreground text-sm">
+                  لا توجد طلبات اشتراك حالياً
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Admin Panel ──────────────────────────────────────────────────────
 export default function AdminPanel() {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState<Tab>("dashboard");
 
@@ -1609,9 +1345,9 @@ export default function AdminPanel() {
     dashboard: <DashboardTab onOpenMaterials={() => setTab("materials")} />,
     users: <UsersTab />,
     academic: <AcademicTab />,
+    subscriptionRequests: <SubscriptionRequestsTab token={token} />,
     materials: <MaterialsTab />,
     books: <BooksTab />,
-    videos: <VideosTab />,
     posts: <PostsTab />,
     reports: <ReportsTab />,
     banners: <BannersTab />,

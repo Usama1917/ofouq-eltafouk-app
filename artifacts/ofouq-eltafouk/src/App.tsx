@@ -14,7 +14,7 @@ import Dashboard from "@/pages/dashboard";
 import Books from "@/pages/books";
 import { BooksCartPage, BooksTrackingPage, BooksOrdersHistoryPage } from "@/pages/books-subpages";
 import Videos from "@/pages/videos";
-import { AcademicYearsPage, AcademicSubjectsPage, AcademicProvidersPage, AcademicSubjectUnitsPage, AcademicProviderUnitsPage, AcademicSubjectLessonsPage, AcademicProviderLessonsPage, AcademicLessonPage } from "@/pages/academic";
+import { AcademicSubjectsPage, AcademicSubscriptionRequestPage, AcademicUnitsPage, AcademicLessonsPage, AcademicLessonPage } from "@/pages/academic";
 import Social from "@/pages/social";
 import AiChat from "@/pages/ai-chat";
 import Points from "@/pages/points";
@@ -56,13 +56,10 @@ function Router() {
             <Route path="/books/orders" component={BooksOrdersHistoryPage} />
             <Route path="/books" component={Books} />
             {/* Academic drill-down routes under /videos — most specific first */}
-            <Route path="/videos/years/:yearId/subjects/:subjectId/providers/:providerId/units/:unitId/lessons/:lessonId" component={AcademicLessonPage} />
-            <Route path="/videos/years/:yearId/subjects/:subjectId/providers/:providerId/units/:unitId/lessons" component={AcademicProviderLessonsPage} />
-            <Route path="/videos/years/:yearId/subjects/:subjectId/providers/:providerId/units" component={AcademicProviderUnitsPage} />
-            <Route path="/videos/years/:yearId/subjects/:subjectId/providers" component={AcademicProvidersPage} />
             <Route path="/videos/years/:yearId/subjects/:subjectId/units/:unitId/lessons/:lessonId" component={AcademicLessonPage} />
-            <Route path="/videos/years/:yearId/subjects/:subjectId/units/:unitId/lessons" component={AcademicSubjectLessonsPage} />
-            <Route path="/videos/years/:yearId/subjects/:subjectId/units" component={AcademicSubjectUnitsPage} />
+            <Route path="/videos/years/:yearId/subjects/:subjectId/units/:unitId/lessons" component={AcademicLessonsPage} />
+            <Route path="/videos/years/:yearId/subjects/:subjectId/units" component={AcademicUnitsPage} />
+            <Route path="/videos/years/:yearId/subscribe" component={AcademicSubscriptionRequestPage} />
             <Route path="/videos/years/:yearId" component={AcademicSubjectsPage} />
             <Route path="/videos" component={Videos} />
             <Route path="/social" component={Social} />

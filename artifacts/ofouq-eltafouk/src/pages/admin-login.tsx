@@ -4,28 +4,30 @@ import { motion } from "framer-motion";
 import { Eye, EyeOff, Mail, Lock, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { useAuth } from "@/contexts/auth-context";
+import { getPostLoginRoute } from "@/lib/auth";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export default function AdminLogin() {
   const { login, user } = useAuth();
   const [, setLocation] = useLocation();
-  const [email, setEmail] = useState("admin@demo.com");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (user?.role === "admin") setLocation("/admin");
-  }, [user]);
+    if (user) setLocation(getPostLoginRoute(user.role));
+  }, [user, setLocation]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const u = await login(email, password, "admin");
-      if (u.role !== "admin") { setError("ليس لديك صلاحية الدخول لهذه اللوحة"); return; }
-      setLocation("/admin");
+      const authenticatedUser = await login(email, password);
+      setLocation(getPostLoginRoute(authenticatedUser.role));
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -84,7 +86,7 @@ export default function AdminLogin() {
           </form>
 
           <div className="text-center">
-            <a href={import.meta.env.BASE_URL.replace(/\/$/, "") + "/"} className="text-slate-400 hover:text-white text-sm transition-colors">
+            <a href={BASE + "/"} className="text-slate-400 hover:text-white text-sm transition-colors">
               العودة للصفحة الرئيسية
             </a>
           </div>

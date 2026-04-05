@@ -81,20 +81,7 @@ echo "   ✅ API server built"
 # ── Step 8: Seed demo accounts ──────────────────
 echo ""
 echo "🌱 Seeding demo accounts..."
-API_PID=""
-if curl -sf http://localhost:8080/api/healthz >/dev/null 2>&1; then
-  echo "   ℹ️  API already running on port 8080, using existing server for seed..."
-else
-  PORT=8080 DATABASE_URL="$DB_URL" node --enable-source-maps "$ROOT_DIR/artifacts/api-server/dist/index.mjs" &
-  API_PID=$!
-  sleep 3
-fi
-curl -s -X POST http://localhost:8080/api/auth/seed-demo \
-  -H "Content-Type: application/json" | grep -o '"message":"[^"]*"' || echo "   ⚠️  Could not seed (check if API started)"
-if [ -n "$API_PID" ]; then
-  kill $API_PID 2>/dev/null || true
-  wait $API_PID 2>/dev/null || true
-fi
+DATABASE_URL="$DB_URL" pnpm --filter @workspace/scripts run seed:demo
 
 echo ""
 echo "════════════════════════════════════════════"

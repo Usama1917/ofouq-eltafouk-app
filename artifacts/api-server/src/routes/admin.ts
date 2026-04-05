@@ -6,6 +6,7 @@ import {
   db,
   booksTable,
   videosTable,
+  lessonsTable,
   postsTable,
   gamesTable,
   rewardsTable,
@@ -22,56 +23,8 @@ import {
 } from "@workspace/db";
 import { eq, ne, and, count, sql, desc, asc, or } from "drizzle-orm";
 
-const videosUploadDir = path.resolve(process.cwd(), "uploads/videos");
-const thumbnailsUploadDir = path.resolve(process.cwd(), "uploads/thumbnails");
 const bookCoversUploadDir = path.resolve(process.cwd(), "uploads/book-covers");
-fs.mkdirSync(videosUploadDir, { recursive: true });
-fs.mkdirSync(thumbnailsUploadDir, { recursive: true });
 fs.mkdirSync(bookCoversUploadDir, { recursive: true });
-
-const videoStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, videosUploadDir);
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-  },
-});
-
-const uploadVideoFile = multer({
-  storage: videoStorage,
-  limits: { fileSize: 500 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith("video/")) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only video files are allowed"));
-    }
-  },
-});
-
-const thumbnailStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, thumbnailsUploadDir);
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-  },
-});
-
-const uploadThumbnailFile = multer({
-  storage: thumbnailStorage,
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only image files are allowed"));
-    }
-  },
-});
 
 const bookCoverStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
@@ -631,81 +584,58 @@ router.delete("/admin/book-vouchers/:id", async (req, res) => {
 // Videos
 router.get("/admin/videos", async (req, res) => {
   try {
-    const videos = await db.select().from(videosTable).orderBy(desc(videosTable.createdAt));
+    const videos = await db
+      .selectDistinct({
+        id: videosTable.id,
+        title: videosTable.title,
+        description: videosTable.description,
+        subject: videosTable.subject,
+        videoUrl: videosTable.videoUrl,
+        thumbnailUrl: videosTable.thumbnailUrl,
+        duration: videosTable.duration,
+        instructor: videosTable.instructor,
+        videoType: videosTable.videoType,
+        publishStatus: videosTable.publishStatus,
+        createdAt: videosTable.createdAt,
+      })
+      .from(videosTable)
+      .innerJoin(lessonsTable, eq(lessonsTable.videoId, videosTable.id))
+      .orderBy(desc(videosTable.createdAt));
     res.json(videos);
   } catch (err) {
+    req.log.error({ err }, "List admin videos error");
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-router.post("/admin/videos/upload", uploadVideoFile.single("video"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No video file provided" });
-    }
-    const filename = req.file.filename;
-    const url = `/api/uploads/videos/${filename}`;
-    res.json({ url });
-  } catch (err) {
-    res.status(500).json({ error: "Internal server error" });
-  }
+router.post("/admin/videos/upload", async (_req, res) => {
+  res.status(410).json({
+    error: "تم إيقاف رفع الفيديوهات من مسار admin/videos. استخدم /admin/academic/media/upload-video داخل شاشة الدرس.",
+  });
 });
 
-router.post("/admin/videos/upload-thumbnail", uploadThumbnailFile.single("thumbnail"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No thumbnail file provided" });
-    }
-    const filename = req.file.filename;
-    const url = `/api/uploads/thumbnails/${filename}`;
-    res.json({ url });
-  } catch (err) {
-    res.status(500).json({ error: "Internal server error" });
-  }
+router.post("/admin/videos/upload-thumbnail", async (_req, res) => {
+  res.status(410).json({
+    error: "تم إيقاف رفع الصورة المصغرة من مسار admin/videos. استخدم /admin/academic/media/upload-thumbnail داخل شاشة الدرس.",
+  });
 });
 
-router.post("/admin/videos", async (req, res) => {
-  try {
-    const { title, description, subject, videoUrl, thumbnailUrl, duration, instructor, videoType = "youtube", publishStatus = "published" } = req.body;
-    const [video] = await db.insert(videosTable).values({
-      title, description, subject, videoUrl, thumbnailUrl, duration: parseInt(duration) || 0, instructor, videoType, publishStatus
-    }).returning();
-    res.status(201).json(video);
-  } catch (err) {
-    res.status(500).json({ error: "Internal server error" });
-  }
+router.post("/admin/videos", async (_req, res) => {
+  res.status(410).json({
+    error: "تم إيقاف إنشاء الفيديو المستقل. أنشئ الفيديو من داخل الدرس عبر /admin/academic.",
+  });
 });
 
-router.put("/admin/videos/:id", async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const { title, description, subject, videoUrl, thumbnailUrl, duration, instructor, videoType, publishStatus } = req.body;
-    const updateData: Record<string, unknown> = {};
-    if (title !== undefined) updateData.title = title;
-    if (description !== undefined) updateData.description = description;
-    if (subject !== undefined) updateData.subject = subject;
-    if (videoUrl !== undefined) updateData.videoUrl = videoUrl;
-    if (thumbnailUrl !== undefined) updateData.thumbnailUrl = thumbnailUrl;
-    if (duration !== undefined) updateData.duration = parseInt(duration) || 0;
-    if (instructor !== undefined) updateData.instructor = instructor;
-    if (videoType !== undefined) updateData.videoType = videoType;
-    if (publishStatus !== undefined) updateData.publishStatus = publishStatus;
-    const [video] = await db.update(videosTable).set(updateData).where(eq(videosTable.id, id)).returning();
-    if (!video) return res.status(404).json({ error: "Not found" });
-    res.json(video);
-  } catch (err) {
-    res.status(500).json({ error: "Internal server error" });
-  }
+router.put("/admin/videos/:id", async (_req, res) => {
+  res.status(410).json({
+    error: "تم إيقاف تعديل الفيديو المستقل. عدل الفيديو من شاشة الدرس داخل /admin/academic.",
+  });
 });
 
-router.delete("/admin/videos/:id", async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    await db.delete(videosTable).where(eq(videosTable.id, id));
-    res.status(204).send();
-  } catch (err) {
-    res.status(500).json({ error: "Internal server error" });
-  }
+router.delete("/admin/videos/:id", async (_req, res) => {
+  res.status(410).json({
+    error: "تم إيقاف حذف الفيديو المستقل. احذف/فك ارتباط الفيديو من شاشة الدرس داخل /admin/academic.",
+  });
 });
 
 // Rewards

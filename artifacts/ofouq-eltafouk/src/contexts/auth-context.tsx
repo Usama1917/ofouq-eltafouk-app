@@ -6,6 +6,7 @@ interface AuthUser {
   name: string;
   email: string;
   role: string;
+  permissions?: string[];
   status: string;
   avatarUrl?: string | null;
   phone?: string | null;
@@ -20,7 +21,7 @@ interface AuthUser {
 interface AuthContextType {
   user: AuthUser | null;
   token: string | null;
-  login: (email: string, password: string, requiredRole?: string) => Promise<AuthUser>;
+  login: (email: string, password: string) => Promise<AuthUser>;
   register: (data: Record<string, unknown>) => Promise<AuthUser>;
   logout: () => void;
   updateUser: (u: AuthUser) => void;
@@ -42,7 +43,7 @@ async function apiCall(path: string, opts: RequestInit) {
       },
     });
   } catch {
-    throw new Error(`تعذر الوصول إلى الخادم المحلي (${path}). تأكد أن الـ backend يعمل على http://localhost:8080`);
+    throw new Error(`تعذر الوصول إلى الخادم (${path}). تأكد من تشغيل خدمات التطبيق.`);
   }
   const raw = await res.text();
   const data =
@@ -79,6 +80,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const applyAuthState = (nextUser: AuthUser, nextToken: string) => {
+    setUser(nextUser);
+    setToken(nextToken);
+    localStorage.setItem("ofouq_user", JSON.stringify(nextUser));
+    localStorage.setItem("ofouq_token", nextToken);
+  };
+
+  const clearAuthState = () => {
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem("ofouq_user");
+    localStorage.removeItem("ofouq_token");
+  };
+
   // Register token getter for generated API client
   useEffect(() => {
     setAuthTokenGetter(() => localStorage.getItem("ofouq_token"));
@@ -87,26 +102,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Restore session from localStorage
   useEffect(() => {
-    const stored = localStorage.getItem("ofouq_user");
     const storedToken = localStorage.getItem("ofouq_token");
-    if (stored && storedToken) {
-      try {
-        setUser(JSON.parse(stored));
-        setToken(storedToken);
-      } catch {}
+    if (!storedToken) {
+      setIsLoading(false);
+      return;
     }
-    setIsLoading(false);
+
+    let active = true;
+    (async () => {
+      try {
+        const profile = await apiCall("/api/auth/me", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${storedToken}` },
+        });
+        if (!active) return;
+        applyAuthState(profile as AuthUser, storedToken);
+      } catch {
+        if (!active) return;
+        clearAuthState();
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const login = async (email: string, password: string, requiredRole?: string): Promise<AuthUser> => {
+  const login = async (email: string, password: string): Promise<AuthUser> => {
     const data = await apiCall("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password, requiredRole }),
+      body: JSON.stringify({ email, password }),
     });
-    setUser(data.user);
-    setToken(data.token);
-    localStorage.setItem("ofouq_user", JSON.stringify(data.user));
-    localStorage.setItem("ofouq_token", data.token);
+    applyAuthState(data.user as AuthUser, String(data.token));
     return data.user;
   };
 
@@ -115,18 +144,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: "POST",
       body: JSON.stringify(formData),
     });
-    setUser(data.user);
-    setToken(data.token);
-    localStorage.setItem("ofouq_user", JSON.stringify(data.user));
-    localStorage.setItem("ofouq_token", data.token);
+    applyAuthState(data.user as AuthUser, String(data.token));
     return data.user;
   };
 
   const logout = () => {
-    setUser(null);
-    setToken(null);
-    localStorage.removeItem("ofouq_user");
-    localStorage.removeItem("ofouq_token");
+    clearAuthState();
   };
 
   const updateUser = (u: AuthUser) => {

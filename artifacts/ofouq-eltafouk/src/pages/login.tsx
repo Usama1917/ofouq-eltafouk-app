@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Eye, EyeOff, Mail, Lock, Sparkles } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { useAuth } from "@/contexts/auth-context";
+import { getPostLoginRoute } from "@/lib/auth";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -17,29 +18,22 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (user) setLocation("/");
-  }, [user]);
-
-  // Seed demo accounts on mount
-  useEffect(() => {
-    fetch(`${BASE}/api/auth/seed-demo`, { method: "POST" }).catch(() => {});
-  }, []);
+    if (user) setLocation(getPostLoginRoute(user.role));
+  }, [user, setLocation]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      await login(email, password);
-      setLocation("/");
+      const authenticatedUser = await login(email, password);
+      setLocation(getPostLoginRoute(authenticatedUser.role));
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
-
-  const fillDemo = (e: string, p: string) => { setEmail(e); setPassword(p); setError(""); };
 
   return (
     <div className="min-h-screen flex" dir="rtl">
@@ -70,21 +64,6 @@ export default function Login() {
           <div>
             <h1 className="text-3xl font-display font-black text-foreground">تسجيل الدخول</h1>
             <p className="text-muted-foreground mt-1 text-sm">أهلاً بعودتك! سجّل دخولك للمتابعة.</p>
-          </div>
-
-          {/* Demo accounts */}
-          <div className="glass-card p-4 space-y-2">
-            <p className="text-xs font-bold text-muted-foreground flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5 text-amber-500" /> حسابات تجريبية سريعة</p>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { label: "طالب", e: "student@demo.com", p: "demo123", color: "text-blue-600 bg-blue-50 border-blue-200/60" },
-                { label: "مشرف", e: "admin@demo.com", p: "admin123", color: "text-violet-600 bg-violet-50 border-violet-200/60" },
-              ].map(d => (
-                <button key={d.label} onClick={() => fillDemo(d.e, d.p)} className={`text-xs font-bold py-2 px-3 rounded-xl border transition-all hover:shadow-sm ${d.color}`}>
-                  {d.label}: {d.e}
-                </button>
-              ))}
-            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -129,15 +108,6 @@ export default function Login() {
               إنشاء حساب جديد
             </a>
           </p>
-
-          <div className="flex gap-3">
-            <a href={`${BASE}/admin-login`} onClick={e => { e.preventDefault(); window.location.href = `${BASE}/admin-login`; }} className="flex-1 text-center text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors py-2">
-              دخول المشرفين
-            </a>
-            <a href={`${BASE}/owner-login`} onClick={e => { e.preventDefault(); window.location.href = `${BASE}/owner-login`; }} className="flex-1 text-center text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors py-2">
-              دخول الملاك
-            </a>
-          </div>
         </motion.div>
       </div>
     </div>

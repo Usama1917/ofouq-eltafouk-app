@@ -23,9 +23,9 @@ export default function LessonsScreen() {
   const colors = isDark ? COLORS.dark : COLORS.light;
   const router = useRouter();
   const navigation = useNavigation();
-  const { unitId, unitName, yearId, yearName, subjectId, subjectName, providerId, providerName } = useLocalSearchParams<{
+  const { unitId, unitName } = useLocalSearchParams<{
     unitId: string; unitName: string; yearId: string; yearName: string;
-    subjectId: string; subjectName: string; providerId?: string; providerName?: string;
+    subjectId: string; subjectName: string;
   }>();
 
   useEffect(() => {

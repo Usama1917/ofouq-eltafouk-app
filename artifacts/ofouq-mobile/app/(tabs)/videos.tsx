@@ -19,7 +19,7 @@ import { COLORS } from "@/constants/colors";
 import { getBaseUrl } from "@/constants/api";
 
 interface AcademicYear { id: number; name: string; description: string; }
-interface Subject { id: number; name: string; icon: string; description: string; hasProviders: boolean; }
+interface Subject { id: number; name: string; icon: string; description: string; }
 
 async function apiFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${getBaseUrl()}${path}`);
@@ -204,11 +204,7 @@ function AcademicSection() {
               key={subject.id}
               style={({ pressed }) => [styles.subjectCard, { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
               onPress={() => {
-                if (subject.hasProviders) {
-                  router.push(`/(tabs)/academic/providers?yearId=${selectedYearId}&subjectId=${subject.id}&subjectName=${encodeURIComponent(subject.name)}`);
-                } else {
-                  router.push(`/(tabs)/academic/units?yearId=${selectedYearId}&subjectId=${subject.id}&subjectName=${encodeURIComponent(subject.name)}`);
-                }
+                router.push(`/(tabs)/academic/units?yearId=${selectedYearId}&subjectId=${subject.id}&subjectName=${encodeURIComponent(subject.name)}`);
               }}
             >
               <Text style={styles.subjectEmoji}>{subject.icon}</Text>

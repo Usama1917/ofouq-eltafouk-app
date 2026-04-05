@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
 import { getBaseUrl } from "@/constants/api";
 
-interface Subject { id: number; name: string; icon: string; description: string; hasProviders: boolean; }
+interface Subject { id: number; name: string; icon: string; description: string; }
 
 async function apiFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${getBaseUrl()}${path}`);
@@ -56,11 +56,7 @@ export default function SubjectsScreen() {
           <Pressable
             style={({ pressed }) => [styles.subjectCard, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.8 : 1, flex: 1 }]}
             onPress={() => {
-              if (item.hasProviders) {
-                router.push(`./providers?yearId=${yearId}&yearName=${encodeURIComponent(String(yearName))}&subjectId=${item.id}&subjectName=${encodeURIComponent(item.name)}`);
-              } else {
-                router.push(`./units?yearId=${yearId}&yearName=${encodeURIComponent(String(yearName))}&subjectId=${item.id}&subjectName=${encodeURIComponent(item.name)}`);
-              }
+              router.push(`./units?yearId=${yearId}&yearName=${encodeURIComponent(String(yearName))}&subjectId=${item.id}&subjectName=${encodeURIComponent(item.name)}`);
             }}
           >
             <Text style={styles.subjectIcon}>{item.icon ?? "📚"}</Text>
