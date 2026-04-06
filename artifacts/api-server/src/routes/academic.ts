@@ -9,6 +9,7 @@ import {
   unitsTable,
   lessonsTable,
   videosTable,
+  videoSegmentsTable,
   usersTable,
   subjectSubscriptionRequestsTable,
   subjectSubscriptionsTable,
@@ -232,11 +233,96 @@ type NormalizedVideoInput = {
   description: string;
   videoUrl: string;
   thumbnailUrl: string | null;
+  posterUrl: string | null;
+  segments: NormalizedVideoSegmentInput[];
+  hasSegmentsField: boolean;
   duration: number;
   instructor: string;
   videoType: "youtube" | "upload";
   publishStatus: "draft" | "published";
 };
+
+type VideoSegmentType = "questions" | "parts" | "topics";
+
+type NormalizedVideoSegmentInput = {
+  title: string;
+  startSeconds: number;
+  segmentType: VideoSegmentType;
+  orderIndex: number;
+};
+
+function normalizeSegmentType(value: unknown): VideoSegmentType {
+  const raw = toText(value, "parts").toLowerCase();
+  if (raw === "questions" || raw === "question" || raw === "اسئلة" || raw === "أسئلة") return "questions";
+  if (raw === "topics" || raw === "topic" || raw === "مواضيع" || raw === "موضوع") return "topics";
+  return "parts";
+}
+
+function parseTimestampTextToSeconds(value: string): number | null {
+  const text = value.trim();
+  if (!text) return null;
+  const parts = text.split(":");
+  if (parts.length !== 2 && parts.length !== 3) return null;
+
+  const nums = parts.map((part) => Number.parseInt(part, 10));
+  if (nums.some((n) => !Number.isFinite(n) || n < 0)) return null;
+
+  if (parts.length === 2) {
+    const [minutes, seconds] = nums;
+    if (seconds > 59) return null;
+    return minutes * 60 + seconds;
+  }
+
+  const [hours, minutes, seconds] = nums;
+  if (minutes > 59 || seconds > 59) return null;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function normalizeVideoSegments(payload: unknown): NormalizedVideoSegmentInput[] {
+  if (!Array.isArray(payload)) return [];
+
+  const normalized: NormalizedVideoSegmentInput[] = [];
+  payload.forEach((item, index) => {
+    if (!item || typeof item !== "object") return;
+    const raw = item as Record<string, unknown>;
+    const title = toText(raw.title);
+    if (!title) return;
+
+    let startSeconds = toNumber(raw.startSeconds, Number.NaN);
+    if (!Number.isFinite(startSeconds)) {
+      const hours = toNumber(raw.hours, Number.NaN);
+      const minutes = toNumber(raw.minutes, Number.NaN);
+      const seconds = toNumber(raw.seconds, Number.NaN);
+      if (Number.isFinite(hours) || Number.isFinite(minutes) || Number.isFinite(seconds)) {
+        startSeconds = Math.max(0, Number.isFinite(hours) ? hours : 0) * 3600
+          + Math.max(0, Number.isFinite(minutes) ? minutes : 0) * 60
+          + Math.max(0, Number.isFinite(seconds) ? seconds : 0);
+      }
+    }
+    if (!Number.isFinite(startSeconds)) {
+      const parsedFromText = parseTimestampTextToSeconds(toText(raw.time));
+      if (parsedFromText !== null) startSeconds = parsedFromText;
+    }
+
+    if (!Number.isFinite(startSeconds) || startSeconds < 0) {
+      throw new Error(`وقت التقسيمة رقم ${index + 1} غير صالح`);
+    }
+
+    normalized.push({
+      title,
+      startSeconds: Math.floor(startSeconds),
+      segmentType: normalizeSegmentType(raw.segmentType),
+      orderIndex: normalized.length,
+    });
+  });
+
+  normalized.sort((a, b) => (a.startSeconds - b.startSeconds) || (a.orderIndex - b.orderIndex));
+  normalized.forEach((segment, orderIndex) => {
+    segment.orderIndex = orderIndex;
+  });
+
+  return normalized;
+}
 
 function normalizeVideoPayload(payload: unknown, defaults: {
   fallbackTitle: string;
@@ -263,12 +349,16 @@ function normalizeVideoPayload(payload: unknown, defaults: {
   const title = toText(raw.title, defaults.fallbackTitle) || defaults.fallbackTitle;
   const description = toText(raw.description, defaults.fallbackDescription);
   const instructor = toText(raw.instructor, "غير محدد") || "غير محدد";
+  const hasSegmentsField = Array.isArray(raw.segments);
 
   return {
     title,
     description,
     videoUrl,
     thumbnailUrl: toText(raw.thumbnailUrl) || null,
+    posterUrl: toText(raw.posterUrl) || null,
+    segments: hasSegmentsField ? normalizeVideoSegments(raw.segments) : [],
+    hasSegmentsField,
     duration: Math.max(0, toNumber(raw.duration, 0)),
     instructor,
     videoType,
@@ -310,6 +400,7 @@ async function getLessonWithVideo(lessonId: number, publishedOnly: boolean) {
         subject: videosTable.subject,
         videoUrl: videosTable.videoUrl,
         thumbnailUrl: videosTable.thumbnailUrl,
+        posterUrl: videosTable.posterUrl,
         duration: videosTable.duration,
         instructor: videosTable.instructor,
         videoType: videosTable.videoType,
@@ -329,7 +420,28 @@ async function getLessonWithVideo(lessonId: number, publishedOnly: boolean) {
     )
     .where(and(eq(lessonsTable.id, lessonId), publishedOnly ? eq(lessonsTable.isPublished, true) : undefined));
 
-  return rows[0] ?? null;
+  const lesson = rows[0] ?? null;
+  if (!lesson?.video?.id) return lesson;
+
+  const segments = await db
+    .select({
+      id: videoSegmentsTable.id,
+      title: videoSegmentsTable.title,
+      startSeconds: videoSegmentsTable.startSeconds,
+      segmentType: videoSegmentsTable.segmentType,
+      orderIndex: videoSegmentsTable.orderIndex,
+    })
+    .from(videoSegmentsTable)
+    .where(eq(videoSegmentsTable.videoId, lesson.video.id))
+    .orderBy(asc(videoSegmentsTable.orderIndex), asc(videoSegmentsTable.startSeconds), asc(videoSegmentsTable.id));
+
+  return {
+    ...lesson,
+    video: {
+      ...lesson.video,
+      segments,
+    },
+  };
 }
 
 // ── Subscription requests (student + admin review) ───────────────────────
@@ -891,6 +1003,7 @@ router.get("/academic/units/:unitId/lessons", async (req, res) => {
           subject: videosTable.subject,
           videoUrl: videosTable.videoUrl,
           thumbnailUrl: videosTable.thumbnailUrl,
+          posterUrl: videosTable.posterUrl,
           duration: videosTable.duration,
           instructor: videosTable.instructor,
           videoType: videosTable.videoType,
@@ -1302,6 +1415,7 @@ router.get("/admin/academic/units/:unitId/lessons", async (req, res) => {
           subject: videosTable.subject,
           videoUrl: videosTable.videoUrl,
           thumbnailUrl: videosTable.thumbnailUrl,
+          posterUrl: videosTable.posterUrl,
           duration: videosTable.duration,
           instructor: videosTable.instructor,
           videoType: videosTable.videoType,
@@ -1313,7 +1427,46 @@ router.get("/admin/academic/units/:unitId/lessons", async (req, res) => {
       .where(eq(lessonsTable.unitId, unitId))
       .orderBy(asc(lessonsTable.orderIndex), asc(lessonsTable.id));
 
-    res.json(lessons);
+    const videoIds = lessons
+      .map((lesson) => lesson.video?.id)
+      .filter((id): id is number => Number.isFinite(id) && id > 0);
+
+    if (videoIds.length === 0) {
+      return res.json(lessons);
+    }
+
+    const segments = await db
+      .select({
+        id: videoSegmentsTable.id,
+        videoId: videoSegmentsTable.videoId,
+        title: videoSegmentsTable.title,
+        startSeconds: videoSegmentsTable.startSeconds,
+        segmentType: videoSegmentsTable.segmentType,
+        orderIndex: videoSegmentsTable.orderIndex,
+      })
+      .from(videoSegmentsTable)
+      .where(inArray(videoSegmentsTable.videoId, videoIds))
+      .orderBy(asc(videoSegmentsTable.orderIndex), asc(videoSegmentsTable.startSeconds), asc(videoSegmentsTable.id));
+
+    const segmentsByVideoId = new Map<number, typeof segments>();
+    segments.forEach((segment) => {
+      const current = segmentsByVideoId.get(segment.videoId) ?? [];
+      current.push(segment);
+      segmentsByVideoId.set(segment.videoId, current);
+    });
+
+    const lessonsWithSegments = lessons.map((lesson) => {
+      if (!lesson.video?.id) return lesson;
+      return {
+        ...lesson,
+        video: {
+          ...lesson.video,
+          segments: segmentsByVideoId.get(lesson.video.id) ?? [],
+        },
+      };
+    });
+
+    res.json(lessonsWithSegments);
   } catch (err) {
     req.log.error({ err }, "Failed to list lessons (admin)");
     res.status(500).json({ error: "Internal server error" });
@@ -1354,6 +1507,7 @@ router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
             subject: unitContext.subjectName,
             videoUrl: normalizedVideo.videoUrl,
             thumbnailUrl: normalizedVideo.thumbnailUrl,
+            posterUrl: normalizedVideo.posterUrl,
             duration: normalizedVideo.duration,
             instructor: normalizedVideo.instructor,
             videoType: normalizedVideo.videoType,
@@ -1362,6 +1516,18 @@ router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
           .returning({ id: videosTable.id });
 
         createdVideoId = video.id;
+
+        if (normalizedVideo.hasSegmentsField && normalizedVideo.segments.length > 0) {
+          await tx.insert(videoSegmentsTable).values(
+            normalizedVideo.segments.map((segment, orderIndex) => ({
+              videoId: video.id,
+              title: segment.title,
+              startSeconds: segment.startSeconds,
+              segmentType: segment.segmentType,
+              orderIndex,
+            })),
+          );
+        }
       }
 
       const [lesson] = await tx
@@ -1446,12 +1612,28 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
               subject: unitContext.subjectName,
               videoUrl: normalizedVideo.videoUrl,
               thumbnailUrl: normalizedVideo.thumbnailUrl,
+              posterUrl: normalizedVideo.posterUrl,
               duration: normalizedVideo.duration,
               instructor: normalizedVideo.instructor,
               videoType: normalizedVideo.videoType,
               publishStatus: normalizedVideo.publishStatus,
             })
             .where(eq(videosTable.id, existing.videoId));
+
+          if (normalizedVideo.hasSegmentsField) {
+            await tx.delete(videoSegmentsTable).where(eq(videoSegmentsTable.videoId, existing.videoId));
+            if (normalizedVideo.segments.length > 0) {
+              await tx.insert(videoSegmentsTable).values(
+                normalizedVideo.segments.map((segment, orderIndex) => ({
+                  videoId: existing.videoId as number,
+                  title: segment.title,
+                  startSeconds: segment.startSeconds,
+                  segmentType: segment.segmentType,
+                  orderIndex,
+                })),
+              );
+            }
+          }
         } else {
           const [createdVideo] = await tx
             .insert(videosTable)
@@ -1461,6 +1643,7 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
               subject: unitContext.subjectName,
               videoUrl: normalizedVideo.videoUrl,
               thumbnailUrl: normalizedVideo.thumbnailUrl,
+              posterUrl: normalizedVideo.posterUrl,
               duration: normalizedVideo.duration,
               instructor: normalizedVideo.instructor,
               videoType: normalizedVideo.videoType,
@@ -1469,6 +1652,18 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
             .returning({ id: videosTable.id });
 
           updateData.videoId = createdVideo.id;
+
+          if (normalizedVideo.hasSegmentsField && normalizedVideo.segments.length > 0) {
+            await tx.insert(videoSegmentsTable).values(
+              normalizedVideo.segments.map((segment, orderIndex) => ({
+                videoId: createdVideo.id,
+                title: segment.title,
+                startSeconds: segment.startSeconds,
+                segmentType: segment.segmentType,
+                orderIndex,
+              })),
+            );
+          }
         }
       }
 
@@ -1572,6 +1767,7 @@ router.get("/admin/academic/videos", async (req, res) => {
         subject: videosTable.subject,
         videoUrl: videosTable.videoUrl,
         thumbnailUrl: videosTable.thumbnailUrl,
+        posterUrl: videosTable.posterUrl,
         duration: videosTable.duration,
         instructor: videosTable.instructor,
         videoType: videosTable.videoType,

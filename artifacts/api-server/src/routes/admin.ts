@@ -592,6 +592,7 @@ router.get("/admin/videos", async (req, res) => {
         subject: videosTable.subject,
         videoUrl: videosTable.videoUrl,
         thumbnailUrl: videosTable.thumbnailUrl,
+        posterUrl: videosTable.posterUrl,
         duration: videosTable.duration,
         instructor: videosTable.instructor,
         videoType: videosTable.videoType,

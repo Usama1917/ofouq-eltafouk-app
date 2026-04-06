@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --config vite.config.ts --host 0.0.0.0",
+    "dev": "sh -c 'FRONTEND_PORT=\"${PORT:-18936}\" BASE_PATH=\"${BASE_PATH:-/}\" env -u PORT pnpm run dev:stack'",
+    "dev:frontend": "vite --config vite.config.ts --host 0.0.0.0",
     "dev:stack": "cd ../.. && pnpm start:local",
     "build": "vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",

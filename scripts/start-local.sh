@@ -7,6 +7,8 @@ API_PORT_DEFAULT=8080
 FRONTEND_PORT_DEFAULT=18936
 DB_READY_TIMEOUT_SECONDS="${DB_READY_TIMEOUT_SECONDS:-60}"
 DB_READY_POLL_SECONDS=2
+API_READY_TIMEOUT_SECONDS="${API_READY_TIMEOUT_SECONDS:-45}"
+API_READY_POLL_SECONDS=1
 
 cd "$ROOT_DIR"
 
@@ -229,6 +231,66 @@ cleanup_children() {
   exit "$code"
 }
 
+wait_for_api_ready() {
+  local target="$1"
+  local waited=0
+  while ! curl -sS -o /dev/null --max-time 2 "$target/api/auth/me"; do
+    if ! kill -0 "$API_PID" >/dev/null 2>&1; then
+      echo "❌ API process exited before becoming ready."
+      return 1
+    fi
+
+    if [ "$waited" -ge "$API_READY_TIMEOUT_SECONDS" ]; then
+      echo "❌ API is not reachable after ${API_READY_TIMEOUT_SECONDS}s at ${target}/api/auth/me"
+      return 1
+    fi
+
+    if [ "$waited" -eq 0 ]; then
+      echo "⏳ Waiting for API to be ready at ${target}..."
+    fi
+
+    sleep "$API_READY_POLL_SECONDS"
+    waited=$((waited + API_READY_POLL_SECONDS))
+  done
+}
+
+stop_or_fail_port_conflict() {
+  local port="$1"
+  local service_name="$2"
+  local pids=""
+  pids="$(lsof -t -n -P -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+
+  if [ -z "$pids" ]; then
+    return 0
+  fi
+
+  while IFS= read -r pid; do
+    [ -z "$pid" ] && continue
+
+    local cmd
+    cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+
+    if [[ "$cmd" == *"$ROOT_DIR"* ]]; then
+      echo "♻️  Stopping stale $service_name process on port $port (pid $pid)"
+      kill "$pid" >/dev/null 2>&1 || true
+      continue
+    fi
+
+    echo "❌ Port $port is already in use by another process."
+    echo "   PID $pid: ${cmd:-unknown}"
+    echo "   Stop it first, or change the port for this run."
+    return 1
+  done <<< "$pids"
+
+  sleep 1
+
+  if lsof -n -P -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "❌ Could not free port $port."
+    echo "   Stop the process manually, then run pnpm start:local again."
+    return 1
+  fi
+}
+
 load_env_fallbacks
 resolve_database_url
 
@@ -252,10 +314,13 @@ install_orphan_video_cleanup_trigger
 echo "🌱 Seeding demo users (idempotent)..."
 DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/scripts run seed:demo
 
-API_PORT="${PORT:-$API_PORT_DEFAULT}"
-FRONTEND_PORT="${FRONTEND_PORT:-$FRONTEND_PORT_DEFAULT}"
+API_PORT="${API_PORT:-$API_PORT_DEFAULT}"
+FRONTEND_PORT="${FRONTEND_PORT:-${PORT:-$FRONTEND_PORT_DEFAULT}}"
 BASE_PATH="${BASE_PATH:-/}"
 API_PROXY_TARGET="${API_PROXY_TARGET:-http://127.0.0.1:${API_PORT}}"
+
+stop_or_fail_port_conflict "$API_PORT" "API"
+stop_or_fail_port_conflict "$FRONTEND_PORT" "frontend"
 
 echo ""
 echo "🚀 Starting Ofouq Eltafouk"
@@ -268,9 +333,9 @@ echo ""
 (DATABASE_URL="$DATABASE_URL" PORT="$API_PORT" NODE_ENV="${NODE_ENV:-development}" pnpm --filter @workspace/api-server run dev) &
 API_PID=$!
 
-sleep 3
+wait_for_api_ready "$API_PROXY_TARGET"
 
-(PORT="$FRONTEND_PORT" BASE_PATH="$BASE_PATH" API_PROXY_TARGET="$API_PROXY_TARGET" pnpm --filter @workspace/ofouq-eltafouk run dev) &
+(PORT="$FRONTEND_PORT" BASE_PATH="$BASE_PATH" API_PROXY_TARGET="$API_PROXY_TARGET" pnpm --filter @workspace/ofouq-eltafouk run dev:frontend) &
 FE_PID=$!
 
 trap 'cleanup_children 0' INT TERM

@@ -64,10 +64,18 @@ interface Lesson {
     title: string;
     videoUrl: string;
     thumbnailUrl?: string;
+    posterUrl?: string;
     duration: number;
     instructor: string;
     videoType: "youtube" | "upload";
     publishStatus: "draft" | "published";
+    segments?: {
+      id: number;
+      title: string;
+      startSeconds: number;
+      segmentType: "questions" | "parts" | "topics";
+      orderIndex: number;
+    }[];
   } | null;
 }
 
@@ -741,9 +749,9 @@ export function AcademicLessonsPage() {
         {lessons.map((lesson) => (
           <Link key={lesson.id} href={`/videos/years/${yearId}/subjects/${subjectId}/units/${unitId}/lessons/${lesson.id}`}>
             <motion.div whileHover={{ y: -2 }} className="glass-card p-4 cursor-pointer hover:border-primary/30 transition-all flex items-center gap-3">
-              {lesson.video?.thumbnailUrl ? (
+              {lesson.video?.thumbnailUrl || lesson.video?.posterUrl ? (
                 <div className="w-16 h-12 rounded-xl overflow-hidden flex-shrink-0">
-                  <img src={lesson.video.thumbnailUrl} alt={lesson.title} className="w-full h-full object-cover" />
+                  <img src={lesson.video?.thumbnailUrl ?? lesson.video?.posterUrl} alt={lesson.title} className="w-full h-full object-cover" />
                 </div>
               ) : (
                 <div className="w-16 h-12 rounded-xl bg-sky-100 flex items-center justify-center flex-shrink-0">
@@ -831,7 +839,8 @@ export function AcademicLessonPage() {
                 videoUrl={lesson.video.videoUrl}
                 videoType={lesson.video.videoType}
                 title={lesson.video.title || lesson.title}
-                posterUrl={lesson.video.thumbnailUrl ?? null}
+                posterUrl={lesson.video.posterUrl ?? lesson.video.thumbnailUrl ?? null}
+                segments={lesson.video.segments ?? []}
                 watermarkText={user ? `${user.name} - ${user.email}` : undefined}
               />
 

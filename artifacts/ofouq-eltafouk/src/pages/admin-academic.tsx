@@ -66,16 +66,40 @@ interface Lesson {
   video?: {
     id: number;
     title: string;
+    description: string;
     videoUrl: string;
     thumbnailUrl?: string;
+    posterUrl?: string;
     duration: number;
     instructor: string;
     videoType: "youtube" | "upload";
     publishStatus: "draft" | "published";
+    segments?: {
+      id: number;
+      title: string;
+      startSeconds: number;
+      segmentType: "questions" | "parts" | "topics";
+      orderIndex: number;
+    }[];
   } | null;
 }
 
 type UploadKind = "video" | "thumbnail";
+type VideoSegmentType = "questions" | "parts" | "topics";
+type LessonSegmentFormItem = {
+  id: string;
+  title: string;
+  segmentType: VideoSegmentType;
+  hours: string;
+  minutes: string;
+  seconds: string;
+};
+
+const SEGMENT_TYPE_OPTIONS: Array<{ value: VideoSegmentType; label: string }> = [
+  { value: "parts", label: "أجزاء" },
+  { value: "topics", label: "مواضيع" },
+  { value: "questions", label: "أسئلة" },
+];
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const YEAR_ITEM_TONES = [
@@ -99,6 +123,17 @@ const YEAR_ITEM_TONES = [
 
 function yearItemTone(index: number) {
   return YEAR_ITEM_TONES[index % YEAR_ITEM_TONES.length];
+}
+
+function createSegmentRow(): LessonSegmentFormItem {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title: "",
+    segmentType: "parts",
+    hours: "",
+    minutes: "",
+    seconds: "",
+  };
 }
 
 async function apiFetch<T>(token: string | null, path: string, options?: RequestInit): Promise<T> {
@@ -244,9 +279,14 @@ export function AcademicTab() {
     duration: "",
     publishStatus: "published" as "draft" | "published",
     thumbnailUrl: "",
+    posterUrl: "",
   });
   const [lessonVideoFile, setLessonVideoFile] = useState<File | null>(null);
   const [lessonThumbnailFile, setLessonThumbnailFile] = useState<File | null>(null);
+  const [lessonPosterFile, setLessonPosterFile] = useState<File | null>(null);
+  const [lessonSegments, setLessonSegments] = useState<LessonSegmentFormItem[]>([]);
+  const [lessonFormMode, setLessonFormMode] = useState<"create" | "edit">("create");
+  const [editingLessonId, setEditingLessonId] = useState<number | null>(null);
   const [isSavingLesson, setIsSavingLesson] = useState(false);
 
   const current = crumbs[crumbs.length - 1];
@@ -330,9 +370,57 @@ export function AcademicTab() {
       duration: "",
       publishStatus: "published",
       thumbnailUrl: "",
+      posterUrl: "",
     });
     setLessonVideoFile(null);
     setLessonThumbnailFile(null);
+    setLessonPosterFile(null);
+    setLessonSegments([]);
+    setLessonFormMode("create");
+    setEditingLessonId(null);
+  }
+
+  function openLessonEditor(lesson: Lesson) {
+    const sourceSegments = [...(lesson.video?.segments ?? [])].sort(
+      (a, b) => (a.orderIndex - b.orderIndex) || (a.startSeconds - b.startSeconds),
+    );
+
+    setLessonForm({
+      title: lesson.title,
+      description: lesson.description,
+      isPublished: lesson.isPublished,
+      videoType: lesson.video?.videoType ?? "youtube",
+      videoUrl: lesson.video?.videoUrl ?? "",
+      videoTitle: lesson.video?.title ?? lesson.title,
+      videoDescription: lesson.video?.description ?? lesson.description,
+      instructor: lesson.video?.instructor ?? "",
+      duration: lesson.video ? String(lesson.video.duration) : "",
+      publishStatus: lesson.video?.publishStatus ?? (lesson.isPublished ? "published" : "draft"),
+      thumbnailUrl: lesson.video?.thumbnailUrl ?? "",
+      posterUrl: lesson.video?.posterUrl ?? "",
+    });
+    setLessonSegments(
+      sourceSegments.map((segment) => {
+        const start = Math.max(0, Math.floor(segment.startSeconds));
+        const hh = Math.floor(start / 3600);
+        const mm = Math.floor((start % 3600) / 60);
+        const ss = start % 60;
+        return {
+          id: `${segment.id}-${segment.orderIndex}`,
+          title: segment.title,
+          segmentType: segment.segmentType,
+          hours: hh > 0 ? String(hh) : "",
+          minutes: String(mm),
+          seconds: String(ss),
+        };
+      }),
+    );
+    setLessonVideoFile(null);
+    setLessonThumbnailFile(null);
+    setLessonPosterFile(null);
+    setLessonFormMode("edit");
+    setEditingLessonId(lesson.id);
+    setShowAdd(true);
   }
 
   async function submitLesson() {
@@ -346,6 +434,7 @@ export function AcademicTab() {
     try {
       let videoUrl = lessonForm.videoUrl.trim();
       let thumbnailUrl = lessonForm.thumbnailUrl.trim();
+      let posterUrl = lessonForm.posterUrl.trim();
 
       if (lessonForm.videoType === "upload" && !videoUrl) {
         if (!lessonVideoFile) {
@@ -358,29 +447,78 @@ export function AcademicTab() {
         thumbnailUrl = await uploadMedia(lessonThumbnailFile, "thumbnail");
       }
 
+      if (lessonPosterFile) {
+        posterUrl = await uploadMedia(lessonPosterFile, "thumbnail");
+      }
+
+      const segments = lessonSegments
+        .map((segment, index) => {
+          const title = segment.title.trim();
+          const hasTimeValues = segment.hours !== "" || segment.minutes !== "" || segment.seconds !== "";
+          const hasAnyValue = title.length > 0 || hasTimeValues;
+          if (!hasAnyValue) return null;
+          if (!title) {
+            throw new Error(`عنوان التقسيمة رقم ${index + 1} مطلوب`);
+          }
+
+          const hours = Number.parseInt(segment.hours || "0", 10);
+          const minutes = Number.parseInt(segment.minutes || "0", 10);
+          const seconds = Number.parseInt(segment.seconds || "0", 10);
+
+          if (!Number.isFinite(hours) || hours < 0) throw new Error(`ساعة التقسيمة رقم ${index + 1} غير صالحة`);
+          if (!Number.isFinite(minutes) || minutes < 0 || minutes > 59) {
+            throw new Error(`دقائق التقسيمة رقم ${index + 1} يجب أن تكون بين 0 و 59`);
+          }
+          if (!Number.isFinite(seconds) || seconds < 0 || seconds > 59) {
+            throw new Error(`ثواني التقسيمة رقم ${index + 1} يجب أن تكون بين 0 و 59`);
+          }
+
+          return {
+            title,
+            segmentType: segment.segmentType,
+            startSeconds: (hours * 3600) + (minutes * 60) + seconds,
+          };
+        })
+        .filter((segment): segment is { title: string; segmentType: VideoSegmentType; startSeconds: number } => segment !== null)
+        .sort((a, b) => a.startSeconds - b.startSeconds);
+
       if (lessonForm.videoType === "youtube" && !videoUrl) {
         throw new Error("رابط YouTube مطلوب");
       }
 
-      await apiFetch(token, `/admin/academic/units/${current.unitId}/lessons`, {
-        method: "POST",
-        body: JSON.stringify({
-          title: lessonForm.title.trim(),
-          description: lessonForm.description.trim(),
-          isPublished: lessonForm.isPublished,
-          orderIndex: lessons.length,
-          video: {
-            title: lessonForm.videoTitle.trim() || lessonForm.title.trim(),
-            description: lessonForm.videoDescription.trim() || lessonForm.description.trim(),
-            videoType: lessonForm.videoType,
-            videoUrl,
-            thumbnailUrl: thumbnailUrl || undefined,
-            instructor: lessonForm.instructor.trim() || "غير محدد",
-            duration: Number.parseInt(lessonForm.duration || "0", 10) || 0,
-            publishStatus: lessonForm.publishStatus,
-          },
-        }),
-      });
+      const payload: Record<string, unknown> = {
+        title: lessonForm.title.trim(),
+        description: lessonForm.description.trim(),
+        isPublished: lessonForm.isPublished,
+        video: {
+          title: lessonForm.videoTitle.trim() || lessonForm.title.trim(),
+          description: lessonForm.videoDescription.trim() || lessonForm.description.trim(),
+          videoType: lessonForm.videoType,
+          videoUrl,
+          thumbnailUrl: thumbnailUrl || undefined,
+          posterUrl: posterUrl || thumbnailUrl || undefined,
+          segments,
+          instructor: lessonForm.instructor.trim() || "غير محدد",
+          duration: Number.parseInt(lessonForm.duration || "0", 10) || 0,
+          publishStatus: lessonForm.publishStatus,
+        },
+      };
+
+      if (lessonFormMode === "create") {
+        payload.orderIndex = lessons.length;
+        await apiFetch(token, `/admin/academic/units/${current.unitId}/lessons`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        if (!editingLessonId) {
+          throw new Error("تعذر تحديد الدرس المطلوب تعديله");
+        }
+        await apiFetch(token, `/admin/academic/lessons/${editingLessonId}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+      }
 
       invalidateAcademic();
       resetLessonForm();
@@ -418,7 +556,18 @@ export function AcademicTab() {
           </nav>
         </div>
 
-        <button onClick={() => setShowAdd((v) => !v)} className="btn-primary text-sm py-2 px-4">
+        <button
+          onClick={() => {
+            setShowAdd((open) => {
+              const next = !open;
+              if (next && current.level === "lessons") {
+                resetLessonForm();
+              }
+              return next;
+            });
+          }}
+          className="btn-primary text-sm py-2 px-4"
+        >
           <Plus className="w-4 h-4" />
           {showAdd ? "إغلاق" : "إضافة"}
         </button>
@@ -557,7 +706,9 @@ export function AcademicTab() {
 
             {current.level === "lessons" && current.unitId ? (
               <>
-                <h3 className="font-bold text-foreground">إضافة درس + فيديو (داخل السياق الأكاديمي)</h3>
+                <h3 className="font-bold text-foreground">
+                  {lessonFormMode === "edit" ? "تعديل الدرس + الفيديو + التقسيمات" : "إضافة درس + فيديو (داخل السياق الأكاديمي)"}
+                </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <input
                     value={lessonForm.title}
@@ -644,15 +795,121 @@ export function AcademicTab() {
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none min-h-[90px]"
                 />
 
-                <input
-                  value={lessonForm.thumbnailUrl}
-                  onChange={(e) => setLessonForm((p) => ({ ...p, thumbnailUrl: e.target.value }))}
-                  placeholder="رابط الصورة المصغرة (اختياري)"
-                  className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
-                />
+                <div className="w-full rounded-xl border border-white/70 bg-white/55 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-bold text-foreground">تقسيم الفيديو (وصول سريع)</p>
+                    <button
+                      type="button"
+                      onClick={() => setLessonSegments((prev) => [...prev, createSegmentRow()])}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-primary/10 text-primary font-bold hover:bg-primary/20"
+                    >
+                      + إضافة تقسيمة
+                    </button>
+                  </div>
+
+                  {lessonSegments.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">لا توجد تقسيمات الآن. يمكنك إضافة أسئلة/أجزاء/مواضيع مع الوقت.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {lessonSegments.map((segment, index) => (
+                        <div key={segment.id} className="rounded-xl border border-white/70 bg-white/70 p-2.5 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-muted-foreground">تقسيمة #{index + 1}</span>
+                            <button
+                              type="button"
+                              onClick={() => setLessonSegments((prev) => prev.filter((item) => item.id !== segment.id))}
+                              className="text-xs px-2.5 py-1 rounded-lg bg-red-100 text-red-600 font-bold hover:bg-red-200"
+                            >
+                              حذف
+                            </button>
+                          </div>
+
+                          <input
+                            value={segment.title}
+                            onChange={(e) =>
+                              setLessonSegments((prev) =>
+                                prev.map((item) => (item.id === segment.id ? { ...item, title: e.target.value } : item)),
+                              )
+                            }
+                            placeholder="عنوان التقسيمة"
+                            className="w-full px-3 py-2 rounded-lg bg-white border border-white/70 text-sm outline-none"
+                          />
+
+                          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto] gap-2">
+                            <select
+                              value={segment.segmentType}
+                              onChange={(e) =>
+                                setLessonSegments((prev) =>
+                                  prev.map((item) =>
+                                    item.id === segment.id
+                                      ? { ...item, segmentType: e.target.value as VideoSegmentType }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              className="px-3 py-2 rounded-lg bg-white border border-white/70 text-sm outline-none"
+                            >
+                              {SEGMENT_TYPE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <input
+                              value={segment.hours}
+                              onChange={(e) =>
+                                setLessonSegments((prev) =>
+                                  prev.map((item) =>
+                                    item.id === segment.id
+                                      ? { ...item, hours: e.target.value.replace(/\D/g, "").slice(0, 3) }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              placeholder="ساعة"
+                              inputMode="numeric"
+                              className="px-3 py-2 rounded-lg bg-white border border-white/70 text-sm outline-none w-full sm:w-20"
+                            />
+                            <input
+                              value={segment.minutes}
+                              onChange={(e) =>
+                                setLessonSegments((prev) =>
+                                  prev.map((item) =>
+                                    item.id === segment.id
+                                      ? { ...item, minutes: e.target.value.replace(/\D/g, "").slice(0, 2) }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              placeholder="دقيقة"
+                              inputMode="numeric"
+                              className="px-3 py-2 rounded-lg bg-white border border-white/70 text-sm outline-none w-full sm:w-20"
+                            />
+                            <input
+                              value={segment.seconds}
+                              onChange={(e) =>
+                                setLessonSegments((prev) =>
+                                  prev.map((item) =>
+                                    item.id === segment.id
+                                      ? { ...item, seconds: e.target.value.replace(/\D/g, "").slice(0, 2) }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              placeholder="ثانية"
+                              inputMode="numeric"
+                              className="px-3 py-2 rounded-lg bg-white border border-white/70 text-sm outline-none w-full sm:w-20"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 <label className="w-full px-3 py-3 rounded-xl bg-white/70 border border-white/70 text-sm flex items-center justify-between cursor-pointer">
-                  <span>{lessonThumbnailFile ? lessonThumbnailFile.name : "رفع صورة مصغرة (اختياري)"}</span>
+                  <span>{lessonThumbnailFile ? lessonThumbnailFile.name : "صورة الكارت قبل الدخول (اختياري)"}</span>
                   <Upload className="w-4 h-4 text-primary" />
                   <input
                     type="file"
@@ -661,8 +918,19 @@ export function AcademicTab() {
                     onChange={(e) => setLessonThumbnailFile(e.target.files?.[0] ?? null)}
                   />
                 </label>
+
+                <label className="w-full px-3 py-3 rounded-xl bg-white/70 border border-white/70 text-sm flex items-center justify-between cursor-pointer">
+                  <span>{lessonPosterFile ? lessonPosterFile.name : "صورة بداية الفيديو داخل المشغل (اختياري)"}</span>
+                  <Upload className="w-4 h-4 text-primary" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => setLessonPosterFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
                 <p className="text-xs text-muted-foreground -mt-1">
-                  يمكنك إدخال رابط صورة أو رفع ملف. في حال اختيار ملف، سيتم استخدام الملف تلقائيًا.
+                  تم إلغاء إدخال رابط الثامبنيل يدويًا. الآن يمكنك رفع صورتين منفصلتين: واحدة للكارت الخارجي وواحدة لبداية الفيديو.
                 </p>
 
                 <label className="flex items-center gap-2 cursor-pointer text-sm text-muted-foreground">
@@ -680,7 +948,7 @@ export function AcademicTab() {
                   disabled={isSavingLesson}
                   className="btn-primary text-sm py-2 px-5 disabled:opacity-60"
                 >
-                  {isSavingLesson ? "جاري الحفظ..." : "حفظ الدرس والفيديو"}
+                  {isSavingLesson ? "جاري الحفظ..." : lessonFormMode === "edit" ? "حفظ التعديلات" : "حفظ الدرس والفيديو"}
                 </button>
               </>
             ) : null}
@@ -863,6 +1131,7 @@ export function AcademicTab() {
                 }}
                 onMoveUp={index > 0 ? () => moveItem(lessons, index, "up", "/admin/academic/lessons/reorder") : undefined}
                 onMoveDown={index < lessons.length - 1 ? () => moveItem(lessons, index, "down", "/admin/academic/lessons/reorder") : undefined}
+                onOpen={() => openLessonEditor(lesson)}
               />
             ))
           )

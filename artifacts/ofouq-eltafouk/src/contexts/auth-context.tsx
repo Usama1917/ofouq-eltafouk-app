@@ -47,7 +47,7 @@ async function apiCall(path: string, opts: RequestInit) {
       },
     });
   } catch {
-    throw new Error(`تعذر الوصول إلى الخادم (${path}). تأكد من تشغيل خدمات التطبيق.`);
+    throw new Error(`تعذر الوصول إلى الخادم (${path}). تأكد من تشغيل خدمات التطبيق واترك أمر التشغيل مفتوحًا في التيرمنال.`);
   }
   const raw = await res.text();
   const data =
@@ -64,7 +64,7 @@ async function apiCall(path: string, opts: RequestInit) {
   if (!res.ok) {
     if (isLikelyApiProxyConnectionFailure(path, res, raw)) {
       throw new Error(
-        "الخادم غير متاح الآن. شغّل الـ API على المنفذ 8080 أو استخدم الأمر pnpm start:local من جذر المشروع.",
+        "الخادم غير متاح الآن. أنت غالبًا شغّلت الواجهة فقط بأمر pnpm --filter @workspace/ofouq-eltafouk run dev. شغّل الـ API على المنفذ 8080 أو استخدم الأمر pnpm start:local من جذر المشروع.",
       );
     }
     if (data && typeof data === "object" && "error" in data && typeof (data as any).error === "string") {

@@ -10,12 +10,21 @@ import {
 } from "lucide-react";
 
 type PlayerVideoType = "youtube" | "upload";
+type VideoSegmentType = "questions" | "parts" | "topics";
+type PlayerVideoSegment = {
+  id?: number;
+  title: string;
+  startSeconds: number;
+  segmentType: VideoSegmentType;
+  orderIndex?: number;
+};
 
 type CustomVideoPlayerProps = {
   videoUrl: string;
   videoType: PlayerVideoType;
   title: string;
   posterUrl?: string | null;
+  segments?: PlayerVideoSegment[] | null;
   watermarkText?: string;
 };
 
@@ -197,6 +206,37 @@ function formatTime(seconds: number): string {
   return `${totalMinutes}د`;
 }
 
+function formatSegmentTime(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const hh = Math.floor(safeSeconds / 3600);
+  const mm = Math.floor((safeSeconds % 3600) / 60);
+  const ss = safeSeconds % 60;
+
+  if (hh > 0) {
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  }
+  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+function normalizeSegmentType(type: unknown): VideoSegmentType {
+  const value = String(type ?? "").toLowerCase();
+  if (value === "questions") return "questions";
+  if (value === "topics") return "topics";
+  return "parts";
+}
+
+function segmentTypeLabel(type: VideoSegmentType): string {
+  if (type === "questions") return "أسئلة";
+  if (type === "topics") return "مواضيع";
+  return "أجزاء";
+}
+
+function segmentTypeBadgeClass(type: VideoSegmentType): string {
+  if (type === "questions") return "bg-rose-500/20 text-rose-100 border border-rose-300/35";
+  if (type === "topics") return "bg-emerald-500/20 text-emerald-100 border border-emerald-300/35";
+  return "bg-sky-500/20 text-sky-100 border border-sky-300/35";
+}
+
 function labelQuality(level: string): string {
   const map: Record<string, string> = {
     highres: "أقصى جودة",
@@ -325,6 +365,7 @@ export function CustomVideoPlayer({
   videoType,
   title,
   posterUrl,
+  segments,
   watermarkText,
 }: CustomVideoPlayerProps) {
   const isYouTube = videoType === "youtube";
@@ -333,6 +374,8 @@ export function CustomVideoPlayer({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const youtubeMountRef = useRef<HTMLDivElement | null>(null);
   const uploadVideoRef = useRef<HTMLVideoElement | null>(null);
+  const segmentsPanelRef = useRef<HTMLDivElement | null>(null);
+  const segmentsToggleRef = useRef<HTMLButtonElement | null>(null);
   const ytPlayerRef = useRef<YT.Player | null>(null);
   const tickerRef = useRef<number | null>(null);
   const hideControlsTimeoutRef = useRef<number | null>(null);
@@ -353,11 +396,42 @@ export function CustomVideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [clockText, setClockText] = useState(() => formatBadgeClock(new Date()));
   const [youTubePosterQuality, setYouTubePosterQuality] = useState<"maxres" | "hq">("maxres");
+  const [preferCustomPoster, setPreferCustomPoster] = useState(true);
   const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
+  const [isSegmentsPanelOpen, setIsSegmentsPanelOpen] = useState(false);
   const watermarkLabel = watermarkText ? `${watermarkText} · ${clockText}` : null;
   const progressPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+  const customPosterUrl = posterUrl?.trim() || null;
   const youTubePosterUrl = youTubeId ? buildYouTubePosterUrl(youTubeId, youTubePosterQuality) : null;
-  const showYouTubePausedCover = isYouTube && !hasStartedPlayback && !isPlaying && !error && Boolean(youTubePosterUrl);
+  const pausedCoverPosterUrl = preferCustomPoster && customPosterUrl ? customPosterUrl : youTubePosterUrl;
+  const showYouTubePausedCover = isYouTube && !hasStartedPlayback && !isPlaying && !error && Boolean(pausedCoverPosterUrl);
+  const normalizedSegments = useMemo(() => {
+    if (!Array.isArray(segments)) return [];
+    return segments
+      .filter((segment) => segment && typeof segment.title === "string")
+      .map((segment, index) => ({
+        id: segment.id ?? index + 1,
+        title: String(segment.title).trim(),
+        startSeconds: Math.max(0, Math.floor(Number(segment.startSeconds) || 0)),
+        segmentType: normalizeSegmentType(segment.segmentType),
+        orderIndex: Number.isFinite(segment.orderIndex) ? Number(segment.orderIndex) : index,
+      }))
+      .filter((segment) => segment.title.length > 0)
+      .sort((a, b) => (a.startSeconds - b.startSeconds) || (a.orderIndex - b.orderIndex));
+  }, [segments]);
+  const hasSegments = normalizedSegments.length > 0;
+  const groupedSegments = useMemo(() => {
+    const groups: Record<VideoSegmentType, typeof normalizedSegments> = {
+      parts: [],
+      topics: [],
+      questions: [],
+    };
+    normalizedSegments.forEach((segment) => {
+      groups[segment.segmentType].push(segment);
+    });
+    return groups;
+  }, [normalizedSegments]);
+  const overlayVisible = showControls || !isPlaying;
 
   async function toggleFullscreen() {
     if (isElementFullscreen(containerRef.current) || getFullscreenElement()) {
@@ -597,7 +671,8 @@ export function CustomVideoPlayer({
   }
 
   function seekTo(nextTime: number) {
-    const safeTime = Math.max(0, Math.min(nextTime, duration || 0));
+    const hasKnownDuration = Number.isFinite(duration) && duration > 0;
+    const safeTime = hasKnownDuration ? Math.max(0, Math.min(nextTime, duration)) : Math.max(0, nextTime);
 
     if (isYouTube) {
       ytPlayerRef.current?.seekTo(safeTime, true);
@@ -609,6 +684,12 @@ export function CustomVideoPlayer({
     if (!video) return;
     video.currentTime = safeTime;
     setCurrentTime(safeTime);
+  }
+
+  function jumpToSegment(startSeconds: number) {
+    seekTo(startSeconds);
+    showControlsMomentarily();
+    setIsSegmentsPanelOpen(false);
   }
 
   useEffect(() => {
@@ -766,13 +847,50 @@ export function CustomVideoPlayer({
   }, []);
 
   const centerControlButtonClass =
-    "relative w-[86px] h-[86px] rounded-[26px] border border-white/45 bg-black/52 backdrop-blur-2xl text-white flex items-center justify-center shadow-[0_0_0_1px_rgba(255,255,255,0.22),0_16px_50px_rgba(8,47,73,0.55)] transition-all duration-200";
+    "relative w-[86px] h-[86px] rounded-[24px] border border-white/15 bg-black/80 text-white flex items-center justify-center shadow-[0_12px_28px_rgba(0,0,0,0.5)] hover:bg-black/90 transition-colors duration-150";
 
   function handleSurfaceTap() {
     if (!showControls) {
       showControlsMomentarily();
     }
   }
+
+  useEffect(() => {
+    if (!hasSegments && isSegmentsPanelOpen) {
+      setIsSegmentsPanelOpen(false);
+    }
+  }, [hasSegments, isSegmentsPanelOpen]);
+
+  useEffect(() => {
+    if (!overlayVisible && isSegmentsPanelOpen) {
+      setIsSegmentsPanelOpen(false);
+    }
+  }, [overlayVisible, isSegmentsPanelOpen]);
+
+  useEffect(() => {
+    if (!isSegmentsPanelOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (segmentsPanelRef.current?.contains(target)) return;
+      if (segmentsToggleRef.current?.contains(target)) return;
+      setIsSegmentsPanelOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsSegmentsPanelOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isSegmentsPanelOpen]);
 
   useEffect(() => {
     if (isYouTube) {
@@ -784,8 +902,9 @@ export function CustomVideoPlayer({
 
   useEffect(() => {
     setYouTubePosterQuality("maxres");
+    setPreferCustomPoster(true);
     setHasStartedPlayback(false);
-  }, [youTubeId]);
+  }, [youTubeId, customPosterUrl]);
 
   useEffect(() => {
     const syncFullscreenState = () => {
@@ -908,12 +1027,16 @@ export function CustomVideoPlayer({
 
         {showYouTubePausedCover ? (
           <div className="pointer-events-none absolute inset-0 z-[1] overflow-hidden">
-            {youTubePosterUrl ? (
+            {pausedCoverPosterUrl ? (
               <img
-                src={youTubePosterUrl}
+                src={pausedCoverPosterUrl}
                 alt=""
                 className="w-full h-full object-cover"
                 onError={() => {
+                  if (preferCustomPoster && customPosterUrl) {
+                    setPreferCustomPoster(false);
+                    return;
+                  }
                   if (youTubePosterQuality === "maxres") {
                     setYouTubePosterQuality("hq");
                   }
@@ -946,6 +1069,71 @@ export function CustomVideoPlayer({
           </>
         ) : null}
 
+        {hasSegments ? (
+          <>
+            <button
+              ref={segmentsToggleRef}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsSegmentsPanelOpen((open) => !open);
+              }}
+              className={`absolute right-3 top-3 z-[4] px-3 py-2 rounded-xl border border-white/20 bg-black/82 hover:bg-black/92 text-white text-xs font-bold shadow-lg transition-opacity duration-300 ${overlayVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+              aria-label="فتح تقسيمات الفيديو"
+            >
+              {isSegmentsPanelOpen ? "إغلاق التقسيمات" : "تقسيمات الفيديو"}
+            </button>
+
+            {isSegmentsPanelOpen && overlayVisible ? (
+              <div
+                ref={segmentsPanelRef}
+                onClick={(event) => event.stopPropagation()}
+                className="absolute z-[5] right-3 top-14 bottom-3 w-[min(88vw,340px)] rounded-2xl border border-white/15 bg-black/90 shadow-2xl p-3 flex flex-col"
+              >
+                <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/15">
+                  <p className="text-sm font-bold text-white">فهرس الفيديو</p>
+                  <button
+                    type="button"
+                    onClick={() => setIsSegmentsPanelOpen(false)}
+                    className="text-xs px-2 py-1 rounded-lg bg-black/70 border border-white/20 text-white hover:bg-black"
+                  >
+                    إغلاق
+                  </button>
+                </div>
+
+                <div className="mt-2 overflow-y-auto space-y-3 pr-1">
+                  {(["parts", "topics", "questions"] as VideoSegmentType[]).map((segmentType) => {
+                    const list = groupedSegments[segmentType];
+                    if (list.length === 0) return null;
+
+                    return (
+                      <div key={segmentType} className="space-y-1.5">
+                        <p className="text-[11px] font-bold text-white/80">{segmentTypeLabel(segmentType)}</p>
+                        {list.map((segment) => (
+                          <button
+                            key={`${segment.id}-${segment.startSeconds}-${segment.orderIndex}`}
+                            type="button"
+                            onClick={() => jumpToSegment(segment.startSeconds)}
+                            className="w-full text-right rounded-xl border border-white/15 bg-black/75 hover:bg-black transition-colors p-2.5"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${segmentTypeBadgeClass(segment.segmentType)}`}>
+                                {segmentTypeLabel(segment.segmentType)}
+                              </span>
+                              <span className="text-[11px] font-mono text-sky-100">{formatSegmentTime(segment.startSeconds)}</span>
+                            </div>
+                            <p className="mt-1 text-xs text-white font-semibold leading-relaxed">{segment.title}</p>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
         <div
           className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-3 transition-opacity duration-250 ${
             ready && !error && (!isPlaying || showControls) ? "opacity-100" : "opacity-0 pointer-events-none"
@@ -960,7 +1148,6 @@ export function CustomVideoPlayer({
             className={centerControlButtonClass}
             aria-label="تقديم 10 ثوانٍ"
           >
-            <span className="absolute inset-0 rounded-[26px] bg-blue-400/22" />
             <CenterSeekIcon forward />
           </button>
 
@@ -973,7 +1160,6 @@ export function CustomVideoPlayer({
             className={centerControlButtonClass}
             aria-label={isPlaying ? "إيقاف الفيديو" : "تشغيل الفيديو"}
           >
-            <span className={`absolute inset-0 rounded-[26px] ${isPlaying ? "bg-white/8" : "bg-blue-400/22"}`} />
             <CenterActionIcon isPlaying={isPlaying} />
           </button>
 
@@ -986,7 +1172,6 @@ export function CustomVideoPlayer({
             className={centerControlButtonClass}
             aria-label="رجوع 10 ثوانٍ"
           >
-            <span className="absolute inset-0 rounded-[26px] bg-blue-400/22" />
             <CenterSeekIcon forward={false} />
           </button>
         </div>
@@ -1005,8 +1190,8 @@ export function CustomVideoPlayer({
         <div
           className={`absolute inset-x-0 bottom-0 transition-opacity duration-300 ${showControls || !isPlaying ? "opacity-100" : "opacity-0 pointer-events-none"}`}
         >
-          <div className="bg-gradient-to-t from-black/55 via-black/25 to-transparent pt-14 pb-4 px-4">
-            <div className="rounded-2xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-2xl px-3 py-3 space-y-3">
+          <div className="bg-gradient-to-t from-black/88 via-black/62 to-transparent pt-14 pb-4 px-4">
+            <div className="rounded-2xl border border-white/12 bg-black/82 shadow-[0_14px_34px_rgba(0,0,0,0.6)] px-3 py-3 space-y-3">
               <input
                 type="range"
                 min={0}
@@ -1017,7 +1202,7 @@ export function CustomVideoPlayer({
                 className="w-full ofq-progress-slider"
                 dir="ltr"
                 style={{
-                  background: `linear-gradient(to right, rgba(147,197,253,0.98) 0%, rgba(147,197,253,0.98) ${progressPercent}%, rgba(255,255,255,0.26) ${progressPercent}%, rgba(255,255,255,0.26) 100%)`,
+                  background: `linear-gradient(to right, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.95) ${progressPercent}%, rgba(255,255,255,0.18) ${progressPercent}%, rgba(255,255,255,0.18) 100%)`,
                 }}
               />
 
@@ -1025,7 +1210,7 @@ export function CustomVideoPlayer({
                 <button
                   type="button"
                   onClick={togglePlayback}
-                  className="w-10 h-10 rounded-xl border border-white/25 bg-white/15 backdrop-blur-xl hover:bg-white/25 flex items-center justify-center transition-colors"
+                  className="w-10 h-10 rounded-xl border border-white/20 bg-black/75 hover:bg-black flex items-center justify-center transition-colors"
                   aria-label={isPlaying ? "إيقاف" : "تشغيل"}
                 >
                   {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -1059,7 +1244,7 @@ export function CustomVideoPlayer({
                   <select
                     value={playbackRate}
                     onChange={(event) => applyRate(Number.parseFloat(event.target.value))}
-                    className="h-9 rounded-xl border border-white/25 bg-white/15 backdrop-blur-xl px-2 text-xs"
+                    className="h-9 rounded-xl border border-white/20 bg-black/75 px-2 text-xs text-white"
                   >
                     {playbackRates.map((rate) => (
                       <option key={rate} value={rate} className="text-black">
@@ -1073,7 +1258,7 @@ export function CustomVideoPlayer({
                     value={quality}
                     onChange={(event) => applyQuality(event.target.value)}
                     disabled={!isYouTube || qualityLevels.length <= 1}
-                    className="h-9 rounded-xl border border-white/25 bg-white/15 backdrop-blur-xl px-2 text-xs disabled:opacity-50"
+                    className="h-9 rounded-xl border border-white/20 bg-black/75 px-2 text-xs text-white disabled:opacity-50"
                   >
                     {(qualityLevels.length > 0 ? qualityLevels : ["auto"]).map((level) => (
                       <option key={level} value={level} className="text-black">
@@ -1087,7 +1272,7 @@ export function CustomVideoPlayer({
                     onClick={() => {
                       void toggleFullscreen();
                     }}
-                    className="w-10 h-10 rounded-xl border border-white/25 bg-white/15 backdrop-blur-xl hover:bg-white/25 flex items-center justify-center transition-colors"
+                    className="w-10 h-10 rounded-xl border border-white/20 bg-black/75 hover:bg-black flex items-center justify-center transition-colors"
                     aria-label={isFullscreen ? "الخروج من ملء الشاشة" : "ملء الشاشة"}
                   >
                     {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
@@ -1111,9 +1296,8 @@ export function CustomVideoPlayer({
           height: 6px;
           border-radius: 9999px;
           outline: none;
-          border: 1px solid rgba(255, 255, 255, 0.18);
-          background: rgba(255, 255, 255, 0.24);
-          backdrop-filter: blur(8px);
+          border: 1px solid rgba(255, 255, 255, 0.22);
+          background: rgba(0, 0, 0, 0.72);
         }
         .ofq-progress-slider {
           direction: ltr;
@@ -1125,9 +1309,9 @@ export function CustomVideoPlayer({
           width: 14px;
           height: 14px;
           border-radius: 9999px;
-          border: 1px solid rgba(255, 255, 255, 0.65);
-          background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(191, 219, 254, 0.95));
-          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+          border: 1px solid rgba(255, 255, 255, 0.75);
+          background: rgba(255, 255, 255, 0.95);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
           cursor: pointer;
         }
         .ofq-progress-slider::-moz-range-thumb,
@@ -1135,17 +1319,17 @@ export function CustomVideoPlayer({
           width: 14px;
           height: 14px;
           border-radius: 9999px;
-          border: 1px solid rgba(255, 255, 255, 0.65);
-          background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(191, 219, 254, 0.95));
-          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+          border: 1px solid rgba(255, 255, 255, 0.75);
+          background: rgba(255, 255, 255, 0.95);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
           cursor: pointer;
         }
         .ofq-progress-slider::-moz-range-track,
         .ofq-volume-slider::-moz-range-track {
           height: 6px;
           border-radius: 9999px;
-          border: 1px solid rgba(255, 255, 255, 0.18);
-          background: rgba(255, 255, 255, 0.24);
+          border: 1px solid rgba(255, 255, 255, 0.22);
+          background: rgba(0, 0, 0, 0.72);
         }
         .ofq-volume-slider {
           direction: ltr !important;
