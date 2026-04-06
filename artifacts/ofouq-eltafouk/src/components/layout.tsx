@@ -338,17 +338,13 @@ export function Layout({ children }: { children: ReactNode }) {
       {/* ── Main content ─────────────────────────────────────── */}
       <main className="flex-1 md:mr-72 pt-16 md:pt-0 pb-24 md:pb-0 min-h-screen">
         <div className="max-w-6xl mx-auto px-4 md:px-8 py-8 md:py-10">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={location}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
-            >
-              {children}
-            </motion.div>
-          </AnimatePresence>
+          <motion.div
+            initial={false}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+          >
+            {children}
+          </motion.div>
         </div>
       </main>
       {/* ── Mobile bottom nav ────────────────────────────────── */}

@@ -17,6 +17,7 @@ import {
   User,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
+import CustomVideoPlayer from "@/components/custom-video-player";
 
 interface AcademicYear {
   id: number;
@@ -110,15 +111,10 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-function getYouTubeId(url: string): string | null {
-  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([^&?/\s]{11})/);
-  return match ? match[1] : null;
-}
-
 function PageWrapper({ children }: { children: React.ReactNode }) {
   return (
     <motion.div
-      initial={{ opacity: 0, x: 14 }}
+      initial={false}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -14 }}
       transition={{ duration: 0.2 }}
@@ -164,7 +160,7 @@ function RequestStatusBadge({ status }: { status: StudentSubscriptionRequest["st
 }
 
 export function AcademicYearsPage() {
-  const { data: years = [], isLoading } = useQuery<AcademicYear[]>({
+  const { data: years = [], isLoading, isError, error, refetch, isFetching } = useQuery<AcademicYear[]>({
     queryKey: ["academic", "years"],
     queryFn: () => apiFetch("/academic/years"),
   });
@@ -174,6 +170,18 @@ export function AcademicYearsPage() {
       <SectionTitle icon={<GraduationCap className="w-5 h-5" />} title="المحتوى الأكاديمي" subtitle="اختر السنة الدراسية" />
 
       {isLoading ? <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div> : null}
+      {isError ? (
+        <div className="glass-card p-6 text-center space-y-3">
+          <p className="text-sm text-rose-700">{error instanceof Error ? error.message : "تعذر تحميل السنوات الدراسية"}</p>
+          <button
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="px-4 py-2 rounded-xl border border-primary/30 bg-primary/10 text-primary text-sm font-bold hover:bg-primary/15 transition-all disabled:opacity-60"
+          >
+            {isFetching ? "جاري إعادة المحاولة..." : "إعادة المحاولة"}
+          </button>
+        </div>
+      ) : null}
       {!isLoading && years.length === 0 ? <EmptyState icon={<GraduationCap className="w-8 h-8" />} message="لا توجد سنوات منشورة بعد" /> : null}
 
       <div className="space-y-3">
@@ -579,6 +587,7 @@ export function AcademicLessonsPage() {
 }
 
 export function AcademicLessonPage() {
+  const { user } = useAuth();
   const [location] = useLocation();
 
   const lessonId = (() => {
@@ -593,8 +602,6 @@ export function AcademicLessonPage() {
     queryFn: () => apiFetch(`/academic/lessons/${lessonId}`),
     enabled: lessonId > 0,
   });
-
-  const youTubeId = lesson?.video?.videoUrl ? getYouTubeId(lesson.video.videoUrl) : null;
 
   return (
     <PageWrapper>
@@ -615,24 +622,13 @@ export function AcademicLessonPage() {
 
           {lesson.video ? (
             <div className="space-y-4">
-              <div className="rounded-3xl overflow-hidden bg-black aspect-video">
-                {youTubeId ? (
-                  <iframe
-                    className="w-full h-full"
-                    src={`https://www.youtube.com/embed/${youTubeId}?rel=0`}
-                    title={lesson.video.title}
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
-                ) : (
-                  <video
-                    src={lesson.video.videoUrl}
-                    controls
-                    className="w-full h-full"
-                    poster={lesson.video.thumbnailUrl ?? undefined}
-                  />
-                )}
-              </div>
+              <CustomVideoPlayer
+                videoUrl={lesson.video.videoUrl}
+                videoType={lesson.video.videoType}
+                title={lesson.video.title || lesson.title}
+                posterUrl={lesson.video.thumbnailUrl ?? null}
+                watermarkText={user ? `${user.name} - ${user.email}` : undefined}
+              />
 
               <div className="glass-card p-4 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">

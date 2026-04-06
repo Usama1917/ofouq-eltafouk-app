@@ -6,6 +6,10 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
+// API clients in this app expect JSON bodies for successful reads.
+// Disable ETag/304 responses to avoid first-load stale conditional requests
+// causing empty-body states in route-level data loaders.
+app.disable("etag");
 
 app.use(
   pinoHttp({
@@ -29,6 +33,13 @@ app.use(
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/")) {
+    res.setHeader("Cache-Control", "no-store");
+  }
+  next();
+});
 
 app.use("/api/uploads", express.static(path.resolve(process.cwd(), "uploads")));
 
