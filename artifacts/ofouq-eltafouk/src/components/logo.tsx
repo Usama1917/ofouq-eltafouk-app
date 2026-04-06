@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 interface LogoProps {
   size?: number;
   showText?: boolean;
@@ -7,6 +9,7 @@ interface LogoProps {
 
 export function Logo({ size = 40, showText = true, className = "", variant = "full" }: LogoProps) {
   const iconSize = variant === "icon" ? size : size;
+  const gradientId = useId().replace(/:/g, "");
 
   return (
     <div className={`flex items-center gap-3 ${className}`}>
@@ -20,7 +23,7 @@ export function Logo({ size = 40, showText = true, className = "", variant = "fu
         style={{ flexShrink: 0 }}
       >
         {/* Background rounded square */}
-        <rect width="80" height="80" rx="20" fill="url(#logoGrad)" />
+        <rect width="80" height="80" rx="20" fill={`url(#${gradientId})`} />
 
         {/* Horizon line */}
         <line x1="12" y1="52" x2="68" y2="52" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeOpacity="0.5" />
@@ -54,10 +57,10 @@ export function Logo({ size = 40, showText = true, className = "", variant = "fu
         <line x1="25" y1="38" x2="21" y2="38" stroke="white" strokeWidth="2" strokeLinecap="round" strokeOpacity="0.5" />
 
         {/* Inner dot */}
-        <circle cx="40" cy="38" r="4" fill="url(#logoGrad)" />
+        <circle cx="40" cy="38" r="4" fill={`url(#${gradientId})`} />
 
         <defs>
-          <linearGradient id="logoGrad" x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
+          <linearGradient id={gradientId} x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
             <stop offset="0%" stopColor="#3B82F6" />
             <stop offset="100%" stopColor="#1D4ED8" />
           </linearGradient>

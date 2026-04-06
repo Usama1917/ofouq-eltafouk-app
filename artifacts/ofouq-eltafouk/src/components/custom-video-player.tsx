@@ -4,6 +4,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Maximize2,
+  Minimize2,
   Pause,
   Play,
 } from "lucide-react";
@@ -44,6 +45,22 @@ const QUALITY_ORDER: YouTubeQualityLevel[] = [
 ];
 
 const FALLBACK_QUALITY_LEVELS: YouTubeQualityLevel[] = ["auto"];
+const CLEAN_YOUTUBE_PLAYER_VARS: Record<string, string> = {
+  controls: "0",
+  disablekb: "1",
+  fs: "0",
+  rel: "0",
+  modestbranding: "1",
+  iv_load_policy: "3",
+  cc_load_policy: "0",
+  playsinline: "1",
+  enablejsapi: "1",
+};
+const YOUTUBE_IFRAME_CROP = {
+  top: 20,
+  bottom: 20,
+  side: 4,
+};
 
 declare global {
   interface Window {
@@ -131,6 +148,41 @@ function parseYouTubeId(url: string): string | null {
   return match ? match[1] : null;
 }
 
+function buildYouTubePosterUrl(videoId: string, quality: "maxres" | "hq" = "maxres"): string {
+  if (quality === "maxres") return `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
+
+function enforceYouTubeIframeQueryParams(iframe: HTMLIFrameElement) {
+  try {
+    const nextUrl = new URL(iframe.src);
+    Object.entries(CLEAN_YOUTUBE_PLAYER_VARS).forEach(([key, value]) => {
+      nextUrl.searchParams.set(key, value);
+    });
+    if (nextUrl.searchParams.get("origin") === null) {
+      nextUrl.searchParams.set("origin", window.location.origin);
+    }
+    if (nextUrl.searchParams.get("widget_referrer") === null) {
+      nextUrl.searchParams.set("widget_referrer", window.location.origin);
+    }
+
+    const normalized = nextUrl.toString();
+    if (normalized !== iframe.src) {
+      iframe.src = normalized;
+    }
+  } catch {
+    // no-op: if URL parsing fails we keep the current source
+  }
+}
+
+function formatBadgeClock(date: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+}
+
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return "0د";
 
@@ -165,10 +217,6 @@ function labelQuality(level: string): string {
 function requestFullscreen(element: HTMLElement | null): Promise<void> {
   if (!element) return Promise.resolve();
 
-  if (document.fullscreenElement) {
-    return Promise.resolve();
-  }
-
   const target = element as HTMLElement & {
     webkitRequestFullscreen?: () => Promise<void> | void;
     msRequestFullscreen?: () => Promise<void> | void;
@@ -186,6 +234,42 @@ function requestFullscreen(element: HTMLElement | null): Promise<void> {
     return Promise.resolve();
   }
 
+  return Promise.resolve();
+}
+
+function getFullscreenElement(): Element | null {
+  const doc = document as Document & {
+    webkitFullscreenElement?: Element | null;
+    msFullscreenElement?: Element | null;
+  };
+
+  return doc.fullscreenElement ?? doc.webkitFullscreenElement ?? doc.msFullscreenElement ?? null;
+}
+
+function isElementFullscreen(element: HTMLElement | null): boolean {
+  if (!element) return false;
+  const activeFullscreenElement = getFullscreenElement();
+  if (!activeFullscreenElement) return false;
+  return activeFullscreenElement === element || element.contains(activeFullscreenElement);
+}
+
+function exitFullscreen(): Promise<void> {
+  const doc = document as Document & {
+    webkitExitFullscreen?: () => Promise<void> | void;
+    msExitFullscreen?: () => Promise<void> | void;
+  };
+
+  if (doc.exitFullscreen) {
+    return doc.exitFullscreen();
+  }
+  if (doc.webkitExitFullscreen) {
+    doc.webkitExitFullscreen();
+    return Promise.resolve();
+  }
+  if (doc.msExitFullscreen) {
+    doc.msExitFullscreen();
+    return Promise.resolve();
+  }
   return Promise.resolve();
 }
 
@@ -266,9 +350,23 @@ export function CustomVideoPlayer({
   const [qualityLevels, setQualityLevels] = useState<string[]>(isYouTube ? FALLBACK_QUALITY_LEVELS : []);
   const [quality, setQuality] = useState<string>("auto");
   const [showControls, setShowControls] = useState(true);
-
-  const watermarkLabel = watermarkText ? `${watermarkText} · ${new Date().toLocaleTimeString("ar-EG")}` : null;
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [clockText, setClockText] = useState(() => formatBadgeClock(new Date()));
+  const [youTubePosterQuality, setYouTubePosterQuality] = useState<"maxres" | "hq">("maxres");
+  const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
+  const watermarkLabel = watermarkText ? `${watermarkText} · ${clockText}` : null;
   const progressPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+  const youTubePosterUrl = youTubeId ? buildYouTubePosterUrl(youTubeId, youTubePosterQuality) : null;
+  const showYouTubePausedCover = isYouTube && !hasStartedPlayback && !isPlaying && !error && Boolean(youTubePosterUrl);
+
+  async function toggleFullscreen() {
+    if (isElementFullscreen(containerRef.current) || getFullscreenElement()) {
+      await exitFullscreen().catch(() => undefined);
+      return;
+    }
+
+    await requestFullscreen(containerRef.current).catch(() => undefined);
+  }
 
   function hardenYouTubeIframe() {
     const mount = youtubeMountRef.current;
@@ -281,14 +379,20 @@ export function CustomVideoPlayer({
     iframe.setAttribute("tabindex", "-1");
     iframe.setAttribute("title", title ? `مشغل ${title}` : "مشغل الفيديو");
     iframe.setAttribute("referrerpolicy", "origin");
+    iframe.setAttribute("allow", "autoplay; encrypted-media; fullscreen; picture-in-picture");
+    iframe.setAttribute("allowfullscreen", "true");
+    enforceYouTubeIframeQueryParams(iframe);
+
+    // Keep rendering stable while cropping unavoidable top/bottom YouTube chrome
+    // without transform-based compositing that can hide frames on some GPUs.
     iframe.style.position = "absolute";
-    iframe.style.inset = "0";
-    iframe.style.width = "100%";
-    iframe.style.height = "100%";
+    iframe.style.top = `-${YOUTUBE_IFRAME_CROP.top}%`;
+    iframe.style.left = `-${YOUTUBE_IFRAME_CROP.side}%`;
+    iframe.style.width = `${100 + YOUTUBE_IFRAME_CROP.side * 2}%`;
+    iframe.style.height = `${100 + YOUTUBE_IFRAME_CROP.top + YOUTUBE_IFRAME_CROP.bottom}%`;
     iframe.style.border = "0";
-    iframe.style.transform = "scale(1.06)";
-    iframe.style.transformOrigin = "center center";
-    iframe.style.willChange = "transform";
+    iframe.style.zIndex = "0";
+    iframe.style.background = "transparent";
   }
 
   function normalizeQualityLevels(levels: string[]): string[] {
@@ -384,6 +488,7 @@ export function CustomVideoPlayer({
     if (isYouTube) {
       ytPlayerRef.current?.playVideo();
       setIsPlaying(true);
+      setHasStartedPlayback(true);
       startTicker();
       return;
     }
@@ -393,6 +498,7 @@ export function CustomVideoPlayer({
 
     await video.play().catch(() => undefined);
     setIsPlaying(true);
+    setHasStartedPlayback(true);
     startTicker();
   }
 
@@ -534,16 +640,17 @@ export function CustomVideoPlayer({
           width: "100%",
           height: "100%",
           playerVars: {
-            controls: 0,
-            disablekb: 1,
-            fs: 0,
-            rel: 0,
-            showinfo: 0,
-            modestbranding: 1,
-            iv_load_policy: 3,
-            cc_load_policy: 0,
-            playsinline: 1,
+            controls: Number(CLEAN_YOUTUBE_PLAYER_VARS.controls),
+            disablekb: Number(CLEAN_YOUTUBE_PLAYER_VARS.disablekb),
+            fs: Number(CLEAN_YOUTUBE_PLAYER_VARS.fs),
+            rel: Number(CLEAN_YOUTUBE_PLAYER_VARS.rel),
+            modestbranding: Number(CLEAN_YOUTUBE_PLAYER_VARS.modestbranding),
+            iv_load_policy: Number(CLEAN_YOUTUBE_PLAYER_VARS.iv_load_policy),
+            cc_load_policy: Number(CLEAN_YOUTUBE_PLAYER_VARS.cc_load_policy),
+            playsinline: Number(CLEAN_YOUTUBE_PLAYER_VARS.playsinline),
+            enablejsapi: Number(CLEAN_YOUTUBE_PLAYER_VARS.enablejsapi),
             origin: window.location.origin,
+            widget_referrer: window.location.origin,
           },
           events: {
             onReady: (event: YT.OnReadyEvent) => {
@@ -565,7 +672,9 @@ export function CustomVideoPlayer({
             onStateChange: (event: YT.OnStateChangeEvent) => {
               if (isDisposed || !window.YT?.PlayerState) return;
               if (event.data === window.YT.PlayerState.PLAYING) {
+                setReady(true);
                 setIsPlaying(true);
+                setHasStartedPlayback(true);
                 startTicker();
                 if (manualQualityLockRef.current && selectedQualityRef.current !== "auto") {
                   event.target.setPlaybackQuality(selectedQualityRef.current as YouTubeQualityLevel);
@@ -574,6 +683,7 @@ export function CustomVideoPlayer({
                 return;
               }
               if (event.data === window.YT.PlayerState.BUFFERING) {
+                setReady(true);
                 if (manualQualityLockRef.current && selectedQualityRef.current !== "auto") {
                   event.target.setPlaybackQuality(selectedQualityRef.current as YouTubeQualityLevel);
                 }
@@ -596,6 +706,7 @@ export function CustomVideoPlayer({
                 event.data === window.YT.PlayerState.PAUSED ||
                 event.data === window.YT.PlayerState.CUED
               ) {
+                setReady(true);
                 setIsPlaying(false);
                 clearTicker();
                 syncProgress();
@@ -672,6 +783,28 @@ export function CustomVideoPlayer({
   }, [isYouTube]);
 
   useEffect(() => {
+    setYouTubePosterQuality("maxres");
+    setHasStartedPlayback(false);
+  }, [youTubeId]);
+
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      setIsFullscreen(isElementFullscreen(containerRef.current));
+    };
+
+    syncFullscreenState();
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    document.addEventListener("webkitfullscreenchange", syncFullscreenState as EventListener);
+    document.addEventListener("MSFullscreenChange", syncFullscreenState as EventListener);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+      document.removeEventListener("webkitfullscreenchange", syncFullscreenState as EventListener);
+      document.removeEventListener("MSFullscreenChange", syncFullscreenState as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
     selectedQualityRef.current = quality;
   }, [quality]);
 
@@ -714,6 +847,16 @@ export function CustomVideoPlayer({
     };
   }, []);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setClockText(formatBadgeClock(new Date()));
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   return (
     <div
       ref={containerRef}
@@ -729,16 +872,17 @@ export function CustomVideoPlayer({
         {isYouTube ? (
           <div
             ref={youtubeMountRef}
-            className={`absolute inset-0 w-full h-full overflow-hidden pointer-events-none transition-opacity duration-200 ${ready ? "opacity-100" : "opacity-0"}`}
+            className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0"
             aria-hidden
           />
         ) : (
           <video
             ref={uploadVideoRef}
             src={videoUrl}
-            className="absolute inset-0 w-full h-full object-contain"
+            className="absolute inset-0 w-full h-full object-contain z-0"
             poster={posterUrl ?? undefined}
             playsInline
+            preload="metadata"
             controls={false}
             disablePictureInPicture
             controlsList="nodownload noplaybackrate noremoteplayback"
@@ -750,6 +894,7 @@ export function CustomVideoPlayer({
             }}
             onPlay={() => {
               setIsPlaying(true);
+              setHasStartedPlayback(true);
               startTicker();
             }}
             onPause={() => {
@@ -761,13 +906,32 @@ export function CustomVideoPlayer({
           />
         )}
 
+        {showYouTubePausedCover ? (
+          <div className="pointer-events-none absolute inset-0 z-[1] overflow-hidden">
+            {youTubePosterUrl ? (
+              <img
+                src={youTubePosterUrl}
+                alt=""
+                className="w-full h-full object-cover"
+                onError={() => {
+                  if (youTubePosterQuality === "maxres") {
+                    setYouTubePosterQuality("hq");
+                  }
+                }}
+              />
+            ) : null}
+            <div className="absolute inset-0 bg-black/24" />
+          </div>
+        ) : null}
+
         {isYouTube ? (
           <>
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-black/72 via-black/36 to-transparent" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/78 via-black/35 to-transparent" />
-            <div className="pointer-events-none absolute top-0 right-0 w-36 h-16 bg-gradient-to-bl from-black/78 via-black/42 to-transparent" />
-            <div className="pointer-events-none absolute top-0 left-0 w-36 h-16 bg-gradient-to-br from-black/78 via-black/40 to-transparent" />
-            <div className="pointer-events-none absolute bottom-0 right-0 w-44 h-20 bg-gradient-to-tl from-black/84 via-black/38 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-black/95" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/95 via-black/72 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/84 via-black/40 to-transparent" />
+            <div className="pointer-events-none absolute top-0 right-0 w-40 h-24 bg-gradient-to-bl from-black/84 via-black/48 to-transparent" />
+            <div className="pointer-events-none absolute top-0 left-0 w-40 h-24 bg-gradient-to-br from-black/84 via-black/48 to-transparent" />
+            <div className="pointer-events-none absolute bottom-0 right-0 w-48 h-24 bg-gradient-to-tl from-black/88 via-black/45 to-transparent" />
           </>
         ) : null}
 
@@ -921,12 +1085,12 @@ export function CustomVideoPlayer({
                   <button
                     type="button"
                     onClick={() => {
-                      void requestFullscreen(containerRef.current);
+                      void toggleFullscreen();
                     }}
                     className="w-10 h-10 rounded-xl border border-white/25 bg-white/15 backdrop-blur-xl hover:bg-white/25 flex items-center justify-center transition-colors"
-                    aria-label="ملء الشاشة"
+                    aria-label={isFullscreen ? "الخروج من ملء الشاشة" : "ملء الشاشة"}
                   >
-                    <Maximize2 className="w-4 h-4" />
+                    {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                   </button>
                 </div>
               </div>

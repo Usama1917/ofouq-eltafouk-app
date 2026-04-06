@@ -57,8 +57,8 @@ export default function Login() {
       {/* Right login form */}
       <div className="flex-1 flex items-center justify-center p-6 bg-background">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md space-y-8">
-          <div className="lg:hidden flex justify-center mb-4">
-            <Logo size={48} />
+          <div className="lg:hidden flex justify-center mb-5">
+            <Logo size={50} className="justify-center text-foreground" />
           </div>
 
           <div>
@@ -73,8 +73,8 @@ export default function Login() {
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <label className="text-sm font-semibold text-foreground">البريد الإلكتروني</label>
+            <div className="space-y-2.5">
+              <label className="block pr-1 text-[15px] font-bold text-foreground/90">البريد الإلكتروني</label>
               <div className="relative">
                 <Mail className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
@@ -83,8 +83,8 @@ export default function Login() {
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-sm font-semibold text-foreground">كلمة المرور</label>
+            <div className="space-y-2.5">
+              <label className="block pr-1 text-[15px] font-bold text-foreground/90">كلمة المرور</label>
               <div className="relative">
                 <Lock className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input type={showPw ? "text" : "password"} required value={password} onChange={e => setPassword(e.target.value)}

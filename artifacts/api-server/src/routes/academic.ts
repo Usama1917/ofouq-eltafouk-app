@@ -13,7 +13,7 @@ import {
   subjectSubscriptionRequestsTable,
   subjectSubscriptionsTable,
 } from "@workspace/db";
-import { and, asc, count, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -97,6 +97,10 @@ function toBool(value: unknown, fallback: boolean) {
 function toText(value: unknown, fallback = "") {
   if (value === undefined || value === null) return fallback;
   return String(value).trim();
+}
+
+function normalizeSubscriptionCode(value: unknown) {
+  return toText(value).replace(/\s+/g, "").toUpperCase();
 }
 
 function toNumber(value: unknown, fallback = 0) {
@@ -353,7 +357,7 @@ router.post("/academic/subscription-requests", async (req, res) => {
 
     const yearId = toNumber(req.body?.yearId, 0);
     const subjectId = toNumber(req.body?.subjectId, 0);
-    const code = toText(req.body?.code);
+    const code = normalizeSubscriptionCode(req.body?.code);
     const codeImageUrl = toText(req.body?.codeImageUrl) || null;
 
     if (yearId <= 0) return res.status(400).json({ error: "السنة الدراسية مطلوبة" });
@@ -419,7 +423,7 @@ router.post("/academic/subscription-requests", async (req, res) => {
     res.status(201).json({
       request: created,
       message:
-        "تم إرسال طلبك بنجاح وهو الآن قيد المراجعة. سيتم مراجعته خلال يوم عمل واحد كحد أقصى. سيقوم المشرف بالتحقق من الكود وبياناتك ثم قبول الطلب أو رفضه.",
+        "تم إرسال طلبك بنجاح وهو الآن قيد المراجعة. سيتم مراجعته خلال يوم عمل واحد كحد أقصى.",
     });
   } catch (err) {
     req.log.error({ err }, "Create subscription request error");
@@ -463,6 +467,42 @@ router.get("/academic/subscription-requests/me", async (req, res) => {
   }
 });
 
+router.get("/academic/subscriptions/me", async (req, res) => {
+  try {
+    const student = await requireStudent(req, res);
+    if (!student) return;
+
+    const subscriptions = await db
+      .select({
+        id: subjectSubscriptionsTable.id,
+        status: subjectSubscriptionsTable.status,
+        source: subjectSubscriptionsTable.source,
+        grantedByRequestId: subjectSubscriptionsTable.grantedByRequestId,
+        createdAt: subjectSubscriptionsTable.createdAt,
+        updatedAt: subjectSubscriptionsTable.updatedAt,
+        year: {
+          id: academicYearsTable.id,
+          name: academicYearsTable.name,
+        },
+        subject: {
+          id: subjectsTable.id,
+          name: subjectsTable.name,
+          icon: subjectsTable.icon,
+        },
+      })
+      .from(subjectSubscriptionsTable)
+      .innerJoin(academicYearsTable, eq(subjectSubscriptionsTable.yearId, academicYearsTable.id))
+      .innerJoin(subjectsTable, eq(subjectSubscriptionsTable.subjectId, subjectsTable.id))
+      .where(eq(subjectSubscriptionsTable.studentId, student.id))
+      .orderBy(desc(subjectSubscriptionsTable.updatedAt), desc(subjectSubscriptionsTable.id));
+
+    res.json(subscriptions);
+  } catch (err) {
+    req.log.error({ err }, "List student subscriptions error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/admin/subscription-requests", async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
@@ -497,7 +537,70 @@ router.get("/admin/subscription-requests", async (req, res) => {
       .innerJoin(subjectsTable, eq(subjectSubscriptionRequestsTable.subjectId, subjectsTable.id))
       .orderBy(desc(subjectSubscriptionRequestsTable.submittedAt));
 
-    res.json(requests);
+    const requestsAsc = [...requests].sort((a, b) => {
+      const left = new Date(a.submittedAt).getTime();
+      const right = new Date(b.submittedAt).getTime();
+      if (left !== right) return left - right;
+      return a.id - b.id;
+    });
+
+    const codeStats = new Map<
+      string,
+      {
+        usageCount: number;
+        firstUsedAt: Date;
+        firstUsedBy: {
+          id: number;
+          name: string;
+          email: string;
+        };
+        requestIds: number[];
+      }
+    >();
+
+    for (const request of requestsAsc) {
+      const normalizedCode = normalizeSubscriptionCode(request.code);
+      const existing = codeStats.get(normalizedCode);
+      if (existing) {
+        existing.usageCount += 1;
+        existing.requestIds.push(request.id);
+        continue;
+      }
+
+      codeStats.set(normalizedCode, {
+        usageCount: 1,
+        firstUsedAt: new Date(request.submittedAt),
+        firstUsedBy: {
+          id: request.student.id,
+          name: request.student.name,
+          email: request.student.email,
+        },
+        requestIds: [request.id],
+      });
+    }
+
+    const enrichedRequests = requests.map((request) => {
+      const normalizedCode = normalizeSubscriptionCode(request.code);
+      const stats = codeStats.get(normalizedCode);
+
+      return {
+        ...request,
+        codeTracking: {
+          normalizedCode,
+          isDuplicate: (stats?.usageCount ?? 0) > 1,
+          usageCount: stats?.usageCount ?? 1,
+          firstUsedAt: stats?.firstUsedAt ?? request.submittedAt,
+          firstUsedBy: stats?.firstUsedBy ?? {
+            id: request.student.id,
+            name: request.student.name,
+            email: request.student.email,
+          },
+          requestIds: stats?.requestIds ?? [request.id],
+        },
+      };
+    });
+
+    res.json(enrichedRequests);
   } catch (err) {
     req.log.error({ err }, "List admin subscription requests error");
     res.status(500).json({ error: "Internal server error" });
@@ -617,7 +720,112 @@ router.get("/academic/years/:yearId/subjects", async (req, res) => {
       .where(and(eq(subjectsTable.yearId, yearId), eq(subjectsTable.isPublished, true)))
       .orderBy(asc(subjectsTable.orderIndex), asc(subjectsTable.id));
 
-    res.json(subjects);
+    const user = await getSessionUser(req);
+    if (!user || user.role !== "student" || subjects.length === 0) {
+      return res.json(subjects);
+    }
+
+    const subjectIds = subjects.map((subject) => subject.id);
+
+    const subscriptions = await db
+      .select({
+        id: subjectSubscriptionsTable.id,
+        subjectId: subjectSubscriptionsTable.subjectId,
+        status: subjectSubscriptionsTable.status,
+        updatedAt: subjectSubscriptionsTable.updatedAt,
+      })
+      .from(subjectSubscriptionsTable)
+      .where(
+        and(
+          eq(subjectSubscriptionsTable.studentId, user.id),
+          inArray(subjectSubscriptionsTable.subjectId, subjectIds),
+        ),
+      )
+      .orderBy(desc(subjectSubscriptionsTable.updatedAt), desc(subjectSubscriptionsTable.id));
+
+    const latestRequests = await db
+      .select({
+        id: subjectSubscriptionRequestsTable.id,
+        subjectId: subjectSubscriptionRequestsTable.subjectId,
+        status: subjectSubscriptionRequestsTable.status,
+        submittedAt: subjectSubscriptionRequestsTable.submittedAt,
+        reviewedAt: subjectSubscriptionRequestsTable.reviewedAt,
+        reviewNotes: subjectSubscriptionRequestsTable.reviewNotes,
+      })
+      .from(subjectSubscriptionRequestsTable)
+      .where(
+        and(
+          eq(subjectSubscriptionRequestsTable.studentId, user.id),
+          inArray(subjectSubscriptionRequestsTable.subjectId, subjectIds),
+        ),
+      )
+      .orderBy(desc(subjectSubscriptionRequestsTable.submittedAt), desc(subjectSubscriptionRequestsTable.id));
+
+    const latestSubscriptionBySubject = new Map<number, (typeof subscriptions)[number]>();
+    for (const subscription of subscriptions) {
+      if (!latestSubscriptionBySubject.has(subscription.subjectId)) {
+        latestSubscriptionBySubject.set(subscription.subjectId, subscription);
+      }
+    }
+
+    const latestRequestBySubject = new Map<number, (typeof latestRequests)[number]>();
+    for (const request of latestRequests) {
+      if (!latestRequestBySubject.has(request.subjectId)) {
+        latestRequestBySubject.set(request.subjectId, request);
+      }
+    }
+
+    const withAccessState = subjects.map((subject) => {
+      const subscription = latestSubscriptionBySubject.get(subject.id);
+      const latestRequest = latestRequestBySubject.get(subject.id);
+
+      let accessStatus: "none" | "pending" | "approved" | "rejected" = "none";
+      let isLocked = true;
+      let canRequestSubscription = true;
+
+      if (subscription?.status === "active") {
+        accessStatus = "approved";
+        isLocked = false;
+        canRequestSubscription = false;
+      } else if (!subscription && latestRequest?.status === "approved") {
+        accessStatus = "approved";
+        isLocked = false;
+        canRequestSubscription = false;
+      } else if (latestRequest?.status === "pending") {
+        accessStatus = "pending";
+        isLocked = true;
+        canRequestSubscription = false;
+      } else if (latestRequest?.status === "rejected") {
+        accessStatus = "rejected";
+        isLocked = true;
+        canRequestSubscription = true;
+      }
+
+      return {
+        ...subject,
+        accessStatus,
+        isLocked,
+        canRequestSubscription,
+        subscriptionRecord: subscription
+          ? {
+              id: subscription.id,
+              status: subscription.status,
+              updatedAt: subscription.updatedAt,
+            }
+          : null,
+        latestRequest: latestRequest
+          ? {
+              id: latestRequest.id,
+              status: latestRequest.status,
+              submittedAt: latestRequest.submittedAt,
+              reviewedAt: latestRequest.reviewedAt,
+              reviewNotes: latestRequest.reviewNotes,
+            }
+          : null,
+      };
+    });
+
+    res.json(withAccessState);
   } catch (err) {
     req.log.error({ err }, "Failed to list subjects");
     res.status(500).json({ error: "Internal server error" });

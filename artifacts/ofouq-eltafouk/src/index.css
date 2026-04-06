@@ -133,6 +133,11 @@
   transform: translateY(-2px);
 }
 
+/* Stable card variant for dense lists (e.g. academic years) */
+.glass-card.no-lift:hover {
+  transform: none;
+}
+
 /* Floating premium card (hero, feature) */
 .glass-float {
   background: linear-gradient(135deg,

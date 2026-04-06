@@ -11,6 +11,8 @@ import {
   GraduationCap,
   ImagePlus,
   Layers,
+  Lock,
+  LockOpen,
   Play,
   PlayCircle,
   Send,
@@ -30,6 +32,21 @@ interface Subject {
   name: string;
   icon: string;
   description: string;
+  accessStatus?: "none" | "pending" | "approved" | "rejected";
+  isLocked?: boolean;
+  canRequestSubscription?: boolean;
+  latestRequest?: {
+    id: number;
+    status: "pending" | "approved" | "rejected";
+    submittedAt: string;
+    reviewedAt?: string | null;
+    reviewNotes: string;
+  } | null;
+  subscriptionRecord?: {
+    id: number;
+    status: string;
+    updatedAt: string;
+  } | null;
 }
 
 interface Unit {
@@ -159,6 +176,43 @@ function RequestStatusBadge({ status }: { status: StudentSubscriptionRequest["st
   return <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${styles}`}>{label}</span>;
 }
 
+function subjectAccessLabel(status: Subject["accessStatus"]) {
+  if (status === "approved") return "مشترك";
+  if (status === "pending") return "قيد المراجعة";
+  if (status === "rejected") return "مرفوض";
+  return "غير مشترك";
+}
+
+function subjectAccessBadgeStyle(status: Subject["accessStatus"]) {
+  if (status === "approved") return "bg-emerald-100 text-emerald-700";
+  if (status === "pending") return "bg-amber-100 text-amber-700";
+  if (status === "rejected") return "bg-rose-100 text-rose-700";
+  return "bg-slate-100 text-slate-700";
+}
+
+const YEAR_CARD_ACCENTS = [
+  {
+    icon: "bg-blue-50 border-blue-200/80 text-blue-600",
+    arrow: "text-blue-500",
+  },
+  {
+    icon: "bg-emerald-50 border-emerald-200/80 text-emerald-600",
+    arrow: "text-emerald-500",
+  },
+  {
+    icon: "bg-amber-50 border-amber-200/80 text-amber-600",
+    arrow: "text-amber-500",
+  },
+  {
+    icon: "bg-violet-50 border-violet-200/80 text-violet-600",
+    arrow: "text-violet-500",
+  },
+] as const;
+
+function yearAccent(index: number) {
+  return YEAR_CARD_ACCENTS[index % YEAR_CARD_ACCENTS.length];
+}
+
 export function AcademicYearsPage() {
   const { data: years = [], isLoading, isError, error, refetch, isFetching } = useQuery<AcademicYear[]>({
     queryKey: ["academic", "years"],
@@ -184,21 +238,29 @@ export function AcademicYearsPage() {
       ) : null}
       {!isLoading && years.length === 0 ? <EmptyState icon={<GraduationCap className="w-8 h-8" />} message="لا توجد سنوات منشورة بعد" /> : null}
 
-      <div className="space-y-3">
-        {years.map((year) => (
-          <Link key={year.id} href={`/videos/years/${year.id}`}>
-            <motion.div whileHover={{ y: -2 }} className="glass-card p-5 cursor-pointer hover:border-primary/30 transition-all flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
-                <GraduationCap className="w-6 h-6 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-foreground">{year.name}</h3>
-                {year.description ? <p className="text-xs text-muted-foreground mt-0.5 truncate">{year.description}</p> : null}
-              </div>
-              <ChevronLeft className="w-4 h-4 text-muted-foreground" />
-            </motion.div>
-          </Link>
-        ))}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch">
+        {years.map((year, index) => {
+          const accent = yearAccent(index);
+          return (
+            <Link key={year.id} href={`/videos/years/${year.id}`} className="block h-full">
+              <motion.div
+                whileHover={{ scale: 1.01 }}
+                className="glass-card no-lift relative overflow-hidden p-5 md:p-6 min-h-[108px] cursor-pointer transition-all flex items-center gap-3 border-white/70 hover:border-white"
+              >
+                <div className={`w-12 h-12 rounded-2xl border flex items-center justify-center flex-shrink-0 ${accent.icon}`}>
+                  <GraduationCap className="w-6 h-6" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                    <h3 className="font-bold text-foreground leading-tight">{year.name}</h3>
+                  </div>
+                  {year.description ? <p className="text-xs text-muted-foreground mt-0.5 truncate">{year.description}</p> : null}
+                </div>
+                <ChevronLeft className={`w-4 h-4 flex-shrink-0 ${accent.arrow}`} />
+              </motion.div>
+            </Link>
+          );
+        })}
       </div>
     </PageWrapper>
   );
@@ -241,18 +303,60 @@ export function AcademicSubjectsPage() {
       {!isLoading && subjects.length === 0 ? <EmptyState icon={<BookOpen className="w-8 h-8" />} message="لا توجد مواد منشورة" /> : null}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {subjects.map((subject) => (
-          <Link key={subject.id} href={`/videos/years/${yearId}/subjects/${subject.id}/units`}>
-            <motion.div whileHover={{ y: -2 }} className="glass-card p-5 cursor-pointer hover:border-primary/30 transition-all flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-50 to-purple-50 flex items-center justify-center text-2xl">{subject.icon || "📚"}</div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-foreground">{subject.name}</h3>
-                {subject.description ? <p className="text-xs text-muted-foreground mt-0.5 truncate">{subject.description}</p> : null}
+        {subjects.map((subject) => {
+          const status = subject.accessStatus ?? (subject.isLocked ? "none" : "approved");
+          const isLocked = Boolean(subject.isLocked);
+          const subscribeHref = `/videos/years/${yearId}/subscribe?subjectId=${subject.id}`;
+
+          if (!isLocked) {
+            return (
+              <Link key={subject.id} href={`/videos/years/${yearId}/subjects/${subject.id}/units`}>
+                <motion.div whileHover={{ y: -2 }} className="glass-card p-5 cursor-pointer hover:border-primary/30 transition-all flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-50 to-purple-50 flex items-center justify-center text-2xl">{subject.icon || "📚"}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-foreground">{subject.name}</h3>
+                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${subjectAccessBadgeStyle(status)}`}>
+                        {subjectAccessLabel(status)}
+                      </span>
+                    </div>
+                    {subject.description ? <p className="text-xs text-muted-foreground mt-0.5 truncate">{subject.description}</p> : null}
+                  </div>
+                  <LockOpen className="w-4 h-4 text-emerald-600" />
+                  <ChevronLeft className="w-4 h-4 text-muted-foreground" />
+                </motion.div>
+              </Link>
+            );
+          }
+
+          return (
+            <motion.div key={subject.id} className="glass-card p-5 border border-amber-200/60 bg-amber-50/40 flex items-start gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-2xl opacity-80">
+                {subject.icon || "📚"}
               </div>
-              <ChevronLeft className="w-4 h-4 text-muted-foreground" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-bold text-foreground">{subject.name}</h3>
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${subjectAccessBadgeStyle(status)}`}>
+                    {subjectAccessLabel(status)}
+                  </span>
+                </div>
+                {subject.description ? <p className="text-xs text-muted-foreground mt-0.5">{subject.description}</p> : null}
+                {status === "rejected" && subject.latestRequest?.reviewNotes ? (
+                  <p className="text-xs text-rose-700 mt-1">ملاحظة المراجعة: {subject.latestRequest.reviewNotes}</p>
+                ) : null}
+                <div className="mt-2">
+                  <Link href={subscribeHref}>
+                    <button className="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-all">
+                      {status === "pending" ? "متابعة الطلب" : status === "rejected" ? "إعادة إرسال الطلب" : "طلب اشتراك"}
+                    </button>
+                  </Link>
+                </div>
+              </div>
+              <Lock className="w-4 h-4 text-amber-700 mt-1" />
             </motion.div>
-          </Link>
-        ))}
+          );
+        })}
       </div>
     </PageWrapper>
   );
@@ -260,9 +364,10 @@ export function AcademicSubjectsPage() {
 
 export function AcademicSubscriptionRequestPage() {
   const { token } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [, params] = useRoute("/videos/years/:yearId/subscribe");
   const yearId = Number.parseInt(params?.yearId ?? "0", 10);
+  const preselectedSubjectId = Number.parseInt(new URLSearchParams(location.split("?")[1] ?? "").get("subjectId") ?? "0", 10);
 
   const [subjectId, setSubjectId] = useState<number>(0);
   const [code, setCode] = useState("");
@@ -296,13 +401,54 @@ export function AcademicSubscriptionRequestPage() {
   });
 
   useEffect(() => {
-    if (!subjectId && subjects.length > 0) {
+    if (subjects.length === 0) {
+      if (subjectId !== 0) setSubjectId(0);
+      return;
+    }
+
+    const currentIsValid = subjects.some((subject) => subject.id === subjectId);
+    if (currentIsValid) return;
+
+    const preferred = Number.isFinite(preselectedSubjectId) && preselectedSubjectId > 0
+      ? subjects.find((subject) => subject.id === preselectedSubjectId)
+      : undefined;
+
+    const firstRequestable = subjects.find((subject) => {
+      const status = subject.accessStatus ?? (subject.isLocked ? "none" : "approved");
+      return status !== "approved" && status !== "pending";
+    });
+
+    setSubjectId(preferred?.id ?? firstRequestable?.id ?? subjects[0].id);
+  }, [preselectedSubjectId, subjectId, subjects]);
+
+  const selectedSubject = subjects.find((subject) => subject.id === subjectId);
+  const selectedSubjectStatus = selectedSubject?.accessStatus ?? (selectedSubject?.isLocked ? "none" : "approved");
+  const selectedSubjectStatusLabel = subjectAccessLabel(selectedSubjectStatus);
+  const hasRequestableSubjects = subjects.some((subject) => {
+    const status = subject.accessStatus ?? (subject.isLocked ? "none" : "approved");
+    return status !== "approved" && status !== "pending";
+  });
+
+  useEffect(() => {
+    if (!selectedSubject && subjects.length > 0) {
       setSubjectId(subjects[0].id);
     }
-  }, [subjectId, subjects]);
+  }, [selectedSubject, subjects]);
 
   async function handleSubmit() {
     const finalCode = code.trim();
+    if (!selectedSubject) {
+      setErrorMessage("اختر المادة أولًا");
+      return;
+    }
+    if (selectedSubjectStatus === "approved") {
+      setErrorMessage("أنت مشترك بالفعل في هذه المادة");
+      return;
+    }
+    if (selectedSubjectStatus === "pending") {
+      setErrorMessage("لديك طلب اشتراك قيد المراجعة لهذه المادة");
+      return;
+    }
     if (!subjectId) {
       setErrorMessage("اختر المادة أولًا");
       return;
@@ -345,7 +491,7 @@ export function AcademicSubscriptionRequestPage() {
 
       setSuccessMessage(
         result.message ??
-          "تم إرسال طلبك بنجاح وهو الآن قيد المراجعة. سيتم مراجعته خلال يوم عمل واحد كحد أقصى. سيقوم المشرف بالتحقق من الكود وبياناتك ثم قبول الطلب أو رفضه.",
+          "تم إرسال طلبك بنجاح وهو الآن قيد المراجعة. سيتم مراجعته خلال يوم عمل واحد كحد أقصى.",
       );
       setCode("");
       setCodeImage(null);
@@ -390,10 +536,18 @@ export function AcademicSubscriptionRequestPage() {
             >
               {subjects.map((subject) => (
                 <option key={subject.id} value={subject.id}>
-                  {subject.name}
+                  {subject.name} - {subjectAccessLabel(subject.accessStatus ?? (subject.isLocked ? "none" : "approved"))}
                 </option>
               ))}
             </select>
+            {selectedSubject ? (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">حالة المادة:</span>
+                <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${subjectAccessBadgeStyle(selectedSubjectStatus)}`}>
+                  {selectedSubjectStatusLabel}
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -437,12 +591,24 @@ export function AcademicSubscriptionRequestPage() {
         <button
           type="button"
           onClick={() => void handleSubmit()}
-          disabled={submitting || subjectsLoading || !yearId}
+          disabled={submitting || subjectsLoading || !yearId || !hasRequestableSubjects || selectedSubjectStatus === "approved" || selectedSubjectStatus === "pending"}
           className="btn-primary py-3 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
         >
           <Send className="w-4 h-4" />
-          {submitting ? "جاري إرسال الطلب..." : "إرسال طلب الاشتراك"}
+          {submitting
+            ? "جاري إرسال الطلب..."
+            : selectedSubjectStatus === "pending"
+            ? "الطلب قيد المراجعة"
+            : selectedSubjectStatus === "approved"
+            ? "أنت مشترك بالفعل"
+            : "إرسال طلب الاشتراك"}
         </button>
+
+        {!hasRequestableSubjects ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+            جميع المواد في هذه السنة إما مشترك بها بالفعل أو لديها طلبات قيد المراجعة.
+          </div>
+        ) : null}
       </div>
 
       <div className="glass-card p-5 space-y-3">
@@ -480,7 +646,7 @@ export function AcademicUnitsPage() {
   });
   const subject = subjects.find((item) => item.id === subjectId);
 
-  const { data: units = [], isLoading } = useQuery<Unit[]>({
+  const { data: units = [], isLoading, isError, error } = useQuery<Unit[]>({
     queryKey: ["academic", "units", subjectId],
     queryFn: () => apiFetch(`/academic/subjects/${subjectId}/units`),
     enabled: Number.isFinite(subjectId) && subjectId > 0,
@@ -497,9 +663,19 @@ export function AcademicUnitsPage() {
       <SectionTitle icon={<Layers className="w-5 h-5" />} title={subject?.name ?? "الوحدات"} subtitle="اختر الوحدة / الفصل / الباب" />
 
       {isLoading ? <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div> : null}
-      {!isLoading && units.length === 0 ? <EmptyState icon={<Layers className="w-8 h-8" />} message="لا توجد وحدات منشورة" /> : null}
+      {isError ? (
+        <div className="glass-card p-6 text-center space-y-3">
+          <p className="text-sm text-rose-700">{error instanceof Error ? error.message : "تعذر تحميل الوحدات"}</p>
+          <Link href={`/videos/years/${yearId}/subscribe?subjectId=${subjectId}`}>
+            <button className="px-4 py-2 rounded-xl border border-primary/30 bg-primary/10 text-primary text-sm font-bold hover:bg-primary/15 transition-all">
+              طلب اشتراك في المادة
+            </button>
+          </Link>
+        </div>
+      ) : null}
+      {!isLoading && !isError && units.length === 0 ? <EmptyState icon={<Layers className="w-8 h-8" />} message="لا توجد وحدات منشورة" /> : null}
 
-      <div className="space-y-2">
+      <div className={`space-y-2 ${isError ? "hidden" : ""}`}>
         {units.map((unit) => (
           <Link key={unit.id} href={`/videos/years/${yearId}/subjects/${subjectId}/units/${unit.id}/lessons`}>
             <motion.div whileHover={{ y: -2 }} className="glass-card p-4 cursor-pointer hover:border-primary/30 transition-all flex items-center gap-3">
@@ -532,7 +708,7 @@ export function AcademicLessonsPage() {
   });
   const unit = units.find((item) => item.id === unitId);
 
-  const { data: lessons = [], isLoading } = useQuery<Lesson[]>({
+  const { data: lessons = [], isLoading, isError, error } = useQuery<Lesson[]>({
     queryKey: ["academic", "lessons", unitId],
     queryFn: () => apiFetch(`/academic/units/${unitId}/lessons`),
     enabled: Number.isFinite(unitId) && unitId > 0,
@@ -549,9 +725,19 @@ export function AcademicLessonsPage() {
       <SectionTitle icon={<PlayCircle className="w-5 h-5" />} title={unit?.name ?? "الدروس"} subtitle="اختر الدرس" />
 
       {isLoading ? <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div> : null}
-      {!isLoading && lessons.length === 0 ? <EmptyState icon={<PlayCircle className="w-8 h-8" />} message="لا توجد دروس منشورة" /> : null}
+      {isError ? (
+        <div className="glass-card p-6 text-center space-y-3">
+          <p className="text-sm text-rose-700">{error instanceof Error ? error.message : "تعذر تحميل الدروس"}</p>
+          <Link href={`/videos/years/${yearId}/subscribe?subjectId=${subjectId}`}>
+            <button className="px-4 py-2 rounded-xl border border-primary/30 bg-primary/10 text-primary text-sm font-bold hover:bg-primary/15 transition-all">
+              طلب اشتراك في المادة
+            </button>
+          </Link>
+        </div>
+      ) : null}
+      {!isLoading && !isError && lessons.length === 0 ? <EmptyState icon={<PlayCircle className="w-8 h-8" />} message="لا توجد دروس منشورة" /> : null}
 
-      <div className="space-y-2">
+      <div className={`space-y-2 ${isError ? "hidden" : ""}`}>
         {lessons.map((lesson) => (
           <Link key={lesson.id} href={`/videos/years/${yearId}/subjects/${subjectId}/units/${unitId}/lessons/${lesson.id}`}>
             <motion.div whileHover={{ y: -2 }} className="glass-card p-4 cursor-pointer hover:border-primary/30 transition-all flex items-center gap-3">
@@ -597,7 +783,16 @@ export function AcademicLessonPage() {
 
   const backPath = location.replace(/\/lessons\/\d+$/, "/lessons");
 
-  const { data: lesson, isLoading } = useQuery<Lesson>({
+  const yearId = (() => {
+    const match = location.match(/\/videos\/years\/(\d+)\/subjects/);
+    return match ? match[1] : "0";
+  })();
+  const subjectId = (() => {
+    const match = location.match(/\/subjects\/(\d+)\/units/);
+    return match ? match[1] : "0";
+  })();
+
+  const { data: lesson, isLoading, isError, error } = useQuery<Lesson>({
     queryKey: ["academic", "lesson", lessonId],
     queryFn: () => apiFetch(`/academic/lessons/${lessonId}`),
     enabled: lessonId > 0,
@@ -612,6 +807,16 @@ export function AcademicLessonPage() {
       </Link>
 
       {isLoading ? <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div> : null}
+      {isError ? (
+        <div className="glass-card p-6 text-center space-y-3">
+          <p className="text-sm text-rose-700">{error instanceof Error ? error.message : "تعذر تحميل الدرس"}</p>
+          <Link href={`/videos/years/${yearId}/subscribe?subjectId=${subjectId}`}>
+            <button className="px-4 py-2 rounded-xl border border-primary/30 bg-primary/10 text-primary text-sm font-bold hover:bg-primary/15 transition-all">
+              طلب اشتراك في المادة
+            </button>
+          </Link>
+        </div>
+      ) : null}
 
       {lesson ? (
         <div className="space-y-6" dir="rtl">

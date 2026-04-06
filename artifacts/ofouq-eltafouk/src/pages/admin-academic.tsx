@@ -78,6 +78,28 @@ interface Lesson {
 type UploadKind = "video" | "thumbnail";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const YEAR_ITEM_TONES = [
+  {
+    top: "bg-blue-500/80",
+    iconWrapper: "bg-blue-50 border-blue-200/70 text-blue-600",
+  },
+  {
+    top: "bg-emerald-500/80",
+    iconWrapper: "bg-emerald-50 border-emerald-200/70 text-emerald-600",
+  },
+  {
+    top: "bg-amber-500/80",
+    iconWrapper: "bg-amber-50 border-amber-200/70 text-amber-600",
+  },
+  {
+    top: "bg-violet-500/80",
+    iconWrapper: "bg-violet-50 border-violet-200/70 text-violet-600",
+  },
+] as const;
+
+function yearItemTone(index: number) {
+  return YEAR_ITEM_TONES[index % YEAR_ITEM_TONES.length];
+}
 
 async function apiFetch<T>(token: string | null, path: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers);
@@ -126,6 +148,9 @@ function ItemCard({
   onDelete,
   onMoveUp,
   onMoveDown,
+  containerClassName,
+  iconWrapperClassName,
+  topAccentClassName,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -138,10 +163,14 @@ function ItemCard({
   onDelete: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
+  containerClassName?: string;
+  iconWrapperClassName?: string;
+  topAccentClassName?: string;
 }) {
   return (
-    <div className={`glass-card p-4 flex items-center gap-3 ${!isPublished ? "opacity-75" : ""}`}>
-      <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center">{icon}</div>
+    <div className={`glass-card no-lift relative overflow-hidden p-4 min-h-[92px] flex items-center gap-3 ${!isPublished ? "opacity-75" : ""} ${containerClassName ?? ""}`}>
+      {topAccentClassName ? <div className={`absolute inset-x-0 top-0 h-1 ${topAccentClassName}`} /> : null}
+      <div className={`w-10 h-10 rounded-xl border bg-muted/50 flex items-center justify-center flex-shrink-0 ${iconWrapperClassName ?? ""}`}>{icon}</div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <h3 className="font-bold text-foreground truncate">{title}</h3>
@@ -615,8 +644,15 @@ export function AcademicTab() {
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none min-h-[90px]"
                 />
 
+                <input
+                  value={lessonForm.thumbnailUrl}
+                  onChange={(e) => setLessonForm((p) => ({ ...p, thumbnailUrl: e.target.value }))}
+                  placeholder="رابط الصورة المصغرة (اختياري)"
+                  className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
+                />
+
                 <label className="w-full px-3 py-3 rounded-xl bg-white/70 border border-white/70 text-sm flex items-center justify-between cursor-pointer">
-                  <span>{lessonThumbnailFile ? lessonThumbnailFile.name : "صورة مصغرة (اختياري)"}</span>
+                  <span>{lessonThumbnailFile ? lessonThumbnailFile.name : "رفع صورة مصغرة (اختياري)"}</span>
                   <Upload className="w-4 h-4 text-primary" />
                   <input
                     type="file"
@@ -625,6 +661,9 @@ export function AcademicTab() {
                     onChange={(e) => setLessonThumbnailFile(e.target.files?.[0] ?? null)}
                   />
                 </label>
+                <p className="text-xs text-muted-foreground -mt-1">
+                  يمكنك إدخال رابط صورة أو رفع ملف. في حال اختيار ملف، سيتم استخدام الملف تلقائيًا.
+                </p>
 
                 <label className="flex items-center gap-2 cursor-pointer text-sm text-muted-foreground">
                   <input
@@ -649,46 +688,52 @@ export function AcademicTab() {
         ) : null}
       </AnimatePresence>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         {current.level === "years" ? (
           years.length === 0 ? (
             <div className="glass-card p-8 text-center text-muted-foreground">لا توجد سنوات دراسية بعد.</div>
           ) : (
-            years.map((year, index) => (
-              <ItemCard
-                key={year.id}
-                icon={<GraduationCap className="w-5 h-5 text-primary" />}
-                title={year.name}
-                description={year.description}
-                isPublished={year.isPublished}
-                onRename={async () => {
-                  const name = prompt("اسم السنة", year.name);
-                  if (name === null) return;
-                  await apiFetch(token, `/admin/academic/years/${year.id}`, {
-                    method: "PUT",
-                    body: JSON.stringify({ name: name.trim() || year.name }),
-                  });
-                  invalidateAcademic();
-                }}
-                onTogglePublish={async () => {
-                  await apiFetch(token, `/admin/academic/years/${year.id}`, {
-                    method: "PUT",
-                    body: JSON.stringify({ isPublished: !year.isPublished }),
-                  });
-                  invalidateAcademic();
-                }}
-                onDelete={async () => {
-                  await apiFetch(token, `/admin/academic/years/${year.id}`, { method: "DELETE" });
-                  invalidateAcademic();
-                }}
-                onMoveUp={index > 0 ? () => moveItem(years, index, "up", "/admin/academic/years/reorder") : undefined}
-                onMoveDown={index < years.length - 1 ? () => moveItem(years, index, "down", "/admin/academic/years/reorder") : undefined}
-                onOpen={() => {
-                  setCrumbs((prev) => [...prev, { level: "subjects", label: year.name, yearId: year.id }]);
-                  setShowAdd(false);
-                }}
-              />
-            ))
+            years.map((year, index) => {
+              const tone = yearItemTone(index);
+              return (
+                <ItemCard
+                  key={year.id}
+                  icon={<GraduationCap className="w-5 h-5" />}
+                  title={year.name}
+                  description={year.description}
+                  isPublished={year.isPublished}
+                  containerClassName="border-white/70"
+                  iconWrapperClassName={tone.iconWrapper}
+                  topAccentClassName={tone.top}
+                  onRename={async () => {
+                    const name = prompt("اسم السنة", year.name);
+                    if (name === null) return;
+                    await apiFetch(token, `/admin/academic/years/${year.id}`, {
+                      method: "PUT",
+                      body: JSON.stringify({ name: name.trim() || year.name }),
+                    });
+                    invalidateAcademic();
+                  }}
+                  onTogglePublish={async () => {
+                    await apiFetch(token, `/admin/academic/years/${year.id}`, {
+                      method: "PUT",
+                      body: JSON.stringify({ isPublished: !year.isPublished }),
+                    });
+                    invalidateAcademic();
+                  }}
+                  onDelete={async () => {
+                    await apiFetch(token, `/admin/academic/years/${year.id}`, { method: "DELETE" });
+                    invalidateAcademic();
+                  }}
+                  onMoveUp={index > 0 ? () => moveItem(years, index, "up", "/admin/academic/years/reorder") : undefined}
+                  onMoveDown={index < years.length - 1 ? () => moveItem(years, index, "down", "/admin/academic/years/reorder") : undefined}
+                  onOpen={() => {
+                    setCrumbs((prev) => [...prev, { level: "subjects", label: year.name, yearId: year.id }]);
+                    setShowAdd(false);
+                  }}
+                />
+              );
+            })
           )
         ) : null}
 

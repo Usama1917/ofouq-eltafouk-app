@@ -41,6 +41,18 @@ type SubscriptionRequestItem = {
     id: number;
     name: string;
   };
+  codeTracking?: {
+    normalizedCode: string;
+    isDuplicate: boolean;
+    usageCount: number;
+    firstUsedAt: string;
+    firstUsedBy: {
+      id: number;
+      name: string;
+      email: string;
+    };
+    requestIds: number[];
+  };
 };
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
@@ -87,6 +99,42 @@ function PreviewModal({ title, content, onConfirm, onCancel }: {
               <X className="w-4 h-4 inline-block ml-1.5" /> إلغاء
             </button>
           </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function ImageLightbox({ src, title, onClose }: { src: string; title?: string; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+      dir="rtl"
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.16 }}
+        className="w-full max-w-4xl bg-white rounded-3xl border border-white/70 shadow-2xl overflow-hidden"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="px-5 py-3.5 border-b border-border/60 flex items-center justify-between bg-muted/20">
+          <p className="text-sm font-bold text-foreground">{title || "معاينة الصورة"}</p>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-xl bg-white border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="p-4 bg-slate-50/70">
+          <img
+            src={src}
+            alt={title || "preview"}
+            className="w-full max-h-[76vh] object-contain rounded-2xl border border-white/70 bg-white"
+          />
         </div>
       </motion.div>
     </div>
@@ -1164,6 +1212,7 @@ function SubscriptionRequestsTab({ token }: { token: string | null }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [processingId, setProcessingId] = useState<number | null>(null);
+  const [previewImage, setPreviewImage] = useState<{ src: string; title?: string } | null>(null);
 
   const loadRequests = async () => {
     if (!token) return;
@@ -1195,6 +1244,14 @@ function SubscriptionRequestsTab({ token }: { token: string | null }) {
 
   const handleReview = async (requestId: number, status: "approved" | "rejected") => {
     if (!token) return;
+    const request = requests.find((item) => item.id === requestId);
+
+    if (status === "approved" && request?.codeTracking?.isDuplicate) {
+      const shouldContinue = confirm(
+        `تحذير: هذا الكود مُستخدم ${request.codeTracking.usageCount} مرات من قبل. هل تريد اعتماد الطلب رغم التكرار؟`,
+      );
+      if (!shouldContinue) return;
+    }
 
     let reviewNotes = "";
     if (status === "rejected") {
@@ -1239,48 +1296,67 @@ function SubscriptionRequestsTab({ token }: { token: string | null }) {
       ) : null}
 
       <div className="glass-card overflow-hidden">
-        <table className="w-full text-sm text-right">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1060px] text-sm text-right">
           <thead>
             <tr className="border-b border-white/40">
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">الطالب</th>
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">السنة / المادة</th>
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">الكود</th>
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">الصورة</th>
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">الحالة</th>
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">التاريخ</th>
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs">إجراء</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">الطالب</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">السنة / المادة</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">الكود</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">الصورة</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">الحالة</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">التاريخ</th>
+              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">إجراء</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/30">
             {requests.map((request) => (
-              <tr key={request.id} className="hover:bg-white/30 transition-colors align-top">
-                <td className="px-4 py-3.5">
+              <tr key={request.id} className="hover:bg-white/30 transition-colors align-middle">
+                <td className="px-4 py-3.5 min-w-[210px]">
                   <p className="font-semibold text-foreground">{request.student.name}</p>
                   <p className="text-xs text-muted-foreground">{request.student.email}</p>
                   {request.student.phone ? <p className="text-xs text-muted-foreground">{request.student.phone}</p> : null}
                 </td>
-                <td className="px-4 py-3.5">
+                <td className="px-4 py-3.5 min-w-[210px] leading-relaxed">
                   <p className="font-semibold text-foreground">{request.year.name}</p>
                   <p className="text-xs text-muted-foreground">{request.subject.name}</p>
                 </td>
-                <td className="px-4 py-3.5 font-mono text-xs">{request.code}</td>
-                <td className="px-4 py-3.5">
+                <td className="px-4 py-3.5 min-w-[220px]">
+                  <p className="font-mono text-xs">{request.code}</p>
+                  {request.codeTracking?.isDuplicate ? (
+                    <div className="mt-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700 leading-relaxed break-words">
+                      <p className="font-bold">تحذير: كود مكرر ({request.codeTracking.usageCount} مرات)</p>
+                      <p>
+                        أول استخدام: {request.codeTracking.firstUsedBy.name} ·{" "}
+                        {new Date(request.codeTracking.firstUsedAt).toLocaleDateString("ar-EG")}
+                      </p>
+                      <p className="font-mono">الطلبات: {request.codeTracking.requestIds.map((id) => `#${id}`).join("، ")}</p>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-emerald-700">الاستخدام الأول لهذا الكود</p>
+                  )}
+                </td>
+                <td className="px-4 py-3.5 min-w-[120px]">
                   {request.codeImageUrl ? (
-                    <a
-                      href={apiPath(request.codeImageUrl)}
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPreviewImage({
+                          src: apiPath(request.codeImageUrl || ""),
+                          title: `${request.student.name} · ${request.subject.name}`,
+                        })
+                      }
                       className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-all inline-flex"
                     >
                       فتح الصورة
-                    </a>
+                    </button>
                   ) : (
                     <span className="text-xs text-muted-foreground">لا توجد صورة</span>
                   )}
                 </td>
-                <td className="px-4 py-3.5">
+                <td className="px-4 py-3.5 min-w-[170px]">
                   <span
-                    className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                    className={`inline-flex items-center justify-center text-center leading-[1.35] whitespace-normal break-words min-h-[2.1rem] max-w-[8.5rem] px-2.5 py-1 rounded-full text-xs font-bold ${
                       request.status === "approved"
                         ? "bg-emerald-100 text-emerald-700"
                         : request.status === "rejected"
@@ -1290,12 +1366,12 @@ function SubscriptionRequestsTab({ token }: { token: string | null }) {
                   >
                     {request.status === "approved" ? "مقبول" : request.status === "rejected" ? "مرفوض" : "قيد المراجعة"}
                   </span>
-                  {request.reviewNotes ? <p className="text-xs text-muted-foreground mt-1 max-w-[180px]">{request.reviewNotes}</p> : null}
+                  {request.reviewNotes ? <p className="text-xs text-muted-foreground mt-1 max-w-[210px] leading-relaxed">{request.reviewNotes}</p> : null}
                 </td>
-                <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
+                <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap min-w-[170px]">
                   {new Date(request.submittedAt).toLocaleString("ar-EG")}
                 </td>
-                <td className="px-4 py-3.5">
+                <td className="px-4 py-3.5 min-w-[130px]">
                   <div className="flex flex-col gap-2 min-w-[120px]">
                     <button
                       onClick={() => void handleReview(request.id, "approved")}
@@ -1324,8 +1400,19 @@ function SubscriptionRequestsTab({ token }: { token: string | null }) {
               </tr>
             ) : null}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
+
+      <AnimatePresence>
+        {previewImage ? (
+          <ImageLightbox
+            src={previewImage.src}
+            title={previewImage.title}
+            onClose={() => setPreviewImage(null)}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

@@ -32,6 +32,10 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+function isLikelyApiProxyConnectionFailure(path: string, res: Response, rawBody: string) {
+  return path.startsWith("/api/") && res.status === 500 && rawBody.trim().length === 0;
+}
+
 async function apiCall(path: string, opts: RequestInit) {
   let res: Response;
   try {
@@ -58,6 +62,11 @@ async function apiCall(path: string, opts: RequestInit) {
         })();
 
   if (!res.ok) {
+    if (isLikelyApiProxyConnectionFailure(path, res, raw)) {
+      throw new Error(
+        "الخادم غير متاح الآن. شغّل الـ API على المنفذ 8080 أو استخدم الأمر pnpm start:local من جذر المشروع.",
+      );
+    }
     if (data && typeof data === "object" && "error" in data && typeof (data as any).error === "string") {
       throw new Error((data as any).error);
     }
