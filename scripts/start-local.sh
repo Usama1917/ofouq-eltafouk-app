@@ -315,7 +315,9 @@ echo "🌱 Seeding demo users (idempotent)..."
 DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/scripts run seed:demo
 
 API_PORT="${API_PORT:-$API_PORT_DEFAULT}"
-FRONTEND_PORT="${FRONTEND_PORT:-${PORT:-$FRONTEND_PORT_DEFAULT}}"
+# Keep frontend port independent from API PORT.
+# Falling back to PORT causes collisions when .env sets PORT for API.
+FRONTEND_PORT="${FRONTEND_PORT:-$FRONTEND_PORT_DEFAULT}"
 BASE_PATH="${BASE_PATH:-/}"
 API_PROXY_TARGET="${API_PROXY_TARGET:-http://127.0.0.1:${API_PORT}}"
 

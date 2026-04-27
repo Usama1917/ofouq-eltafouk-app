@@ -2,6 +2,9 @@ import { Router, type IRouter } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { createHash } from "node:crypto";
 import {
   db,
   academicYearsTable,
@@ -17,12 +20,15 @@ import {
 import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 
 const router: IRouter = Router();
+const execFileAsync = promisify(execFile);
 
 const videosUploadDir = path.resolve(process.cwd(), "uploads/videos");
 const thumbnailsUploadDir = path.resolve(process.cwd(), "uploads/thumbnails");
+const segmentThumbnailsUploadDir = path.resolve(process.cwd(), "uploads/thumbnails/segments");
 const codeImagesUploadDir = path.resolve(process.cwd(), "uploads/subscription-codes");
 fs.mkdirSync(videosUploadDir, { recursive: true });
 fs.mkdirSync(thumbnailsUploadDir, { recursive: true });
+fs.mkdirSync(segmentThumbnailsUploadDir, { recursive: true });
 fs.mkdirSync(codeImagesUploadDir, { recursive: true });
 
 const videoStorage = multer.diskStorage({
@@ -112,6 +118,200 @@ function toNumber(value: unknown, fallback = 0) {
 function getYouTubeId(url: string): string | null {
   const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([^&?/\s]{11})/);
   return match ? match[1] : null;
+}
+
+function parseIso8601DurationToSeconds(value: string): number | null {
+  const match = String(value || "").trim().match(
+    /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/,
+  );
+  if (!match) return null;
+  const days = Number.parseInt(match[3] || "0", 10);
+  const hours = Number.parseInt(match[4] || "0", 10);
+  const minutes = Number.parseInt(match[5] || "0", 10);
+  const seconds = Number.parseInt(match[6] || "0", 10);
+  const total = (days * 24 * 3600) + (hours * 3600) + (minutes * 60) + seconds;
+  return Number.isFinite(total) && total > 0 ? total : null;
+}
+
+async function detectYouTubeDurationSeconds(videoUrl: string): Promise<number | null> {
+  const videoId = getYouTubeId(videoUrl);
+  if (!videoId) return null;
+  const apiKey = process.env.YOUTUBE_DATA_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const response = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${videoId}&key=${encodeURIComponent(apiKey)}`,
+    );
+    if (!response.ok) return null;
+    const payload = await response.json() as {
+      items?: Array<{ contentDetails?: { duration?: string } }>;
+    };
+    const rawDuration = payload.items?.[0]?.contentDetails?.duration;
+    if (!rawDuration) return null;
+    return parseIso8601DurationToSeconds(rawDuration);
+  } catch {
+    return null;
+  }
+}
+
+function resolveUploadPath(videoUrl: string): string | null {
+  const raw = String(videoUrl || "").trim();
+  if (!raw) return null;
+  if (!raw.startsWith("/api/uploads/videos/")) return null;
+  const filename = path.basename(raw);
+  if (!filename || filename.includes("..")) return null;
+  return path.join(videosUploadDir, filename);
+}
+
+async function detectUploadDurationSeconds(videoUrl: string): Promise<number | null> {
+  const absolutePath = resolveUploadPath(videoUrl);
+  if (!absolutePath || !fs.existsSync(absolutePath)) return null;
+
+  try {
+    const { stdout } = await execFileAsync("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
+      absolutePath,
+    ]);
+    const parsed = Number.parseFloat(String(stdout || "").trim());
+    if (!Number.isFinite(parsed) || parsed <= 0) return null;
+    return Math.round(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function buildSegmentThumbnailEndpoint(
+  videoId: number,
+  segmentId: number,
+  startSeconds?: number,
+  videoUrl?: string,
+): string {
+  const params = new URLSearchParams();
+  if (Number.isFinite(startSeconds)) {
+    params.set("ts", String(Math.max(0, Math.floor(Number(startSeconds)))));
+  }
+  const normalizedVideoUrl = String(videoUrl || "").trim();
+  if (normalizedVideoUrl) {
+    params.set("vh", createHash("sha1").update(normalizedVideoUrl).digest("hex").slice(0, 8));
+  }
+  const query = params.toString();
+  return query
+    ? `/api/academic/videos/${videoId}/segments/${segmentId}/thumbnail?${query}`
+    : `/api/academic/videos/${videoId}/segments/${segmentId}/thumbnail`;
+}
+
+function buildSegmentThumbnailFilename(args: {
+  videoId: number;
+  segmentId: number;
+  startSeconds: number;
+  videoUrl: string;
+}) {
+  const start = Math.max(0, Math.floor(args.startSeconds));
+  const urlHash = createHash("sha1").update(args.videoUrl).digest("hex").slice(0, 10);
+  return `v${args.videoId}-seg${args.segmentId}-t${start}-${urlHash}.jpg`;
+}
+
+async function generateUploadSegmentThumbnail(inputPath: string, startSeconds: number, outputPath: string): Promise<boolean> {
+  try {
+    await execFileAsync("ffmpeg", [
+      "-y",
+      "-ss",
+      String(Math.max(0, startSeconds)),
+      "-i",
+      inputPath,
+      "-frames:v",
+      "1",
+      "-q:v",
+      "3",
+      "-vf",
+      "scale='min(640,iw)':-2",
+      outputPath,
+    ]);
+    return fs.existsSync(outputPath);
+  } catch {
+    return false;
+  }
+}
+
+async function generateYouTubeSegmentThumbnail(videoUrl: string, startSeconds: number, outputPath: string): Promise<boolean> {
+  const videoId = getYouTubeId(videoUrl);
+  if (!videoId) return false;
+
+  const youtubeWatchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  try {
+    const { stdout } = await execFileAsync("yt-dlp", ["-g", "--no-playlist", youtubeWatchUrl], {
+      maxBuffer: 1024 * 1024,
+    });
+    const streamUrl = String(stdout || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+
+    if (streamUrl) {
+      const ok = await generateUploadSegmentThumbnail(streamUrl, startSeconds, outputPath);
+      if (ok) return true;
+    }
+  } catch {
+    // yt-dlp unavailable or failed; fallback below
+  }
+
+  try {
+    const fallback = await fetch(`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`);
+    if (!fallback.ok) return false;
+    const bytes = await fallback.arrayBuffer();
+    await fs.promises.writeFile(outputPath, Buffer.from(bytes));
+    return fs.existsSync(outputPath);
+  } catch {
+    return false;
+  }
+}
+
+function resolveUploadVideoAbsolutePath(videoUrl: string): string | null {
+  const raw = String(videoUrl || "").trim();
+  if (!raw.startsWith("/api/uploads/videos/")) return null;
+  const fileName = path.basename(raw);
+  if (!fileName || fileName.includes("..")) return null;
+  return path.join(videosUploadDir, fileName);
+}
+
+type SegmentThumbSeed = {
+  id: number;
+  startSeconds: number;
+};
+
+async function primeVideoSegmentThumbnails(args: {
+  videoId: number;
+  videoType: "youtube" | "upload";
+  videoUrl: string;
+  segments: SegmentThumbSeed[];
+}) {
+  if (!args.videoId || !args.videoUrl || args.segments.length === 0) return;
+
+  for (const segment of args.segments) {
+    const fileName = buildSegmentThumbnailFilename({
+      videoId: args.videoId,
+      segmentId: segment.id,
+      startSeconds: segment.startSeconds,
+      videoUrl: args.videoUrl,
+    });
+    const absoluteFilePath = path.join(segmentThumbnailsUploadDir, fileName);
+    if (fs.existsSync(absoluteFilePath)) continue;
+
+    if (args.videoType === "upload") {
+      const inputPath = resolveUploadVideoAbsolutePath(args.videoUrl);
+      if (!inputPath || !fs.existsSync(inputPath)) continue;
+      await generateUploadSegmentThumbnail(inputPath, segment.startSeconds, absoluteFilePath);
+      continue;
+    }
+
+    await generateYouTubeSegmentThumbnail(args.videoUrl, segment.startSeconds, absoluteFilePath);
+  }
 }
 
 async function requireAdmin(req: any, res: any) {
@@ -286,7 +486,9 @@ function normalizeVideoSegments(payload: unknown): NormalizedVideoSegmentInput[]
     if (!item || typeof item !== "object") return;
     const raw = item as Record<string, unknown>;
     const title = toText(raw.title);
-    if (!title) return;
+    if (!title) {
+      throw new Error(`عنوان التقسيمة رقم ${index + 1} مطلوب`);
+    }
 
     let startSeconds = toNumber(raw.startSeconds, Number.NaN);
     if (!Number.isFinite(startSeconds)) {
@@ -324,8 +526,7 @@ function normalizeVideoSegments(payload: unknown): NormalizedVideoSegmentInput[]
   return normalized;
 }
 
-function normalizeVideoPayload(payload: unknown, defaults: {
-  fallbackTitle: string;
+async function normalizeVideoPayload(payload: unknown, defaults: {
   fallbackDescription: string;
   fallbackPublishStatus: "draft" | "published";
 }) {
@@ -346,10 +547,22 @@ function normalizeVideoPayload(payload: unknown, defaults: {
     ? "draft"
     : "published";
 
-  const title = toText(raw.title, defaults.fallbackTitle) || defaults.fallbackTitle;
+  const title = toText(raw.title);
+  if (!title) {
+    throw new Error("عنوان الفيديو مطلوب ويجب إدخاله يدويًا.");
+  }
   const description = toText(raw.description, defaults.fallbackDescription);
   const instructor = toText(raw.instructor, "غير محدد") || "غير محدد";
   const hasSegmentsField = Array.isArray(raw.segments);
+  const segments = hasSegmentsField ? normalizeVideoSegments(raw.segments) : [];
+  const hintedDuration = Math.max(0, toNumber(raw.duration, 0));
+  const detectedDuration = videoType === "youtube"
+    ? await detectYouTubeDurationSeconds(videoUrl)
+    : await detectUploadDurationSeconds(videoUrl);
+  const finalDuration = detectedDuration ?? (hintedDuration > 0 ? hintedDuration : null);
+  if (!finalDuration || finalDuration <= 0) {
+    throw new Error("تعذر حساب مدة الفيديو تلقائيًا. أعد إدخال رابط/ملف الفيديو وحاول مرة أخرى.");
+  }
 
   return {
     title,
@@ -357,9 +570,9 @@ function normalizeVideoPayload(payload: unknown, defaults: {
     videoUrl,
     thumbnailUrl: toText(raw.thumbnailUrl) || null,
     posterUrl: toText(raw.posterUrl) || null,
-    segments: hasSegmentsField ? normalizeVideoSegments(raw.segments) : [],
+    segments,
     hasSegmentsField,
-    duration: Math.max(0, toNumber(raw.duration, 0)),
+    duration: finalDuration,
     instructor,
     videoType,
     publishStatus,
@@ -435,11 +648,21 @@ async function getLessonWithVideo(lessonId: number, publishedOnly: boolean) {
     .where(eq(videoSegmentsTable.videoId, lesson.video.id))
     .orderBy(asc(videoSegmentsTable.orderIndex), asc(videoSegmentsTable.startSeconds), asc(videoSegmentsTable.id));
 
+  const segmentsWithThumb = segments.map((segment) => ({
+    ...segment,
+    thumbnailUrl: buildSegmentThumbnailEndpoint(
+      lesson.video?.id ?? 0,
+      segment.id,
+      segment.startSeconds,
+      lesson.video?.videoUrl || undefined,
+    ),
+  }));
+
   return {
     ...lesson,
     video: {
       ...lesson.video,
-      segments,
+      segments: segmentsWithThumb,
     },
   };
 }
@@ -1044,6 +1267,95 @@ router.get("/academic/lessons/:lessonId", async (req, res) => {
   }
 });
 
+function formatSecondsBadge(seconds: number) {
+  const safe = Math.max(0, Math.floor(seconds));
+  const hh = Math.floor(safe / 3600);
+  const mm = Math.floor((safe % 3600) / 60);
+  const ss = safe % 60;
+  if (hh > 0) {
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  }
+  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+router.get("/academic/videos/:videoId/segments/:segmentId/thumbnail", async (req, res) => {
+  try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
+    const videoId = parsePositiveInt(req.params.videoId);
+    const segmentId = parsePositiveInt(req.params.segmentId);
+    if (!videoId || !segmentId) {
+      return res.status(400).json({ error: "معرّف الفيديو أو التقسيمة غير صالح" });
+    }
+
+    const [segment] = await db
+      .select({
+        segmentId: videoSegmentsTable.id,
+        videoId: videoSegmentsTable.videoId,
+        startSeconds: videoSegmentsTable.startSeconds,
+        videoUrl: videosTable.videoUrl,
+        videoType: videosTable.videoType,
+        subjectId: subjectsTable.id,
+      })
+      .from(videoSegmentsTable)
+      .innerJoin(videosTable, eq(videoSegmentsTable.videoId, videosTable.id))
+      .innerJoin(lessonsTable, eq(lessonsTable.videoId, videosTable.id))
+      .innerJoin(unitsTable, eq(lessonsTable.unitId, unitsTable.id))
+      .innerJoin(subjectsTable, eq(unitsTable.subjectId, subjectsTable.id))
+      .where(and(eq(videoSegmentsTable.videoId, videoId), eq(videoSegmentsTable.id, segmentId)))
+      .limit(1);
+
+    if (!segment) {
+      return res.status(404).json({ error: "التقسيمة غير موجودة" });
+    }
+
+    if (user.role === "student") {
+      const hasAccess = await userHasSubjectAccess(user.id, segment.subjectId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "غير مصرح لك بمشاهدة هذه المادة." });
+      }
+    }
+
+    const fileName = buildSegmentThumbnailFilename({
+      videoId: segment.videoId,
+      segmentId: segment.segmentId,
+      startSeconds: segment.startSeconds,
+      videoUrl: segment.videoUrl,
+    });
+    const absoluteFilePath = path.join(segmentThumbnailsUploadDir, fileName);
+
+    if (!fs.existsSync(absoluteFilePath)) {
+      let generated = false;
+      if (segment.videoType === "upload") {
+        const inputPath = resolveUploadVideoAbsolutePath(segment.videoUrl);
+        if (inputPath && fs.existsSync(inputPath)) {
+          generated = await generateUploadSegmentThumbnail(inputPath, segment.startSeconds, absoluteFilePath);
+        }
+      } else {
+        generated = await generateYouTubeSegmentThumbnail(segment.videoUrl, segment.startSeconds, absoluteFilePath);
+      }
+
+      if (!generated) {
+        if (user.role === "admin" || user.role === "owner") {
+          res.setHeader("x-thumbnail-generation-warning", "segment-thumbnail-generation-failed");
+        }
+        const badge = formatSecondsBadge(segment.startSeconds);
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#0f1b34"/><rect x="0" y="0" width="640" height="360" fill="url(#g)"/><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stop-color="#1f3f7a"/><stop offset="100%" stop-color="#122441"/></linearGradient></defs><text x="320" y="184" text-anchor="middle" fill="#d7e5ff" font-size="28" font-family="Arial, sans-serif" font-weight="700">معاينة الدرس</text><rect x="500" y="308" rx="10" ry="10" width="118" height="38" fill="#030712" stroke="#ffffff66"/><text x="559" y="333" text-anchor="middle" fill="#ffffff" font-size="22" font-family="Arial, sans-serif" font-weight="700">${badge}</text></svg>`;
+        res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(200).send(svg);
+      }
+    }
+
+    res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+    return res.sendFile(absoluteFilePath);
+  } catch (err) {
+    req.log.error({ err }, "Failed to generate/fetch segment thumbnail");
+    res.status(500).json({ error: "تعذر تجهيز صورة التقسيمة" });
+  }
+});
+
 // ── Admin routes (year -> subject -> unit -> lesson -> video) ────────────
 
 router.post("/admin/academic/media/upload-video", uploadVideoFile.single("video"), async (req, res) => {
@@ -1448,8 +1760,27 @@ router.get("/admin/academic/units/:unitId/lessons", async (req, res) => {
       .where(inArray(videoSegmentsTable.videoId, videoIds))
       .orderBy(asc(videoSegmentsTable.orderIndex), asc(videoSegmentsTable.startSeconds), asc(videoSegmentsTable.id));
 
-    const segmentsByVideoId = new Map<number, typeof segments>();
-    segments.forEach((segment) => {
+    const videoUrlById = new Map<number, string>();
+    lessons.forEach((lesson) => {
+      const videoId = Number(lesson.video?.id ?? 0);
+      const videoUrl = lesson.video?.videoUrl;
+      if (Number.isFinite(videoId) && videoId > 0 && typeof videoUrl === "string" && videoUrl.trim()) {
+        videoUrlById.set(videoId, videoUrl.trim());
+      }
+    });
+
+    const segmentsWithThumb = segments.map((segment) => ({
+      ...segment,
+      thumbnailUrl: buildSegmentThumbnailEndpoint(
+        segment.videoId,
+        segment.id,
+        segment.startSeconds,
+        videoUrlById.get(segment.videoId),
+      ),
+    }));
+
+    const segmentsByVideoId = new Map<number, typeof segmentsWithThumb>();
+    segmentsWithThumb.forEach((segment) => {
       const current = segmentsByVideoId.get(segment.videoId) ?? [];
       current.push(segment);
       segmentsByVideoId.set(segment.videoId, current);
@@ -1489,8 +1820,7 @@ router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
     const description = toText(req.body?.description);
     const isPublished = toBool(req.body?.isPublished, false);
 
-    const normalizedVideo = normalizeVideoPayload(req.body?.video, {
-      fallbackTitle: title,
+    const normalizedVideo = await normalizeVideoPayload(req.body?.video, {
       fallbackDescription: description,
       fallbackPublishStatus: isPublished ? "published" : "draft",
     });
@@ -1546,6 +1876,19 @@ router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
     });
 
     const lesson = await getLessonWithVideo(created.id, false);
+    if (lesson?.video?.id && lesson.video.videoUrl && Array.isArray(lesson.video.segments) && lesson.video.segments.length > 0) {
+      void primeVideoSegmentThumbnails({
+        videoId: lesson.video.id,
+        videoType: lesson.video.videoType,
+        videoUrl: lesson.video.videoUrl,
+        segments: lesson.video.segments.map((segment) => ({
+          id: segment.id,
+          startSeconds: segment.startSeconds,
+        })),
+      }).catch((err) => {
+        req.log.warn({ err, lessonId: lesson.id }, "Segment thumbnail pre-generation failed");
+      });
+    }
     res.status(201).json(lesson);
   } catch (err) {
     req.log.error({ err }, "Failed to create lesson");
@@ -1582,8 +1925,7 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
     const description = req.body?.description !== undefined ? toText(req.body.description) : undefined;
     const clearVideo = toBool(req.body?.clearVideo, false);
 
-    const normalizedVideo = normalizeVideoPayload(req.body?.video, {
-      fallbackTitle: title ?? "",
+    const normalizedVideo = await normalizeVideoPayload(req.body?.video, {
       fallbackDescription: description ?? "",
       fallbackPublishStatus: toBool(req.body?.isPublished, false) ? "published" : "draft",
     });
@@ -1686,6 +2028,19 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
     });
 
     if (!updated) return res.status(404).json({ error: "الدرس غير موجود" });
+    if (updated.video?.id && updated.video.videoUrl && Array.isArray(updated.video.segments) && updated.video.segments.length > 0) {
+      void primeVideoSegmentThumbnails({
+        videoId: updated.video.id,
+        videoType: updated.video.videoType,
+        videoUrl: updated.video.videoUrl,
+        segments: updated.video.segments.map((segment) => ({
+          id: segment.id,
+          startSeconds: segment.startSeconds,
+        })),
+      }).catch((err) => {
+        req.log.warn({ err, lessonId }, "Segment thumbnail pre-generation failed after lesson update");
+      });
+    }
     res.json(updated);
   } catch (err) {
     req.log.error({ err }, "Failed to update lesson");

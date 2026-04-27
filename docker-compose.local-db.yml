@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ofouq-postgres-local
+    restart: unless-stopped
+    ports:
+      - "${LOCAL_DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${LOCAL_DB_NAME:-ofouq_eltafouk}
+      POSTGRES_USER: ${LOCAL_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASSWORD:-postgres}
+    volumes:
+      - ofouq_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${LOCAL_DB_USER:-postgres} -d ${LOCAL_DB_NAME:-ofouq_eltafouk}
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  ofouq_postgres_data:

@@ -336,8 +336,8 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </header>
       {/* ── Main content ─────────────────────────────────────── */}
-      <main className="flex-1 md:mr-72 pt-16 md:pt-0 pb-24 md:pb-0 min-h-screen">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 py-8 md:py-10">
+      <main className="flex-1 md:mr-[19rem] pt-16 md:pt-0 pb-24 md:pb-0 min-h-screen">
+        <div className="mx-auto w-full max-w-[1180px] px-4 sm:px-6 md:px-10 xl:px-12 py-8 md:py-11">
           <motion.div
             initial={false}
             animate={{ opacity: 1, y: 0 }}

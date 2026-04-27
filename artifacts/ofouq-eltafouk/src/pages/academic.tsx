@@ -75,6 +75,7 @@ interface Lesson {
       startSeconds: number;
       segmentType: "questions" | "parts" | "topics";
       orderIndex: number;
+      thumbnailUrl?: string;
     }[];
   } | null;
 }
@@ -136,6 +137,17 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+function formatVideoDuration(seconds: number): string {
+  const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hh = Math.floor(safe / 3600);
+  const mm = Math.floor((safe % 3600) / 60);
+  const ss = safe % 60;
+  if (hh > 0) {
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  }
+  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
 function PageWrapper({ children }: { children: React.ReactNode }) {
   return (
     <motion.div
@@ -152,12 +164,12 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 
 function SectionTitle({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle?: string }) {
   return (
-    <div className="mb-6">
-      <div className="flex items-center gap-3 mb-1">
+    <div className="mb-8 md:mb-10">
+      <div className="mb-2 flex items-center gap-3.5">
         <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">{icon}</div>
         <h1 className="font-display font-black text-2xl text-foreground">{title}</h1>
       </div>
-      {subtitle ? <p className="text-sm text-muted-foreground mr-13">{subtitle}</p> : null}
+      {subtitle ? <p className="mr-14 text-sm leading-relaxed text-muted-foreground">{subtitle}</p> : null}
     </div>
   );
 }
@@ -246,23 +258,23 @@ export function AcademicYearsPage() {
       ) : null}
       {!isLoading && years.length === 0 ? <EmptyState icon={<GraduationCap className="w-8 h-8" />} message="لا توجد سنوات منشورة بعد" /> : null}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch">
+      <div className="grid grid-cols-1 gap-5 md:gap-6 xl:grid-cols-2 items-stretch">
         {years.map((year, index) => {
           const accent = yearAccent(index);
           return (
             <Link key={year.id} href={`/videos/years/${year.id}`} className="block h-full">
               <motion.div
                 whileHover={{ scale: 1.01 }}
-                className="glass-card no-lift relative overflow-hidden p-5 md:p-6 min-h-[108px] cursor-pointer transition-all flex items-center gap-3 border-white/70 hover:border-white"
+                className="glass-card no-lift relative overflow-hidden p-6 md:p-7 min-h-[118px] cursor-pointer transition-all flex items-center gap-4 border-white/70 hover:border-white"
               >
                 <div className={`w-12 h-12 rounded-2xl border flex items-center justify-center flex-shrink-0 ${accent.icon}`}>
                   <GraduationCap className="w-6 h-6" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                    <h3 className="font-bold text-foreground leading-tight">{year.name}</h3>
+                  <div className="mb-1 flex items-center gap-2 flex-wrap">
+                    <h3 className="font-bold text-foreground leading-snug">{year.name}</h3>
                   </div>
-                  {year.description ? <p className="text-xs text-muted-foreground mt-0.5 truncate">{year.description}</p> : null}
+                  {year.description ? <p className="text-xs text-muted-foreground truncate">{year.description}</p> : null}
                 </div>
                 <ChevronLeft className={`w-4 h-4 flex-shrink-0 ${accent.arrow}`} />
               </motion.div>
@@ -292,7 +304,7 @@ export function AcademicSubjectsPage() {
 
   return (
     <PageWrapper>
-      <div className="mb-5 flex items-center justify-between gap-3">
+      <div className="mb-6 flex items-center justify-between gap-3">
         <Link href="/videos">
           <button className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-sm transition-colors">
             <ArrowLeft className="w-4 h-4 rotate-180" /> السنوات
@@ -310,7 +322,7 @@ export function AcademicSubjectsPage() {
       {isLoading ? <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div> : null}
       {!isLoading && subjects.length === 0 ? <EmptyState icon={<BookOpen className="w-8 h-8" />} message="لا توجد مواد منشورة" /> : null}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-4 md:gap-5 sm:grid-cols-2">
         {subjects.map((subject) => {
           const status = subject.accessStatus ?? (subject.isLocked ? "none" : "approved");
           const isLocked = Boolean(subject.isLocked);
@@ -319,7 +331,7 @@ export function AcademicSubjectsPage() {
           if (!isLocked) {
             return (
               <Link key={subject.id} href={`/videos/years/${yearId}/subjects/${subject.id}/units`}>
-                <motion.div whileHover={{ y: -2 }} className="glass-card p-5 cursor-pointer hover:border-primary/30 transition-all flex items-center gap-3">
+                <motion.div whileHover={{ y: -2 }} className="glass-card p-6 cursor-pointer hover:border-primary/30 transition-all flex items-center gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-50 to-purple-50 flex items-center justify-center text-2xl">{subject.icon || "📚"}</div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -328,7 +340,7 @@ export function AcademicSubjectsPage() {
                         {subjectAccessLabel(status)}
                       </span>
                     </div>
-                    {subject.description ? <p className="text-xs text-muted-foreground mt-0.5 truncate">{subject.description}</p> : null}
+                    {subject.description ? <p className="text-xs text-muted-foreground mt-1 truncate">{subject.description}</p> : null}
                   </div>
                   <LockOpen className="w-4 h-4 text-emerald-600" />
                   <ChevronLeft className="w-4 h-4 text-muted-foreground" />
@@ -338,7 +350,7 @@ export function AcademicSubjectsPage() {
           }
 
           return (
-            <motion.div key={subject.id} className="glass-card p-5 border border-amber-200/60 bg-amber-50/40 flex items-start gap-3">
+            <motion.div key={subject.id} className="glass-card p-6 border border-amber-200/60 bg-amber-50/40 flex items-start gap-4">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-2xl opacity-80">
                 {subject.icon || "📚"}
               </div>
@@ -349,7 +361,7 @@ export function AcademicSubjectsPage() {
                     {subjectAccessLabel(status)}
                   </span>
                 </div>
-                {subject.description ? <p className="text-xs text-muted-foreground mt-0.5">{subject.description}</p> : null}
+                {subject.description ? <p className="text-xs text-muted-foreground mt-1">{subject.description}</p> : null}
                 {status === "rejected" && subject.latestRequest?.reviewNotes ? (
                   <p className="text-xs text-rose-700 mt-1">ملاحظة المراجعة: {subject.latestRequest.reviewNotes}</p>
                 ) : null}
@@ -525,7 +537,7 @@ export function AcademicSubscriptionRequestPage() {
         subtitle="أدخل كود الكتاب وارفع صورة الكود لإرسال الطلب"
       />
 
-      <div className="glass-card p-5 md:p-6 space-y-4 mb-6">
+      <div className="glass-card p-5 md:p-6 space-y-4 mb-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <label className="text-sm font-semibold text-muted-foreground">السنة الدراسية</label>
@@ -663,7 +675,7 @@ export function AcademicUnitsPage() {
   return (
     <PageWrapper>
       <Link href={`/videos/years/${yearId}`}>
-        <button className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-sm mb-5 transition-colors">
+        <button className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-sm mb-6 transition-colors">
           <ArrowLeft className="w-4 h-4 rotate-180" /> {subject?.name ?? "المواد"}
         </button>
       </Link>
@@ -683,16 +695,23 @@ export function AcademicUnitsPage() {
       ) : null}
       {!isLoading && !isError && units.length === 0 ? <EmptyState icon={<Layers className="w-8 h-8" />} message="لا توجد وحدات منشورة" /> : null}
 
-      <div className={`space-y-2 ${isError ? "hidden" : ""}`}>
+      <div className={`mt-3 space-y-5 md:space-y-6 ${isError ? "hidden" : ""}`}>
         {units.map((unit) => (
-          <Link key={unit.id} href={`/videos/years/${yearId}/subjects/${subjectId}/units/${unit.id}/lessons`}>
-            <motion.div whileHover={{ y: -2 }} className="glass-card p-4 cursor-pointer hover:border-primary/30 transition-all flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center">
+          <Link
+            key={unit.id}
+            href={`/videos/years/${yearId}/subjects/${subjectId}/units/${unit.id}/lessons`}
+            className="block"
+          >
+            <motion.div
+              whileHover={{ y: -1 }}
+              className="glass-card p-5 md:p-6 min-h-[106px] cursor-pointer hover:border-primary/30 transition-all flex items-center gap-4"
+            >
+              <div className="w-11 h-11 rounded-xl bg-sky-100 flex items-center justify-center">
                 <Layers className="w-5 h-5 text-sky-500" />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-foreground">{unit.name}</h3>
-                {unit.description ? <p className="text-xs text-muted-foreground mt-0.5 truncate">{unit.description}</p> : null}
+                <h3 className="font-semibold text-foreground leading-snug">{unit.name}</h3>
+                {unit.description ? <p className="text-xs text-muted-foreground mt-1 truncate">{unit.description}</p> : null}
               </div>
               <ChevronLeft className="w-4 h-4 text-muted-foreground" />
             </motion.div>
@@ -725,7 +744,7 @@ export function AcademicLessonsPage() {
   return (
     <PageWrapper>
       <Link href={`/videos/years/${yearId}/subjects/${subjectId}/units`}>
-        <button className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-sm mb-5 transition-colors">
+        <button className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-sm mb-6 transition-colors">
           <ArrowLeft className="w-4 h-4 rotate-180" /> {unit?.name ?? "الوحدات"}
         </button>
       </Link>
@@ -745,32 +764,46 @@ export function AcademicLessonsPage() {
       ) : null}
       {!isLoading && !isError && lessons.length === 0 ? <EmptyState icon={<PlayCircle className="w-8 h-8" />} message="لا توجد دروس منشورة" /> : null}
 
-      <div className={`space-y-2 ${isError ? "hidden" : ""}`}>
+      <div className={`mt-3 space-y-5 md:space-y-6 ${isError ? "hidden" : ""}`}>
         {lessons.map((lesson) => (
-          <Link key={lesson.id} href={`/videos/years/${yearId}/subjects/${subjectId}/units/${unitId}/lessons/${lesson.id}`}>
-            <motion.div whileHover={{ y: -2 }} className="glass-card p-4 cursor-pointer hover:border-primary/30 transition-all flex items-center gap-3">
-              {lesson.video?.thumbnailUrl || lesson.video?.posterUrl ? (
-                <div className="w-16 h-12 rounded-xl overflow-hidden flex-shrink-0">
-                  <img src={lesson.video?.thumbnailUrl ?? lesson.video?.posterUrl} alt={lesson.title} className="w-full h-full object-cover" />
+          <Link
+            key={lesson.id}
+            href={`/videos/years/${yearId}/subjects/${subjectId}/units/${unitId}/lessons/${lesson.id}`}
+            className="block"
+          >
+            <motion.div
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.995 }}
+              className="glass-card group rounded-2xl p-4 md:p-5 min-h-[108px] cursor-pointer border border-white/60 hover:border-primary/35 hover:bg-white/80 transition-all flex items-center gap-4"
+            >
+              {lesson.video?.thumbnailUrl ? (
+                <div className="h-14 w-[92px] rounded-xl overflow-hidden flex-shrink-0 border border-white/70 bg-slate-100">
+                  <img
+                    src={lesson.video.thumbnailUrl}
+                    alt={lesson.title}
+                    className="w-full h-full object-cover object-center"
+                    loading="lazy"
+                    decoding="async"
+                  />
                 </div>
               ) : (
-                <div className="w-16 h-12 rounded-xl bg-sky-100 flex items-center justify-center flex-shrink-0">
-                  <PlayCircle className="w-7 h-7 text-sky-400" />
+                <div className="h-14 w-[92px] rounded-xl bg-sky-100/90 border border-sky-200/70 flex items-center justify-center flex-shrink-0">
+                  <PlayCircle className="w-6 h-6 text-sky-500" strokeWidth={2.2} />
                 </div>
               )}
 
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-foreground text-sm">{lesson.title}</h3>
+                <h3 className="font-semibold text-foreground text-sm leading-snug truncate">{lesson.title}</h3>
                 {lesson.video ? (
-                  <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                    <User className="w-3 h-3" /> {lesson.video.instructor}
-                    <Clock className="w-3 h-3 mr-1" /> {lesson.video.duration} دقيقة
+                  <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                    <User className="w-3.5 h-3.5" strokeWidth={2.1} /> {lesson.video.instructor}
+                    <Clock className="w-3.5 h-3.5 mr-1" strokeWidth={2.1} /> {formatVideoDuration(lesson.video.duration)}
                   </div>
                 ) : null}
               </div>
 
-              <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
-                <Play className="w-4 h-4 text-white" />
+              <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform self-center">
+                <Play className="w-4 h-4 text-white" strokeWidth={2.4} />
               </div>
             </motion.div>
           </Link>
@@ -799,17 +832,15 @@ export function AcademicLessonPage() {
     const match = location.match(/\/subjects\/(\d+)\/units/);
     return match ? match[1] : "0";
   })();
-
   const { data: lesson, isLoading, isError, error } = useQuery<Lesson>({
     queryKey: ["academic", "lesson", lessonId],
     queryFn: () => apiFetch(`/academic/lessons/${lessonId}`),
     enabled: lessonId > 0,
   });
-
   return (
     <PageWrapper>
       <Link href={backPath}>
-        <button className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-sm mb-5 transition-colors">
+        <button className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-sm mb-6 transition-colors">
           <ArrowLeft className="w-4 h-4 rotate-180" /> الدروس
         </button>
       </Link>
@@ -827,32 +858,48 @@ export function AcademicLessonPage() {
       ) : null}
 
       {lesson ? (
-        <div className="space-y-6" dir="rtl">
+        <div className="space-y-7 md:space-y-8" dir="rtl">
           <div>
-            <h1 className="font-display font-black text-2xl text-foreground mb-2">{lesson.title}</h1>
-            {lesson.description ? <p className="text-muted-foreground">{lesson.description}</p> : null}
+            <h1 className="font-display font-black text-2xl text-foreground mb-2.5">{lesson.title}</h1>
+            {lesson.description ? <p className="text-muted-foreground leading-relaxed">{lesson.description}</p> : null}
           </div>
 
           {lesson.video ? (
-            <div className="space-y-4">
+            <div className="space-y-5">
+              <div className="glass-card p-4 sm:p-5 flex items-center gap-3.5 sm:gap-4 border border-primary/20 bg-primary/5">
+                {lesson.video.thumbnailUrl ? (
+                  <div className="h-14 w-[88px] rounded-xl overflow-hidden flex-shrink-0 border border-white/70 bg-slate-100">
+                    <img
+                      src={lesson.video.thumbnailUrl}
+                      alt={lesson.video.title}
+                      className="w-full h-full object-cover object-center"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </div>
+                ) : (
+                  <div className="h-14 w-[88px] rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Play className="w-6 h-6 text-primary" strokeWidth={2.2} />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-foreground text-sm sm:text-base">{lesson.video.title}</p>
+                  <p className="mt-1 text-xs sm:text-sm text-muted-foreground">{lesson.video.instructor} · {formatVideoDuration(lesson.video.duration)}</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <Play className="w-5 h-5 text-white" strokeWidth={2.3} />
+                </div>
+              </div>
+
               <CustomVideoPlayer
                 videoUrl={lesson.video.videoUrl}
                 videoType={lesson.video.videoType}
-                title={lesson.video.title || lesson.title}
-                posterUrl={lesson.video.posterUrl ?? lesson.video.thumbnailUrl ?? null}
+                title={lesson.video.title}
+                subtitle={lesson.video.instructor || ""}
+                posterUrl={lesson.video.posterUrl ?? null}
                 segments={lesson.video.segments ?? []}
                 watermarkText={user ? `${user.name} - ${user.email}` : undefined}
               />
-
-              <div className="glass-card p-4 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Play className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground text-sm">{lesson.video.title}</p>
-                  <p className="text-xs text-muted-foreground">{lesson.video.instructor} · {lesson.video.duration} دقيقة</p>
-                </div>
-              </div>
             </div>
           ) : (
             <EmptyState icon={<PlayCircle className="w-8 h-8" />} message="لا يوجد فيديو مرتبط بهذا الدرس" />

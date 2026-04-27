@@ -5,6 +5,13 @@
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
     "start:local": "bash scripts/start-local.sh",
+    "db:local:up": "bash scripts/db-local-up.sh",
+    "db:local:down": "bash scripts/db-local-down.sh",
+    "db:cloud:sync": "bash scripts/db-cloud-sync.sh",
+    "local:service:start": "node scripts/local-service-start.mjs",
+    "local:service:stop": "bash scripts/local-service-stop.sh",
+    "local:service:status": "bash scripts/local-service-status.sh",
+    "local:service:logs": "bash scripts/local-service-logs.sh",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"

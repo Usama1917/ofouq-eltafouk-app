@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -80,6 +80,7 @@ interface Lesson {
       startSeconds: number;
       segmentType: "questions" | "parts" | "topics";
       orderIndex: number;
+      thumbnailUrl?: string;
     }[];
   } | null;
 }
@@ -134,6 +135,164 @@ function createSegmentRow(): LessonSegmentFormItem {
     minutes: "",
     seconds: "",
   };
+}
+
+function parseYouTubeId(url: string): string | null {
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([^&?/\s]{11})/);
+  return match ? match[1] : null;
+}
+
+function formatDuration(seconds: number): string {
+  const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hh = Math.floor(safe / 3600);
+  const mm = Math.floor((safe % 3600) / 60);
+  const ss = safe % 60;
+  if (hh > 0) {
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  }
+  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+const YOUTUBE_IFRAME_API_ID = "admin-youtube-iframe-api-script";
+let youTubeApiPromise: Promise<void> | null = null;
+
+function loadYouTubeIframeApi(): Promise<void> {
+  if (typeof window === "undefined") return Promise.reject(new Error("YouTube API is unavailable"));
+  const ytWindow = window as Window & {
+    YT?: {
+      Player?: new (element: Element, options: Record<string, unknown>) => { getDuration: () => number; destroy: () => void };
+    };
+    onYouTubeIframeAPIReady?: () => void;
+  };
+  if (ytWindow.YT?.Player) return Promise.resolve();
+  if (youTubeApiPromise) return youTubeApiPromise;
+
+  youTubeApiPromise = new Promise<void>((resolve, reject) => {
+    const existing = document.getElementById(YOUTUBE_IFRAME_API_ID) as HTMLScriptElement | null;
+    const previousReady = ytWindow.onYouTubeIframeAPIReady;
+    ytWindow.onYouTubeIframeAPIReady = () => {
+      previousReady?.();
+      resolve();
+    };
+
+    if (existing) {
+      existing.addEventListener("error", () => reject(new Error("Failed to load YouTube API")), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = YOUTUBE_IFRAME_API_ID;
+    script.src = "https://www.youtube.com/iframe_api";
+    script.async = true;
+    script.onerror = () => reject(new Error("Failed to load YouTube API"));
+    document.head.appendChild(script);
+  });
+
+  return youTubeApiPromise;
+}
+
+async function detectYouTubeDurationSeconds(videoUrl: string): Promise<number | null> {
+  const videoId = parseYouTubeId(videoUrl);
+  if (!videoId) return null;
+
+  await loadYouTubeIframeApi();
+  const ytWindow = window as Window & {
+    YT?: {
+      Player?: new (element: Element, options: Record<string, unknown>) => { getDuration: () => number; destroy: () => void };
+    };
+  };
+  const YouTubePlayer = ytWindow.YT?.Player;
+  if (!YouTubePlayer) return null;
+
+  return new Promise<number | null>((resolve) => {
+    let settled = false;
+    let player: { getDuration: () => number; destroy: () => void } | null = null;
+    const mount = document.createElement("div");
+    mount.style.position = "fixed";
+    mount.style.left = "-9999px";
+    mount.style.top = "-9999px";
+    mount.style.width = "240px";
+    mount.style.height = "135px";
+    mount.style.pointerEvents = "none";
+    document.body.appendChild(mount);
+
+    const finish = (value: number | null) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      try {
+        player?.destroy();
+      } catch {
+        // ignore player teardown errors
+      }
+      mount.remove();
+      resolve(value && value > 0 ? Math.round(value) : null);
+    };
+
+    const timeoutId = window.setTimeout(() => finish(null), 12000);
+
+    player = new YouTubePlayer(mount, {
+      host: "https://www.youtube-nocookie.com",
+      videoId,
+      width: "240",
+      height: "135",
+      playerVars: {
+        controls: 0,
+        disablekb: 1,
+        fs: 0,
+        rel: 0,
+        modestbranding: 1,
+        iv_load_policy: 3,
+        cc_load_policy: 0,
+        playsinline: 1,
+      },
+      events: {
+        onReady: (event: { target: { getDuration: () => number } }) => {
+          let tries = 0;
+          const readDuration = () => {
+            const value = Number(event.target.getDuration() || 0);
+            if (value > 0) {
+              finish(value);
+              return;
+            }
+            if (tries >= 16) {
+              finish(null);
+              return;
+            }
+            tries += 1;
+            window.setTimeout(readDuration, 220);
+          };
+          readDuration();
+        },
+        onError: () => finish(null),
+      },
+    });
+  });
+}
+
+async function detectUploadDurationSeconds(src: string): Promise<number | null> {
+  if (!src) return null;
+  return new Promise<number | null>((resolve) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.playsInline = true;
+    video.crossOrigin = "anonymous";
+    let done = false;
+
+    const finish = (value: number | null) => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timeoutId);
+      video.removeAttribute("src");
+      video.load();
+      resolve(value && value > 0 ? Math.round(value) : null);
+    };
+
+    const timeoutId = window.setTimeout(() => finish(null), 12000);
+    video.onloadedmetadata = () => finish(Number.isFinite(video.duration) ? video.duration : null);
+    video.onerror = () => finish(null);
+    video.src = src;
+  });
 }
 
 async function apiFetch<T>(token: string | null, path: string, options?: RequestInit): Promise<T> {
@@ -276,7 +435,6 @@ export function AcademicTab() {
     videoTitle: "",
     videoDescription: "",
     instructor: "",
-    duration: "",
     publishStatus: "published" as "draft" | "published",
     thumbnailUrl: "",
     posterUrl: "",
@@ -288,6 +446,10 @@ export function AcademicTab() {
   const [lessonFormMode, setLessonFormMode] = useState<"create" | "edit">("create");
   const [editingLessonId, setEditingLessonId] = useState<number | null>(null);
   const [isSavingLesson, setIsSavingLesson] = useState(false);
+  const [detectedDurationSeconds, setDetectedDurationSeconds] = useState<number | null>(null);
+  const [isDurationDetecting, setIsDurationDetecting] = useState(false);
+  const [durationDetectionError, setDurationDetectionError] = useState<string | null>(null);
+  const durationDetectionRequestRef = useRef(0);
 
   const current = crumbs[crumbs.length - 1];
 
@@ -367,7 +529,6 @@ export function AcademicTab() {
       videoTitle: "",
       videoDescription: "",
       instructor: "",
-      duration: "",
       publishStatus: "published",
       thumbnailUrl: "",
       posterUrl: "",
@@ -378,6 +539,9 @@ export function AcademicTab() {
     setLessonSegments([]);
     setLessonFormMode("create");
     setEditingLessonId(null);
+    setDetectedDurationSeconds(null);
+    setIsDurationDetecting(false);
+    setDurationDetectionError(null);
   }
 
   function openLessonEditor(lesson: Lesson) {
@@ -391,10 +555,9 @@ export function AcademicTab() {
       isPublished: lesson.isPublished,
       videoType: lesson.video?.videoType ?? "youtube",
       videoUrl: lesson.video?.videoUrl ?? "",
-      videoTitle: lesson.video?.title ?? lesson.title,
+      videoTitle: lesson.video?.title ?? "",
       videoDescription: lesson.video?.description ?? lesson.description,
       instructor: lesson.video?.instructor ?? "",
-      duration: lesson.video ? String(lesson.video.duration) : "",
       publishStatus: lesson.video?.publishStatus ?? (lesson.isPublished ? "published" : "draft"),
       thumbnailUrl: lesson.video?.thumbnailUrl ?? "",
       posterUrl: lesson.video?.posterUrl ?? "",
@@ -420,8 +583,80 @@ export function AcademicTab() {
     setLessonPosterFile(null);
     setLessonFormMode("edit");
     setEditingLessonId(lesson.id);
+    setDetectedDurationSeconds(lesson.video && lesson.video.duration > 0 ? lesson.video.duration : null);
+    setIsDurationDetecting(false);
+    setDurationDetectionError(null);
     setShowAdd(true);
   }
+
+  useEffect(() => {
+    let isCancelled = false;
+    const requestId = durationDetectionRequestRef.current + 1;
+    durationDetectionRequestRef.current = requestId;
+
+    const run = async () => {
+      const youtubeUrl = lessonForm.videoUrl.trim();
+      if (lessonForm.videoType === "youtube") {
+        if (!youtubeUrl) {
+          setIsDurationDetecting(false);
+          setDurationDetectionError(null);
+          setDetectedDurationSeconds(null);
+          return;
+        }
+        if (!parseYouTubeId(youtubeUrl)) {
+          setIsDurationDetecting(false);
+          setDurationDetectionError("رابط YouTube غير صالح، لا يمكن حساب المدة.");
+          setDetectedDurationSeconds(null);
+          return;
+        }
+
+        setIsDurationDetecting(true);
+        setDurationDetectionError(null);
+        setDetectedDurationSeconds(null);
+        const seconds = await detectYouTubeDurationSeconds(youtubeUrl);
+        if (isCancelled || durationDetectionRequestRef.current !== requestId) return;
+        setIsDurationDetecting(false);
+        if (seconds && seconds > 0) {
+          setDetectedDurationSeconds(seconds);
+          setDurationDetectionError(null);
+        } else {
+          setDetectedDurationSeconds(null);
+          setDurationDetectionError("تعذر حساب مدة فيديو YouTube تلقائيًا. تأكد من الرابط أو جرب مرة أخرى.");
+        }
+        return;
+      }
+
+      const uploadSource = lessonVideoFile ? URL.createObjectURL(lessonVideoFile) : lessonForm.videoUrl.trim();
+      if (!uploadSource) {
+        setIsDurationDetecting(false);
+        setDurationDetectionError(null);
+        setDetectedDurationSeconds(null);
+        return;
+      }
+
+      setIsDurationDetecting(true);
+      setDurationDetectionError(null);
+      setDetectedDurationSeconds(null);
+      const seconds = await detectUploadDurationSeconds(uploadSource);
+      if (lessonVideoFile) URL.revokeObjectURL(uploadSource);
+      if (isCancelled || durationDetectionRequestRef.current !== requestId) return;
+
+      setIsDurationDetecting(false);
+      if (seconds && seconds > 0) {
+        setDetectedDurationSeconds(seconds);
+        setDurationDetectionError(null);
+      } else {
+        setDetectedDurationSeconds(null);
+        setDurationDetectionError("تعذر حساب مدة الفيديو المرفوع تلقائيًا. تأكد من الملف أو الرابط.");
+      }
+    };
+
+    void run();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [lessonForm.videoType, lessonForm.videoUrl, lessonVideoFile]);
 
   async function submitLesson() {
     if (!current.unitId) return;
@@ -451,14 +686,24 @@ export function AcademicTab() {
         posterUrl = await uploadMedia(lessonPosterFile, "thumbnail");
       }
 
+      const manualVideoTitle = lessonForm.videoTitle.trim();
+      if (!manualVideoTitle) {
+        throw new Error("عنوان الفيديو مطلوب ويجب إدخاله يدويًا.");
+      }
+
+      const autoDuration = Math.max(0, Math.floor(detectedDurationSeconds ?? 0));
+      if (autoDuration <= 0) {
+        throw new Error("تعذر حساب مدة الفيديو تلقائيًا. راجع الرابط/الملف ثم حاول مجددًا.");
+      }
+
       const segments = lessonSegments
-        .map((segment, index) => {
+        .flatMap((segment, index) => {
           const title = segment.title.trim();
           const hasTimeValues = segment.hours !== "" || segment.minutes !== "" || segment.seconds !== "";
           const hasAnyValue = title.length > 0 || hasTimeValues;
-          if (!hasAnyValue) return null;
+          if (!hasAnyValue) return [];
           if (!title) {
-            throw new Error(`عنوان التقسيمة رقم ${index + 1} مطلوب`);
+            throw new Error(`عنوان التقسيمة رقم ${index + 1} مطلوب.`);
           }
 
           const hours = Number.parseInt(segment.hours || "0", 10);
@@ -473,13 +718,12 @@ export function AcademicTab() {
             throw new Error(`ثواني التقسيمة رقم ${index + 1} يجب أن تكون بين 0 و 59`);
           }
 
-          return {
+          return [{
             title,
             segmentType: segment.segmentType,
             startSeconds: (hours * 3600) + (minutes * 60) + seconds,
-          };
+          }];
         })
-        .filter((segment): segment is { title: string; segmentType: VideoSegmentType; startSeconds: number } => segment !== null)
         .sort((a, b) => a.startSeconds - b.startSeconds);
 
       if (lessonForm.videoType === "youtube" && !videoUrl) {
@@ -491,15 +735,15 @@ export function AcademicTab() {
         description: lessonForm.description.trim(),
         isPublished: lessonForm.isPublished,
         video: {
-          title: lessonForm.videoTitle.trim() || lessonForm.title.trim(),
+          title: manualVideoTitle,
           description: lessonForm.videoDescription.trim() || lessonForm.description.trim(),
           videoType: lessonForm.videoType,
           videoUrl,
           thumbnailUrl: thumbnailUrl || undefined,
-          posterUrl: posterUrl || thumbnailUrl || undefined,
+          posterUrl: posterUrl || undefined,
           segments,
           instructor: lessonForm.instructor.trim() || "غير محدد",
-          duration: Number.parseInt(lessonForm.duration || "0", 10) || 0,
+          duration: autoDuration,
           publishStatus: lessonForm.publishStatus,
         },
       };
@@ -763,7 +1007,7 @@ export function AcademicTab() {
                   <input
                     value={lessonForm.videoTitle}
                     onChange={(e) => setLessonForm((p) => ({ ...p, videoTitle: e.target.value }))}
-                    placeholder="عنوان الفيديو (اختياري)"
+                    placeholder="عنوان الفيديو (مطلوب)"
                     className="px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                   />
                   <input
@@ -772,12 +1016,19 @@ export function AcademicTab() {
                     placeholder="اسم المدرس"
                     className="px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                   />
-                  <input
-                    value={lessonForm.duration}
-                    onChange={(e) => setLessonForm((p) => ({ ...p, duration: e.target.value }))}
-                    placeholder="المدة بالدقائق"
-                    className="px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
-                  />
+                  <div className="rounded-xl border border-white/70 bg-white/70 px-3 py-2.5 text-sm">
+                    <p className="text-[11px] font-bold text-muted-foreground mb-1">مدة الفيديو (تلقائي)</p>
+                    {isDurationDetecting ? (
+                      <p className="font-semibold text-primary">Calculating video duration...</p>
+                    ) : detectedDurationSeconds && detectedDurationSeconds > 0 ? (
+                      <p className="font-bold text-foreground">{formatDuration(detectedDurationSeconds)}</p>
+                    ) : (
+                      <p className="font-semibold text-muted-foreground">سيتم حساب المدة تلقائيًا بعد إدخال الفيديو.</p>
+                    )}
+                    {durationDetectionError ? (
+                      <p className="mt-1 text-[11px] font-semibold text-rose-600">{durationDetectionError}</p>
+                    ) : null}
+                  </div>
                   <select
                     value={lessonForm.publishStatus}
                     onChange={(e) => setLessonForm((p) => ({ ...p, publishStatus: e.target.value as "draft" | "published" }))}
@@ -798,13 +1049,15 @@ export function AcademicTab() {
                 <div className="w-full rounded-xl border border-white/70 bg-white/55 p-3 space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-bold text-foreground">تقسيم الفيديو (وصول سريع)</p>
-                    <button
-                      type="button"
-                      onClick={() => setLessonSegments((prev) => [...prev, createSegmentRow()])}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-primary/10 text-primary font-bold hover:bg-primary/20"
-                    >
-                      + إضافة تقسيمة
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLessonSegments((prev) => [...prev, createSegmentRow()])}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-primary/10 text-primary font-bold hover:bg-primary/20"
+                      >
+                        + إضافة تقسيمة
+                      </button>
+                    </div>
                   </div>
 
                   {lessonSegments.length === 0 ? (
@@ -814,7 +1067,9 @@ export function AcademicTab() {
                       {lessonSegments.map((segment, index) => (
                         <div key={segment.id} className="rounded-xl border border-white/70 bg-white/70 p-2.5 space-y-2">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-bold text-muted-foreground">تقسيمة #{index + 1}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-muted-foreground">تقسيمة #{index + 1}</span>
+                            </div>
                             <button
                               type="button"
                               onClick={() => setLessonSegments((prev) => prev.filter((item) => item.id !== segment.id))}
@@ -932,6 +1187,11 @@ export function AcademicTab() {
                 <p className="text-xs text-muted-foreground -mt-1">
                   تم إلغاء إدخال رابط الثامبنيل يدويًا. الآن يمكنك رفع صورتين منفصلتين: واحدة للكارت الخارجي وواحدة لبداية الفيديو.
                 </p>
+                {!lessonPosterFile && !lessonForm.posterUrl ? (
+                  <p className="text-xs font-semibold text-amber-700 -mt-1">
+                    تنبيه: لم يتم رفع صورة بانر للمشغل بعد. سيظهر Placeholder داخل المشغل حتى يتم رفعها.
+                  </p>
+                ) : null}
 
                 <label className="flex items-center gap-2 cursor-pointer text-sm text-muted-foreground">
                   <input
@@ -945,10 +1205,16 @@ export function AcademicTab() {
 
                 <button
                   onClick={submitLesson}
-                  disabled={isSavingLesson}
+                  disabled={isSavingLesson || isDurationDetecting}
                   className="btn-primary text-sm py-2 px-5 disabled:opacity-60"
                 >
-                  {isSavingLesson ? "جاري الحفظ..." : lessonFormMode === "edit" ? "حفظ التعديلات" : "حفظ الدرس والفيديو"}
+                  {isSavingLesson
+                    ? "جاري الحفظ..."
+                    : isDurationDetecting
+                    ? "جارٍ حساب المدة..."
+                    : lessonFormMode === "edit"
+                    ? "حفظ التعديلات"
+                    : "حفظ الدرس والفيديو"}
                 </button>
               </>
             ) : null}
