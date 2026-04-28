@@ -11,12 +11,12 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
 import { getBaseUrl } from "@/constants/api";
+import { useAppTheme } from "@/contexts/ThemeContext";
 
 interface AcademicYear { id: number; name: string; description: string; }
 interface Subject { id: number; name: string; icon: string; description: string; }
@@ -52,9 +52,7 @@ interface VideoCardProps {
 }
 
 function VideoCard({ video, featured }: VideoCardProps) {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const colors = isDark ? COLORS.dark : COLORS.light;
+  const { colors } = useAppTheme();
   const scale = useRef(new Animated.Value(1)).current;
   const subColor = subjectColors[video.subject] ?? COLORS.primary;
 
@@ -137,9 +135,7 @@ function VideoCard({ video, featured }: VideoCardProps) {
 }
 
 function AcademicSection() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const colors = isDark ? COLORS.dark : COLORS.light;
+  const { colors } = useAppTheme();
   const router = useRouter();
 
   const { data: years = [], isLoading } = useQuery<AcademicYear[]>({
@@ -218,9 +214,7 @@ function AcademicSection() {
 }
 
 export default function VideosScreen() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const colors = isDark ? COLORS.dark : COLORS.light;
+  const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
 
   const [selectedSubject, setSelectedSubject] = useState("الكل");

@@ -11,12 +11,12 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppTheme } from "@/contexts/ThemeContext";
 
 interface Message {
   id: string;
@@ -95,9 +95,7 @@ function Bubble({ message, isDark }: BubbleProps) {
 }
 
 export default function ChatScreen() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const colors = isDark ? COLORS.dark : COLORS.light;
+  const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
   const { user, token } = useAuth();
 

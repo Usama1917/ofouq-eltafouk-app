@@ -10,13 +10,14 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  useColorScheme,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
 import { getBaseUrl } from "@/constants/api";
+import { useAppTheme } from "@/contexts/ThemeContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
@@ -47,16 +48,15 @@ function getYouTubeId(url: string): string | null {
 }
 
 export default function LessonDetailScreen() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const colors = isDark ? COLORS.dark : COLORS.light;
+  const { colors } = useAppTheme();
+  const { t, isRTL } = useLanguage();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const videoRef = useRef<Video>(null);
   const { lessonId, lessonTitle } = useLocalSearchParams<{ lessonId: string; lessonTitle: string }>();
 
   useEffect(() => {
-    navigation.setOptions({ title: String(lessonTitle ?? "الدرس") });
+    navigation.setOptions({ title: String(lessonTitle ?? t.academic.lessons) });
   }, [lessonTitle, navigation]);
 
   const { data: lesson, isLoading } = useQuery<Lesson>({
@@ -90,11 +90,11 @@ export default function LessonDetailScreen() {
     >
       {lesson?.video ? (
         youTubeId ? (
-          <View style={[styles.youtubeCard, { backgroundColor: colors.surfaceSecondary }]}> 
+          <View style={[styles.youtubeCard, { backgroundColor: colors.surfaceSecondary }]}>
             <Ionicons name="logo-youtube" size={44} color="#ff0000" />
-            <Text style={[styles.youtubeText, { color: colors.text }]}>هذا الدرس من YouTube</Text>
+            <Text style={[styles.youtubeText, { color: colors.text }]}>{t.academic.youtubeVideo}</Text>
             <Pressable style={styles.youtubeButton} onPress={openYouTubeVideo}>
-              <Text style={styles.youtubeButtonText}>فتح الفيديو</Text>
+              <Text style={styles.youtubeButtonText}>{t.academic.openVideo}</Text>
             </Pressable>
           </View>
         ) : (
@@ -110,30 +110,30 @@ export default function LessonDetailScreen() {
           />
         )
       ) : (
-        <View style={[styles.noVideoPlaceholder, { backgroundColor: colors.surfaceSecondary }]}> 
+        <View style={[styles.noVideoPlaceholder, { backgroundColor: colors.surfaceSecondary }]}>
           <Ionicons name="play-circle-outline" size={60} color={colors.textTertiary} />
-          <Text style={[styles.noVideoText, { color: colors.textSecondary }]}>لا يوجد فيديو لهذا الدرس بعد</Text>
+          <Text style={[styles.noVideoText, { color: colors.textSecondary }]}>{t.academic.noVideo}</Text>
         </View>
       )}
 
       <View style={styles.content}>
-        <Text style={[styles.lessonTitle, { color: colors.text }]}>{lesson?.title ?? lessonTitle}</Text>
+        <Text style={[styles.lessonTitle, { color: colors.text, textAlign: isRTL ? "right" : "left" }]}>{lesson?.title ?? lessonTitle}</Text>
 
         {lesson?.description ? (
-          <Text style={[styles.lessonDesc, { color: colors.textSecondary }]}>{lesson.description}</Text>
+          <Text style={[styles.lessonDesc, { color: colors.textSecondary, textAlign: isRTL ? "right" : "left" }]}>{lesson.description}</Text>
         ) : null}
 
         {lesson?.video && (
-          <View style={[styles.infoCard, { backgroundColor: colors.card, borderColor: colors.border }]}> 
-            <View style={styles.infoRow}>
+          <View style={[styles.infoCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.infoRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <Ionicons name="person-circle-outline" size={18} color={COLORS.primary} />
-              <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>المعلم:</Text>
-              <Text style={[styles.infoValue, { color: colors.text }]}>{lesson.video.instructor}</Text>
+              <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>{t.academic.teacher}</Text>
+              <Text style={[styles.infoValue, { color: colors.text, textAlign: isRTL ? "right" : "left" }]}>{lesson.video.instructor}</Text>
             </View>
-            <View style={styles.infoRow}>
+            <View style={[styles.infoRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <Ionicons name="time-outline" size={18} color={COLORS.primary} />
-              <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>المدة:</Text>
-              <Text style={[styles.infoValue, { color: colors.text }]}>{lesson.video.duration} دقيقة</Text>
+              <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>{t.academic.duration}</Text>
+              <Text style={[styles.infoValue, { color: colors.text, textAlign: isRTL ? "right" : "left" }]}>{lesson.video.duration} {t.academic.minute}</Text>
             </View>
           </View>
         )}
@@ -175,10 +175,10 @@ const styles = StyleSheet.create({
   youtubeButtonText: { color: "#fff", fontFamily: "Cairo_700Bold", fontSize: 14 },
   noVideoText: { fontFamily: "Cairo_400Regular", fontSize: 15 },
   content: { padding: 20, gap: 12 },
-  lessonTitle: { fontFamily: "Cairo_700Bold", fontSize: 20, textAlign: "right" },
-  lessonDesc: { fontFamily: "Cairo_400Regular", fontSize: 14, textAlign: "right", lineHeight: 24 },
+  lessonTitle: { fontFamily: "Cairo_700Bold", fontSize: 20 },
+  lessonDesc: { fontFamily: "Cairo_400Regular", fontSize: 14, lineHeight: 24 },
   infoCard: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 10, marginTop: 4 },
-  infoRow: { flexDirection: "row-reverse", alignItems: "center", gap: 8 },
+  infoRow: { alignItems: "center", gap: 8 },
   infoLabel: { fontFamily: "Cairo_400Regular", fontSize: 13 },
-  infoValue: { fontFamily: "Cairo_700Bold", fontSize: 14, flex: 1, textAlign: "right" },
+  infoValue: { fontFamily: "Cairo_700Bold", fontSize: 14, flex: 1 },
 });

@@ -1,0 +1,118 @@
+You are working on the Eltafouk project after pulling the latest changes from GitHub successfully.
+
+Context:
+I have been working across multiple IDE agents such as Cursor, Replit, and other tools, but GitHub is now the single source of truth. The current Replit workspace is updated from GitHub and should contain the latest web version changes.
+
+Your task:
+Review the latest web version implementation and make sure the mobile app versions are aligned with it.
+
+Main goal:
+Apply everything that was recently added, fixed, redesigned, or changed in the website/web app version to the mobile app experience, then make sure both iOS and Android versions are properly configured and working.
+
+Requirements:
+
+1. Compare web vs mobile app implementation
+- Review the current web app screens, flows, components, styling, business logic, API calls, authentication behavior, video player behavior, subscription/request logic, admin/student logic, and any recent fixes.
+- Identify anything that exists in the web version but is missing, outdated, broken, or inconsistent in the mobile app version.
+- Port the missing changes into the app version in a clean and maintainable way.
+- Do not remove working functionality from either platform.
+
+2. Keep feature parity
+The iOS and Android app should match the latest website behavior as much as possible, including:
+- Student experience.
+- Admin/supervisor/owner experience if available in the app.
+- Course/subject access logic.
+- Subscription request flow.
+- Video lessons and video player fixes.
+- Chapter/section thumbnails and timing behavior.
+- Watermark/student data behavior.
+- UI spacing and layout improvements.
+- Any bug fixes already applied on web.
+- Any backend/database changes already expected by the web version.
+
+3. iOS and Android readiness
+- Check that the app runs correctly on both iOS and Android.
+- Fix platform-specific layout, safe area, keyboard, navigation, status bar, and permission issues.
+- Make sure mobile screens are responsive across common phone sizes.
+- Make sure no web-only APIs are used directly in native app code unless properly handled.
+- Make sure assets, fonts, icons, splash screen, app icon, and platform config are not broken.
+- Do not hardcode localhost URLs. Use the correct environment/config system.
+
+4. Language selection in settings
+Add a language setting inside the app settings screen.
+
+Required behavior:
+- On first launch, the app should automatically detect the device language.
+- If the device language is Arabic, use Arabic by default.
+- If the device language is English, use English by default.
+- If the device language is unsupported, fallback to Arabic unless the current project already uses another default.
+- The user must be able to manually change the language from Settings.
+- The selected language must persist after app restart/login/logout.
+- Manual user choice should override automatic device detection.
+- Apply the selected language consistently across the mobile app UI.
+- Use RTL layout correctly for Arabic and LTR layout for English.
+- Avoid mixing Arabic and English labels in the same screen unless intentionally required.
+
+5. Light mode and dark mode in settings
+Add theme mode control inside the app settings screen.
+
+Required behavior:
+- On first launch, the app should automatically follow the device appearance setting.
+- If the device is in dark mode, use dark mode.
+- If the device is in light mode, use light mode.
+- The user must be able to manually choose:
+  - System default
+  - Light mode
+  - Dark mode
+- The selected theme preference must persist after app restart/login/logout.
+- If the user selects System default, the app should continue following device appearance changes.
+- Apply the theme consistently across all app screens, modals, tabs, cards, buttons, video screens, settings screens, and admin/student areas.
+- Fix any unreadable text, low contrast, or broken colors in both light and dark modes.
+
+6. Settings screen updates
+Update the settings screen to include:
+- Language selection.
+- Theme selection.
+- Clear labels and good mobile UI spacing.
+- Arabic and English translations for these options.
+- Persisted values shown correctly when reopening settings.
+
+7. Quality and safety
+- Do not create duplicate logic if shared utilities/hooks/providers already exist.
+- Reuse existing theme, i18n, storage, and state management patterns if present.
+- If there is no existing structure, create a clean structure such as:
+  - localization/i18n config
+  - language provider or hook
+  - theme provider or hook
+  - persistent storage helper
+- Make sure changes are production-ready and not just temporary patches.
+- Keep code readable and organized.
+
+8. Testing
+After implementation:
+- Run the app locally.
+- Test iOS and Android if the environment supports it.
+- Test Arabic and English switching.
+- Test RTL and LTR layout.
+- Test light mode, dark mode, and system default mode.
+- Test app restart persistence.
+- Test logged-in and logged-out states.
+- Test the key web features that were ported to mobile.
+- Fix any TypeScript, lint, build, or runtime errors.
+
+9. Final response required from you
+When done, provide a clear summary with:
+- What web changes were found and ported to the mobile app.
+- What was changed for iOS.
+- What was changed for Android.
+- What was added for language settings.
+- What was added for light/dark mode settings.
+- Files changed.
+- Any remaining limitations or manual steps needed.
+- Confirmation of tests run and their results.
+
+Important:
+Do not only make superficial UI changes. Actually inspect the latest web implementation and make the mobile app match it.
+Do not overwrite recent GitHub changes.
+Do not break the working web version.
+Commit-ready code only.

@@ -13,18 +13,16 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Logo } from "@/components/Logo";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppTheme } from "@/contexts/ThemeContext";
 
 export default function LoginScreen() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const colors = isDark ? COLORS.dark : COLORS.light;
+  const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
 

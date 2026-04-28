@@ -5,46 +5,52 @@ import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { Platform, StyleSheet, View, useColorScheme } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
+import { useAppTheme } from "@/contexts/ThemeContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { isFeatureVisible } from "@/config/soft-launch";
 
 function NativeTabLayout() {
+  const { t } = useLanguage();
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
         <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>الرئيسية</Label>
+        <Label>{t.tabs.home}</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="books">
-        <Icon sf={{ default: "book", selected: "book.fill" }} />
-        <Label>الكتب</Label>
-      </NativeTabs.Trigger>
+      {isFeatureVisible("books") && (
+        <NativeTabs.Trigger name="books">
+          <Icon sf={{ default: "book", selected: "book.fill" }} />
+          <Label>{t.tabs.books}</Label>
+        </NativeTabs.Trigger>
+      )}
       <NativeTabs.Trigger name="videos">
         <Icon sf={{ default: "play.circle", selected: "play.circle.fill" }} />
-        <Label>الفيديوهات</Label>
+        <Label>{t.tabs.videos}</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="chat">
-        <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
-        <Label>المساعد</Label>
-      </NativeTabs.Trigger>
+      {isFeatureVisible("aiAssistant") && (
+        <NativeTabs.Trigger name="chat">
+          <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
+          <Label>{t.tabs.assistant}</Label>
+        </NativeTabs.Trigger>
+      )}
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
-        <Label>حسابي</Label>
+        <Label>{t.tabs.account}</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
 
 function ClassicTabLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { colors, isDark } = useAppTheme();
+  const { t } = useLanguage();
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
   const safeAreaInsets = useSafeAreaInsets();
-
-  const colors = isDark ? COLORS.dark : COLORS.light;
 
   return (
     <Tabs
@@ -80,7 +86,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "الرئيسية",
+          title: t.tabs.home,
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="house" tintColor={color} size={24} />
@@ -95,20 +101,24 @@ function ClassicTabLayout() {
       />
       <Tabs.Screen
         name="books"
-        options={{
-          title: "الكتب",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="book" tintColor={color} size={24} />
-            ) : (
-              <Feather name="book" size={22} color={color} />
-            ),
-        }}
+        options={
+          isFeatureVisible("books")
+            ? {
+                title: t.tabs.books,
+                tabBarIcon: ({ color }) =>
+                  isIOS ? (
+                    <SymbolView name="book" tintColor={color} size={24} />
+                  ) : (
+                    <Feather name="book" size={22} color={color} />
+                  ),
+              }
+            : { href: null }
+        }
       />
       <Tabs.Screen
         name="videos"
         options={{
-          title: "الفيديوهات",
+          title: t.tabs.videos,
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="play.circle" tintColor={color} size={24} />
@@ -119,20 +129,24 @@ function ClassicTabLayout() {
       />
       <Tabs.Screen
         name="chat"
-        options={{
-          title: "المساعد",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="sparkles" tintColor={color} size={24} />
-            ) : (
-              <Ionicons name="sparkles-outline" size={22} color={color} />
-            ),
-        }}
+        options={
+          isFeatureVisible("aiAssistant")
+            ? {
+                title: t.tabs.assistant,
+                tabBarIcon: ({ color }) =>
+                  isIOS ? (
+                    <SymbolView name="sparkles" tintColor={color} size={24} />
+                  ) : (
+                    <Ionicons name="sparkles-outline" size={22} color={color} />
+                  ),
+              }
+            : { href: null }
+        }
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: "حسابي",
+          title: t.tabs.account,
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="person" tintColor={color} size={24} />

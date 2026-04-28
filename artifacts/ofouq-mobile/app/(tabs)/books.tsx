@@ -10,11 +10,11 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
 
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppTheme } from "@/contexts/ThemeContext";
 
 const CATEGORIES = ["الكل", "رياضيات", "علوم", "لغة عربية", "تاريخ", "جغرافيا", "فيزياء"];
 
@@ -42,9 +42,7 @@ interface BookCardProps {
 }
 
 function BookCard({ book, onPress }: BookCardProps) {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const colors = isDark ? COLORS.dark : COLORS.light;
+  const { colors } = useAppTheme();
   const scale = useRef(new Animated.Value(1)).current;
   const catColor = categoryColors[book.category] ?? COLORS.primary;
 
@@ -97,9 +95,7 @@ function BookCard({ book, onPress }: BookCardProps) {
 }
 
 export default function BooksScreen() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const colors = isDark ? COLORS.dark : COLORS.light;
+  const { colors } = useAppTheme();
   const { user } = useAuth();
 
   const [selectedCategory, setSelectedCategory] = useState("الكل");

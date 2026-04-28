@@ -9,13 +9,14 @@ import {
   StyleSheet,
   Text,
   View,
-  useColorScheme,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Logo } from "@/components/Logo";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppTheme } from "@/contexts/ThemeContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface QuickActionProps {
   icon: React.ReactNode;
@@ -80,9 +81,8 @@ const FEED_ITEMS = [
 export default function HomeScreen() {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const colors = isDark ? COLORS.dark : COLORS.light;
+  const { colors } = useAppTheme();
+  const { language } = useLanguage();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -129,7 +129,7 @@ export default function HomeScreen() {
                 <Ionicons name="star" size={20} color="#FCD34D" />
                 <View style={{ marginRight: 8 }}>
                   <Text style={styles.pointsLabel}>نقاطك</Text>
-                  <Text style={styles.pointsValue}>{user?.points?.toLocaleString("ar") ?? "0"}</Text>
+                  <Text style={styles.pointsValue}>{user?.points?.toLocaleString(language === "ar" ? "ar" : "en") ?? "0"}</Text>
                 </View>
               </View>
               <Pressable

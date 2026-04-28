@@ -13,13 +13,13 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Logo } from "@/components/Logo";
 import { COLORS } from "@/constants/colors";
 import { type UserRole, useAuth } from "@/contexts/AuthContext";
+import { useAppTheme } from "@/contexts/ThemeContext";
 
 const ROLES: { id: UserRole; label: string; icon: string; color: string; desc: string }[] = [
   { id: "student", label: "طالب", icon: "book-open", color: "#3B82F6", desc: "أتعلم وأطور مهاراتي" },
@@ -28,9 +28,7 @@ const ROLES: { id: UserRole; label: string; icon: string; color: string; desc: s
 ];
 
 export default function RegisterScreen() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const colors = isDark ? COLORS.dark : COLORS.light;
+  const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
   const { register } = useAuth();
 
