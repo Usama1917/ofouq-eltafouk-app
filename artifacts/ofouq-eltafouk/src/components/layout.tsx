@@ -6,9 +6,10 @@ import {
   Gamepad2, Gift, LayoutDashboard, Coins,
   ChevronLeft, User, ShieldCheck, Crown, LogIn, ShoppingCart, Truck, History,
 } from "lucide-react";
-import { useGetPoints } from "@workspace/api-client-react";
+import { getGetPointsQueryKey, useGetPoints } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth-context";
 import { Logo } from "@/components/logo";
+import { isStudentFeatureVisible, type StudentFeature } from "@/config/soft-launch";
 
 type NavSubItem = {
   href: string;
@@ -20,15 +21,17 @@ type NavItem = {
   href: string;
   label: string;
   icon: React.ElementType;
+  feature: StudentFeature;
   children?: NavSubItem[];
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/", label: "الرئيسية", icon: LayoutDashboard },
+  { href: "/", label: "الرئيسية", icon: LayoutDashboard, feature: "home" },
   {
     href: "/books",
     label: "المكتبة",
     icon: BookOpen,
+    feature: "library",
     children: [
       { href: "/books", label: "إضافة إلى السلة", icon: BookOpen },
       { href: "/books/cart", label: "السلة", icon: ShoppingCart },
@@ -36,16 +39,15 @@ const NAV_ITEMS: NavItem[] = [
       { href: "/books/orders", label: "سجل الأوردرات", icon: History },
     ],
   },
-  { href: "/videos", label: "الدروس المرئية", icon: Video },
-  { href: "/social", label: "المجتمع", icon: MessageSquare },
-  { href: "/ai-chat", label: "Ai التفوق", icon: Bot },
-  { href: "/games", label: "المسابقات", icon: Gamepad2 },
-  { href: "/rewards", label: "المكافآت", icon: Gift },
+  { href: "/videos", label: "الدروس المرئية", icon: Video, feature: "videoLessons" },
+  { href: "/social", label: "المجتمع", icon: MessageSquare, feature: "community" },
+  { href: "/ai-chat", label: "Ai التفوق", icon: Bot, feature: "aiAssistant" },
+  { href: "/games", label: "المسابقات", icon: Gamepad2, feature: "competitions" },
+  { href: "/rewards", label: "المكافآت", icon: Gift, feature: "rewards" },
 ];
 
 function UserBadge() {
-  const { user, logout } = useAuth();
-  const [, setLocation] = useLocation();
+  const { user } = useAuth();
 
   if (!user) {
     return (
@@ -112,8 +114,12 @@ function UserBadge() {
 
 export function Layout({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
-  const { data: pointsData } = useGetPoints();
   const { user } = useAuth();
+  const showPoints = isStudentFeatureVisible("points");
+  const { data: pointsData } = useGetPoints({
+    query: { enabled: Boolean(user && showPoints), queryKey: getGetPointsQueryKey() },
+  });
+  const studentNavItems = NAV_ITEMS.filter((item) => isStudentFeatureVisible(item.feature));
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     "/books": location.startsWith("/books"),
   });
@@ -150,7 +156,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
         {/* Nav items */}
         <nav className="flex-1 px-4 py-5 space-y-1 overflow-y-auto hide-scrollbar">
-          {NAV_ITEMS.map((item) => {
+          {studentNavItems.map((item) => {
             const hasChildren = Array.isArray(item.children) && item.children.length > 0;
             const isActive = isRouteActive(item.href);
             if (!hasChildren) {
@@ -275,7 +281,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <div className="mx-2 h-px bg-gradient-to-l from-transparent via-border to-transparent" />
 
           {/* Points badge */}
-          {user && (
+          {user && showPoints && (
             <Link href="/points">
               <motion.div whileHover={{ y: -2 }}
                 className="glass-card cursor-pointer p-4 bg-gradient-to-br from-amber-50/80 to-orange-50/60 border-amber-200/40 mt-[9px] mb-[9px]">
@@ -313,12 +319,14 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className="flex items-center gap-2">
           {user ? (
             <>
-              <Link href="/points">
-                <div className="flex items-center gap-1.5 bg-amber-400/15 text-amber-600 px-3 py-1.5 rounded-full font-bold text-sm border border-amber-200/50 cursor-pointer">
-                  <Coins className="w-4 h-4" />
-                  {pointsData?.balance ?? 0}
-                </div>
-              </Link>
+              {showPoints && (
+                <Link href="/points">
+                  <div className="flex items-center gap-1.5 bg-amber-400/15 text-amber-600 px-3 py-1.5 rounded-full font-bold text-sm border border-amber-200/50 cursor-pointer">
+                    <Coins className="w-4 h-4" />
+                    {pointsData?.balance ?? 0}
+                  </div>
+                </Link>
+              )}
               <Link href="/profile">
                 <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center text-white text-sm font-bold cursor-pointer">
                   {user.name.charAt(0)}
@@ -353,7 +361,7 @@ export function Layout({ children }: { children: ReactNode }) {
         glass-panel border-t border-white/60
         flex items-center justify-around px-2 py-2
       ">
-        {NAV_ITEMS.slice(0, 6).map((item) => {
+        {studentNavItems.map((item) => {
           const isActive = location === item.href ||
             (item.href !== "/" && location.startsWith(item.href));
           return (
@@ -366,22 +374,12 @@ export function Layout({ children }: { children: ReactNode }) {
                   <item.icon className="w-5 h-5" />
                 </div>
                 <span className={`text-[9px] font-bold leading-none ${isActive ? "text-primary" : "text-muted-foreground"}`}>
-                  {item.label.split(" ")[0]}
+                  {item.label}
                 </span>
               </div>
             </Link>
           );
         })}
-        <Link href="/profile">
-          <div className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-all cursor-pointer ${location === "/profile" ? "text-primary" : "text-muted-foreground"}`}>
-            <div className={`p-1.5 rounded-xl transition-all ${location === "/profile" ? "bg-primary/10" : ""}`}>
-              <User className="w-5 h-5" />
-            </div>
-            <span className={`text-[9px] font-bold leading-none ${location === "/profile" ? "text-primary" : "text-muted-foreground"}`}>
-              حسابي
-            </span>
-          </div>
-        </Link>
       </nav>
     </div>
   );

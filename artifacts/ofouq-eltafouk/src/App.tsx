@@ -1,7 +1,9 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { useEffect } from "react";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/contexts/auth-context";
 import { Layout } from "@/components/layout";
+import { SOFT_LAUNCH_MODE, hiddenStudentRouteRedirects } from "@/config/soft-launch";
 
 // Public pages
 import Login from "@/pages/login";
@@ -33,6 +35,32 @@ const queryClient = new QueryClient({
   },
 });
 
+function SoftLaunchRedirect({ to }: { to: string }) {
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    setLocation(to);
+  }, [setLocation, to]);
+
+  return null;
+}
+
+function createSoftLaunchRedirect(route: keyof typeof hiddenStudentRouteRedirects) {
+  return function HiddenStudentRouteRedirect() {
+    return <SoftLaunchRedirect to={hiddenStudentRouteRedirects[route]} />;
+  };
+}
+
+const RedirectBooks = createSoftLaunchRedirect("/books");
+const RedirectBooksCart = createSoftLaunchRedirect("/books/cart");
+const RedirectBooksTracking = createSoftLaunchRedirect("/books/tracking");
+const RedirectBooksOrders = createSoftLaunchRedirect("/books/orders");
+const RedirectSocial = createSoftLaunchRedirect("/social");
+const RedirectAiChat = createSoftLaunchRedirect("/ai-chat");
+const RedirectPoints = createSoftLaunchRedirect("/points");
+const RedirectGames = createSoftLaunchRedirect("/games");
+const RedirectRewards = createSoftLaunchRedirect("/rewards");
+
 function Router() {
   return (
     <Switch>
@@ -51,10 +79,10 @@ function Router() {
         <Layout>
           <Switch>
             <Route path="/" component={Dashboard} />
-            <Route path="/books/cart" component={BooksCartPage} />
-            <Route path="/books/tracking" component={BooksTrackingPage} />
-            <Route path="/books/orders" component={BooksOrdersHistoryPage} />
-            <Route path="/books" component={Books} />
+            {SOFT_LAUNCH_MODE ? <Route path="/books/cart" component={RedirectBooksCart} /> : <Route path="/books/cart" component={BooksCartPage} />}
+            {SOFT_LAUNCH_MODE ? <Route path="/books/tracking" component={RedirectBooksTracking} /> : <Route path="/books/tracking" component={BooksTrackingPage} />}
+            {SOFT_LAUNCH_MODE ? <Route path="/books/orders" component={RedirectBooksOrders} /> : <Route path="/books/orders" component={BooksOrdersHistoryPage} />}
+            {SOFT_LAUNCH_MODE ? <Route path="/books" component={RedirectBooks} /> : <Route path="/books" component={Books} />}
             {/* Academic drill-down routes under /videos — most specific first */}
             <Route path="/videos/years/:yearId/subjects/:subjectId/units/:unitId/lessons/:lessonId" component={AcademicLessonPage} />
             <Route path="/videos/years/:yearId/subjects/:subjectId/units/:unitId/lessons" component={AcademicLessonsPage} />
@@ -62,11 +90,11 @@ function Router() {
             <Route path="/videos/years/:yearId/subscribe" component={AcademicSubscriptionRequestPage} />
             <Route path="/videos/years/:yearId" component={AcademicSubjectsPage} />
             <Route path="/videos" component={Videos} />
-            <Route path="/social" component={Social} />
-            <Route path="/ai-chat" component={AiChat} />
-            <Route path="/points" component={Points} />
-            <Route path="/games" component={Games} />
-            <Route path="/rewards" component={Rewards} />
+            {SOFT_LAUNCH_MODE ? <Route path="/social" component={RedirectSocial} /> : <Route path="/social" component={Social} />}
+            {SOFT_LAUNCH_MODE ? <Route path="/ai-chat" component={RedirectAiChat} /> : <Route path="/ai-chat" component={AiChat} />}
+            {SOFT_LAUNCH_MODE ? <Route path="/points" component={RedirectPoints} /> : <Route path="/points" component={Points} />}
+            {SOFT_LAUNCH_MODE ? <Route path="/games" component={RedirectGames} /> : <Route path="/games" component={Games} />}
+            {SOFT_LAUNCH_MODE ? <Route path="/rewards" component={RedirectRewards} /> : <Route path="/rewards" component={Rewards} />}
             <Route path="/profile" component={Profile} />
             <Route component={NotFound} />
           </Switch>

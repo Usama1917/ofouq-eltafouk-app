@@ -117,7 +117,7 @@ export default function Register() {
                 </div>
                 <div className="space-y-3">
                   {[
-                    { val: "student" as Role, label: "طالب", desc: "تعلّم واكسب نقاط ومكافآت", icon: GraduationCap, color: "from-blue-500 to-indigo-600", glow: "shadow-blue-500/20" },
+                    { val: "student" as Role, label: "طالب", desc: "ابدأ التعلم من الدروس المرئية", icon: GraduationCap, color: "from-blue-500 to-indigo-600", glow: "shadow-blue-500/20" },
                     { val: "teacher" as Role, label: "معلم", desc: "شارك خبرتك وادعم الطلاب", icon: BookOpen, color: "from-emerald-500 to-teal-600", glow: "shadow-emerald-500/20" },
                     { val: "parent" as Role, label: "ولي أمر", desc: "تابع تقدم أبنائك وأشجعهم", icon: Users, color: "from-amber-500 to-orange-600", glow: "shadow-amber-500/20" },
                   ].map(r => (

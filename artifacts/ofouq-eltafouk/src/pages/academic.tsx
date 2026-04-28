@@ -241,7 +241,11 @@ export function AcademicYearsPage() {
 
   return (
     <PageWrapper>
-      <SectionTitle icon={<GraduationCap className="w-5 h-5" />} title="المحتوى الأكاديمي" subtitle="اختر السنة الدراسية" />
+      <SectionTitle
+        icon={<GraduationCap className="w-5 h-5" />}
+        title="الدروس المرئية"
+        subtitle="اختر المرحلة أو المسار المتاح لبدء مشاهدة الدروس."
+      />
 
       {isLoading ? <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div> : null}
       {isError ? (
@@ -256,7 +260,9 @@ export function AcademicYearsPage() {
           </button>
         </div>
       ) : null}
-      {!isLoading && years.length === 0 ? <EmptyState icon={<GraduationCap className="w-8 h-8" />} message="لا توجد سنوات منشورة بعد" /> : null}
+      {!isLoading && years.length === 0 ? (
+        <EmptyState icon={<GraduationCap className="w-8 h-8" />} message="لا توجد دروس متاحة حاليًا. سيتم إضافة الدروس قريبًا." />
+      ) : null}
 
       <div className="grid grid-cols-1 gap-5 md:gap-6 xl:grid-cols-2 items-stretch">
         {years.map((year, index) => {
@@ -474,11 +480,11 @@ export function AcademicSubscriptionRequestPage() {
       return;
     }
     if (!finalCode) {
-      setErrorMessage("اكتب كود الكتاب أولًا");
+      setErrorMessage("اكتب كود الاشتراك أولًا");
       return;
     }
     if (!codeImage) {
-      setErrorMessage("صورة الكود مطلوبة");
+      setErrorMessage("صورة كود الاشتراك مطلوبة");
       return;
     }
 
@@ -534,7 +540,7 @@ export function AcademicSubscriptionRequestPage() {
       <SectionTitle
         icon={<BookOpen className="w-5 h-5" />}
         title={year ? `اشتراك مادة جديدة - ${year.name}` : "اشتراك مادة جديدة"}
-        subtitle="أدخل كود الكتاب وارفع صورة الكود لإرسال الطلب"
+        subtitle="أدخل كود الاشتراك وارفع صورته لإرسال الطلب"
       />
 
       <div className="glass-card p-5 md:p-6 space-y-4 mb-8">
@@ -572,7 +578,7 @@ export function AcademicSubscriptionRequestPage() {
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-sm font-semibold text-muted-foreground">كود الكتاب</label>
+          <label className="text-sm font-semibold text-muted-foreground">كود الاشتراك</label>
           <input
             value={code}
             onChange={(event) => setCode(event.target.value)}
@@ -582,7 +588,7 @@ export function AcademicSubscriptionRequestPage() {
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-sm font-semibold text-muted-foreground">صورة الكود <span className="text-rose-600">*</span></label>
+          <label className="text-sm font-semibold text-muted-foreground">صورة كود الاشتراك <span className="text-rose-600">*</span></label>
           <label className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl border border-dashed border-primary/40 bg-primary/5 text-primary text-sm font-semibold cursor-pointer hover:bg-primary/10 transition-all">
             <ImagePlus className="w-4 h-4" />
             {codeImage ? codeImage.name : "ارفع الصورة أو التقطها من الكاميرا"}
@@ -802,8 +808,9 @@ export function AcademicLessonsPage() {
                 ) : null}
               </div>
 
-              <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform self-center">
+              <div className="h-9 rounded-xl bg-primary px-3 flex items-center gap-1.5 justify-center flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform self-center text-white text-xs font-bold">
                 <Play className="w-4 h-4 text-white" strokeWidth={2.4} />
+                مشاهدة
               </div>
             </motion.div>
           </Link>

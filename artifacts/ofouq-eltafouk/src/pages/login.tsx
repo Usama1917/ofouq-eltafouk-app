@@ -45,9 +45,9 @@ export default function Login() {
         <div className="relative text-white text-center space-y-6 max-w-sm">
           <Logo size={64} className="justify-center" />
           <h2 className="text-3xl font-display font-black">أفق التفوق</h2>
-          <p className="text-blue-100 leading-relaxed">المنصة التعليمية الشاملة التي تجمع بين التعلم الرقمي، الكتب القيمة، والمجتمع التفاعلي.</p>
+          <p className="text-blue-100 leading-relaxed">ابدأ رحلتك التعليمية من خلال الدروس المرئية المتاحة الآن.</p>
           <div className="flex flex-col gap-3 text-sm font-medium text-blue-100">
-            {["✦ مكتبة كتب تعليمية غنية", "✦ دروس مرئية متميزة", "✦ Ai التفوق", "✦ مسابقات ومكافآت"].map(f => (
+            {["✦ دروس مرئية منظمة", "✦ محتوى تعليمي واضح", "✦ تجربة مشاهدة سهلة"].map(f => (
               <span key={f}>{f}</span>
             ))}
           </div>

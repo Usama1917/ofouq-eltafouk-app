@@ -1,12 +1,19 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { User, Mail, Phone, MapPin, Edit3, Save, X, Coins, BookOpen, Award, LogOut, Settings, ChevronLeft } from "lucide-react";
+import { User, Mail, Phone, MapPin, Edit3, Save, X, Coins, Award, LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
-import { useGetPoints, useGetPointsHistory, useListRedemptions } from "@workspace/api-client-react";
-import { Logo } from "@/components/logo";
-import { useLocation } from "wouter";
+import {
+  getGetPointsHistoryQueryKey,
+  getGetPointsQueryKey,
+  getListRedemptionsQueryKey,
+  useGetPoints,
+  useGetPointsHistory,
+  useListRedemptions,
+} from "@workspace/api-client-react";
+import { Link, useLocation } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import { ar } from "date-fns/locale";
+import { isStudentFeatureVisible } from "@/config/soft-launch";
 
 const ROLE_LABELS: Record<string, string> = {
   student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", owner: "مالك",
@@ -22,11 +29,19 @@ const ROLE_COLORS: Record<string, string> = {
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export default function Profile() {
-  const { user, logout, updateUser, token } = useAuth();
+  const { user, logout, updateUser, token, isLoading } = useAuth();
   const [, setLocation] = useLocation();
-  const { data: points } = useGetPoints();
-  const { data: history = [] } = useGetPointsHistory();
-  const { data: redemptions = [] } = useListRedemptions();
+  const showPoints = isStudentFeatureVisible("points");
+  const showRewards = isStudentFeatureVisible("rewards");
+  const { data: points } = useGetPoints({
+    query: { enabled: Boolean(user && showPoints), queryKey: getGetPointsQueryKey() },
+  });
+  const { data: history = [] } = useGetPointsHistory({
+    query: { enabled: Boolean(user && showPoints), queryKey: getGetPointsHistoryQueryKey() },
+  });
+  const { data: redemptions = [] } = useListRedemptions({
+    query: { enabled: Boolean(user && showRewards), queryKey: getListRedemptionsQueryKey() },
+  });
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -60,7 +75,28 @@ export default function Profile() {
 
   const handleLogout = () => { logout(); setLocation("/login"); };
 
-  if (!user) return null;
+  if (isLoading) {
+    return <div className="py-10 text-center text-sm text-muted-foreground">جاري التحميل...</div>;
+  }
+
+  if (!user) {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-xl mx-auto" dir="rtl">
+        <div className="glass-card p-8 text-center space-y-5">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-primary/10 text-primary">
+            <User className="h-8 w-8" />
+          </div>
+          <div>
+            <h1 className="font-display text-2xl font-black text-foreground">حسابي</h1>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">سجّل الدخول لإدارة بياناتك ومتابعة رحلتك التعليمية.</p>
+          </div>
+          <Link href="/login">
+            <button className="btn-primary justify-center text-sm">تسجيل الدخول</button>
+          </Link>
+        </div>
+      </motion.div>
+    );
+  }
 
   const roleColor = ROLE_COLORS[user.role] || ROLE_COLORS.student;
 
@@ -93,19 +129,21 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* Points summary */}
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: "الرصيد", value: points?.balance ?? 0, color: "text-amber-500", bg: "from-amber-50/80 to-orange-50/60" },
-          { label: "مكتسبة", value: points?.totalEarned ?? 0, color: "text-emerald-600", bg: "from-emerald-50/80 to-teal-50/60" },
-          { label: "مستخدمة", value: points?.totalSpent ?? 0, color: "text-rose-500", bg: "from-rose-50/80 to-pink-50/60" },
-        ].map(s => (
-          <div key={s.label} className={`glass-card p-4 text-center bg-gradient-to-br ${s.bg}`}>
-            <p className={`font-display font-black text-3xl ${s.color}`}>{s.value}</p>
-            <p className="text-xs text-muted-foreground mt-1 font-medium">{s.label}</p>
-          </div>
-        ))}
-      </div>
+      {/* Points summary - hidden during soft launch, preserved for later re-enable. */}
+      {showPoints && (
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { label: "الرصيد", value: points?.balance ?? 0, color: "text-amber-500", bg: "from-amber-50/80 to-orange-50/60" },
+            { label: "مكتسبة", value: points?.totalEarned ?? 0, color: "text-emerald-600", bg: "from-emerald-50/80 to-teal-50/60" },
+            { label: "مستخدمة", value: points?.totalSpent ?? 0, color: "text-rose-500", bg: "from-rose-50/80 to-pink-50/60" },
+          ].map(s => (
+            <div key={s.label} className={`glass-card p-4 text-center bg-gradient-to-br ${s.bg}`}>
+              <p className={`font-display font-black text-3xl ${s.color}`}>{s.value}</p>
+              <p className="text-xs text-muted-foreground mt-1 font-medium">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Personal info */}
       <div className="glass-card p-6 space-y-5">
@@ -176,7 +214,7 @@ export default function Profile() {
       </div>
 
       {/* Recent activity */}
-      {history.length > 0 && (
+      {showPoints && history.length > 0 && (
         <div className="glass-card p-6 space-y-4">
           <h2 className="text-lg font-display font-bold text-foreground flex items-center gap-2">
             <Coins className="w-5 h-5 text-amber-500" />
@@ -196,7 +234,7 @@ export default function Profile() {
       )}
 
       {/* Redemptions */}
-      {redemptions.length > 0 && (
+      {showRewards && redemptions.length > 0 && (
         <div className="glass-card p-6 space-y-4">
           <h2 className="text-lg font-display font-bold text-foreground flex items-center gap-2">
             <Award className="w-5 h-5 text-primary" />
