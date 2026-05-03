@@ -4,6 +4,7 @@ import { useListPosts, useCreatePost, useLikePost, useListComments, useCreateCom
 import { MessageSquare, Heart, Send, MessageCircle, Users, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ar } from "date-fns/locale";
+import { formatNumber, toEnglishDigits } from "@/lib/format";
 
 function PostCard({ post, onCommentClick }: { post: any; onCommentClick: (id: number) => void }) {
   const likePost = useLikePost();
@@ -16,16 +17,16 @@ function PostCard({ post, onCommentClick }: { post: any; onCommentClick: (id: nu
     >
       <div className="flex items-center gap-3.5 mb-4">
         <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-md shadow-primary/20 flex-shrink-0">
-          {post.authorName.charAt(0)}
+          {toEnglishDigits(post.authorName).charAt(0)}
         </div>
         <div>
-          <h4 className="font-bold text-foreground text-sm">{post.authorName}</h4>
+          <h4 className="font-bold text-foreground text-sm">{toEnglishDigits(post.authorName)}</h4>
           <p className="text-xs text-muted-foreground">
-            {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true, locale: ar })}
+            {toEnglishDigits(formatDistanceToNow(new Date(post.createdAt), { addSuffix: true, locale: ar }))}
           </p>
         </div>
       </div>
-      <p className="text-foreground leading-relaxed mb-5 whitespace-pre-wrap text-sm">{post.content}</p>
+      <p className="text-foreground leading-relaxed mb-5 whitespace-pre-wrap text-sm">{toEnglishDigits(post.content)}</p>
       <div className="flex items-center gap-5 pt-4 border-t border-white/50">
         <button
           onClick={() => likePost.mutate({ id: post.id })}
@@ -34,14 +35,14 @@ function PostCard({ post, onCommentClick }: { post: any; onCommentClick: (id: nu
           }`}
         >
           <Heart className={`w-4.5 h-4.5 ${post.isLiked ? "fill-current" : ""}`} />
-          {post.likesCount}
+          {formatNumber(post.likesCount)}
         </button>
         <button
           onClick={() => onCommentClick(post.id)}
           className="flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-primary transition-colors"
         >
           <MessageCircle className="w-4.5 h-4.5" />
-          {post.commentsCount} تعليق
+          {formatNumber(post.commentsCount)} تعليق
         </button>
       </div>
     </motion.div>
@@ -88,11 +89,11 @@ function CommentsModal({ postId, onClose }: { postId: number; onClose: () => voi
               <div key={c.id} className="bg-white/50 backdrop-blur p-3.5 rounded-2xl border border-white/60">
                 <div className="flex items-center gap-2.5 mb-2">
                   <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-sm">
-                    {c.authorName.charAt(0)}
+                    {toEnglishDigits(c.authorName).charAt(0)}
                   </div>
-                  <span className="font-bold text-sm">{c.authorName}</span>
+                  <span className="font-bold text-sm">{toEnglishDigits(c.authorName)}</span>
                 </div>
-                <p className="text-sm text-foreground pr-10 leading-relaxed">{c.content}</p>
+                <p className="text-sm text-foreground pr-10 leading-relaxed">{toEnglishDigits(c.content)}</p>
               </div>
             ))
           )}
@@ -103,8 +104,8 @@ function CommentsModal({ postId, onClose }: { postId: number; onClose: () => voi
               type="text"
               className="flex-1 bg-white/60 backdrop-blur border border-white/70 rounded-full px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary/20 text-sm font-medium transition-all"
               placeholder="اكتب تعليقاً..."
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
+              value={toEnglishDigits(content)}
+              onChange={(e) => setContent(toEnglishDigits(e.target.value))}
             />
             <button
               disabled={createComment.isPending || !content.trim()}
@@ -155,8 +156,8 @@ export default function Social() {
             className="w-full bg-white/50 backdrop-blur border border-white/60 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary/20 resize-none transition-all font-medium text-sm leading-relaxed"
             rows={3}
             placeholder="شارك أفكارك وإنجازاتك مع زملائك..."
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
+            value={toEnglishDigits(content)}
+            onChange={(e) => setContent(toEnglishDigits(e.target.value))}
           />
           <div className="flex justify-end">
             <button

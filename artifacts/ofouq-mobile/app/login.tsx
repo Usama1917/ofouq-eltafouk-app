@@ -19,12 +19,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Logo } from "@/components/Logo";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
-import { useAppTheme } from "@/contexts/ThemeContext";
+import { usePreferences } from "@/contexts/PreferencesContext";
 
 export default function LoginScreen() {
-  const { colors } = useAppTheme();
+  const { colors, strings, isRTL, textAlign, direction } = usePreferences();
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
+  const rowDirection = isRTL ? "row" : "row-reverse";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -44,7 +45,7 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert("خطأ", "يرجى إدخال البريد الإلكتروني وكلمة المرور");
+      Alert.alert(strings.auth.errorTitle, strings.auth.missingLogin);
       return;
     }
     setIsLoading(true);
@@ -52,7 +53,7 @@ export default function LoginScreen() {
       await login(email.trim(), password.trim());
       router.replace("/(tabs)");
     } catch (err: any) {
-      Alert.alert("خطأ", err.message ?? "فشل تسجيل الدخول");
+      Alert.alert(strings.auth.errorTitle, err.message ?? strings.auth.loginFailed);
     } finally {
       setIsLoading(false);
     }
@@ -74,46 +75,54 @@ export default function LoginScreen() {
 
         <View style={styles.logoSection}>
           <Logo size={72} />
-          <Text style={[styles.appName, { color: colors.text }]}>أفق التفوق</Text>
-          <Text style={[styles.appSub, { color: colors.textSecondary }]}>
-            منصة التعليم التفاعلي
+          <Text style={[styles.appName, { color: colors.text, writingDirection: direction }]}>
+            {strings.common.appName}
+          </Text>
+          <Text style={[styles.appSub, { color: colors.textSecondary, writingDirection: direction }]}>
+            {strings.common.appSubtitle}
           </Text>
         </View>
 
         <View style={[styles.card, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.cardTitle, { color: colors.text }]}>تسجيل الدخول</Text>
+          <Text style={[styles.cardTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+            {strings.auth.loginTitle}
+          </Text>
 
           <View style={styles.field}>
-            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>البريد الإلكتروني</Text>
-            <View style={[styles.inputWrapper, { backgroundColor: colors.surfaceSecondary }]}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+              {strings.auth.email}
+            </Text>
+            <View style={[styles.inputWrapper, { backgroundColor: colors.surfaceSecondary, flexDirection: rowDirection }]}>
               <TextInput
-                style={[styles.input, { color: colors.text }]}
+                style={[styles.input, { color: colors.text, writingDirection: direction }]}
                 placeholder="example@email.com"
                 placeholderTextColor={colors.textTertiary}
                 value={email}
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
-                textAlign="right"
+                textAlign={textAlign}
               />
               <Feather name="mail" size={18} color={colors.textTertiary} />
             </View>
           </View>
 
           <View style={styles.field}>
-            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>كلمة المرور</Text>
-            <View style={[styles.inputWrapper, { backgroundColor: colors.surfaceSecondary }]}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+              {strings.auth.password}
+            </Text>
+            <View style={[styles.inputWrapper, { backgroundColor: colors.surfaceSecondary, flexDirection: rowDirection }]}>
               <Pressable onPress={() => setShowPassword(!showPassword)}>
                 <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.textTertiary} />
               </Pressable>
               <TextInput
-                style={[styles.input, { color: colors.text }]}
+                style={[styles.input, { color: colors.text, writingDirection: direction }]}
                 placeholder="••••••••"
                 placeholderTextColor={colors.textTertiary}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
-                textAlign="right"
+                textAlign={textAlign}
               />
               <Feather name="lock" size={18} color={colors.textTertiary} />
             </View>
@@ -124,23 +133,25 @@ export default function LoginScreen() {
               {isLoading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.loginText}>دخول</Text>
+                <Text style={[styles.loginText, { writingDirection: direction }]}>{strings.auth.loginButton}</Text>
               )}
             </LinearGradient>
           </Pressable>
 
           <Pressable style={styles.registerLink} onPress={() => router.push("/register")}>
             <Text style={[styles.registerLinkText, { color: COLORS.primary }]}>
-              ليس لديك حساب؟ سجّل الآن
+              {strings.auth.registerPrompt}
             </Text>
           </Pressable>
         </View>
 
         <View style={[styles.demoSection, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.demoTitle, { color: colors.textSecondary }]}>حسابات تجريبية</Text>
+          <Text style={[styles.demoTitle, { color: colors.textSecondary, writingDirection: direction }]}>
+            {strings.auth.demoAccounts}
+          </Text>
           <View style={styles.demoRow}>
             {(["student", "teacher", "admin", "owner"] as const).map((role) => {
-              const labels = { student: "طالب", teacher: "معلم", admin: "مشرف", owner: "مالك" };
+              const labels = strings.roles;
               const roleColors = { student: "#3B82F6", teacher: "#10B981", admin: "#EF4444", owner: "#F59E0B" };
               return (
                 <Pressable

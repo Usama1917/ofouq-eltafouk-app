@@ -2,6 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useListGames, useGetGame, useSubmitGameAnswers } from "@workspace/api-client-react";
 import { Gamepad2, Trophy, Target, ArrowRight, Star, Zap } from "lucide-react";
+import { formatNumber, toEnglishDigits } from "@/lib/format";
 
 const difficultyConfig: Record<string, { label: string; color: string; dot: string }> = {
   easy: { label: "سهل", color: "text-emerald-600", dot: "bg-emerald-400" },
@@ -57,24 +58,24 @@ export default function Games() {
               >
                 <div className="flex items-start justify-between mb-4">
                   <span className="inline-flex items-center gap-1.5 bg-white/60 text-foreground border border-white/70 px-3 py-1 rounded-full text-xs font-bold">
-                    {game.subject}
+                    {toEnglishDigits(game.subject)}
                   </span>
                   <span className="inline-flex items-center gap-1.5 bg-amber-400/15 text-amber-600 px-2.5 py-1 rounded-lg text-xs font-bold">
                     <Trophy className="w-3.5 h-3.5" />
-                    {game.pointsReward} نقطة
+                    {formatNumber(game.pointsReward)} نقطة
                   </span>
                 </div>
 
-                <h3 className="text-lg font-bold text-foreground mb-2">{game.title}</h3>
+                <h3 className="text-lg font-bold text-foreground mb-2">{toEnglishDigits(game.title)}</h3>
                 <p className="text-muted-foreground text-sm mb-5 line-clamp-2 leading-relaxed flex-1">
-                  {game.description}
+                  {toEnglishDigits(game.description)}
                 </p>
 
                 <div className="flex items-center justify-between mt-auto">
                   <div className="flex items-center gap-3 text-xs text-muted-foreground font-medium">
                     <span className="flex items-center gap-1.5">
                       <Target className="w-3.5 h-3.5" />
-                      {game.questionsCount} أسئلة
+                      {formatNumber(game.questionsCount)} أسئلة
                     </span>
                     <span className={`flex items-center gap-1.5 ${diff.color}`}>
                       <span className={`w-2 h-2 rounded-full ${diff.dot}`} />
@@ -163,13 +164,13 @@ function ActiveGame({ gameId, onBack }: { gameId: number; onBack: () => void }) 
           <div>
             <h2 className="text-3xl font-display font-black mb-2">انتهت المسابقة!</h2>
             <p className="text-muted-foreground text-sm">
-              أجبت بشكل صحيح على <strong className="text-foreground">{result.correctCount}</strong> من أصل{" "}
-              <strong className="text-foreground">{result.totalQuestions}</strong> سؤال
+              أجبت بشكل صحيح على <strong className="text-foreground">{formatNumber(result.correctCount)}</strong> من أصل{" "}
+              <strong className="text-foreground">{formatNumber(result.totalQuestions)}</strong> سؤال
             </p>
           </div>
           <div className="bg-white/60 backdrop-blur border border-white/70 rounded-2xl p-6">
             <p className="text-xs font-semibold text-muted-foreground mb-1">النقاط المكتسبة</p>
-            <p className="font-display font-black text-5xl text-primary">+{result.pointsEarned}</p>
+            <p className="font-display font-black text-5xl text-primary">+{formatNumber(result.pointsEarned)}</p>
           </div>
           <button
             onClick={onBack}
@@ -197,7 +198,7 @@ function ActiveGame({ gameId, onBack }: { gameId: number; onBack: () => void }) 
       {/* Progress */}
       <div className="glass-card p-4 flex items-center gap-4">
         <span className="font-bold text-primary text-sm whitespace-nowrap">
-          {currentIndex + 1} / {game.questions.length}
+          {formatNumber(currentIndex + 1)} / {formatNumber(game.questions.length)}
         </span>
         <div className="flex-1 bg-white/50 border border-white/60 h-2.5 rounded-full overflow-hidden">
           <motion.div
@@ -219,7 +220,7 @@ function ActiveGame({ gameId, onBack }: { gameId: number; onBack: () => void }) 
           className="glass-float p-7 md:p-10"
         >
           <h2 className="text-xl md:text-2xl font-bold leading-relaxed mb-8 text-foreground text-center">
-            {currentQuestion.text}
+            {toEnglishDigits(currentQuestion.text)}
           </h2>
           <div className="space-y-3">
             {currentQuestion.options.map((opt, i) => (
@@ -230,7 +231,7 @@ function ActiveGame({ gameId, onBack }: { gameId: number; onBack: () => void }) 
                 whileTap={{ scale: 0.98 }}
                 className="w-full p-4 rounded-2xl text-right text-sm font-semibold border-2 border-white/60 bg-white/50 backdrop-blur hover:border-primary/40 hover:bg-primary/5 transition-all"
               >
-                {opt}
+                {toEnglishDigits(opt)}
               </motion.button>
             ))}
           </div>

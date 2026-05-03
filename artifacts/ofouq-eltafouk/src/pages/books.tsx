@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useListBooks } from "@workspace/api-client-react";
 import { BookOpen, Search, Library, Truck, TicketPercent } from "lucide-react";
+import { formatNumber, toEnglishDigits } from "@/lib/format";
 
 const CART_STORAGE_KEY = "ofouq_books_cart_v1";
 
@@ -25,7 +26,7 @@ const stagger = {
 };
 
 function formatEgp(amount: number) {
-  return `${amount.toLocaleString("ar-EG")} ج.م`;
+  return `${formatNumber(amount)} ج.م`;
 }
 
 export default function Books() {
@@ -170,7 +171,7 @@ export default function Books() {
                   )}
 
                   <div className="absolute top-3 right-3 max-w-[75%] truncate whitespace-nowrap bg-white/90 backdrop-blur text-primary px-3 py-1 rounded-full text-xs font-bold shadow-sm">
-                    {subjectLabel}
+                    {toEnglishDigits(subjectLabel)}
                   </div>
 
                   {book.freeShipping && (
@@ -182,8 +183,8 @@ export default function Books() {
                 </div>
 
                 <div className="p-5 flex-1 flex flex-col">
-                  <h3 className="font-bold text-foreground mb-2 line-clamp-1 text-base">{book.title}</h3>
-                  <p className="text-muted-foreground text-xs mb-4 line-clamp-2">{book.description}</p>
+                  <h3 className="font-bold text-foreground mb-2 line-clamp-1 text-base">{toEnglishDigits(book.title)}</h3>
+                  <p className="text-muted-foreground text-xs mb-4 line-clamp-2">{toEnglishDigits(book.description)}</p>
 
                   <div className="mt-auto mb-4 space-y-1.5">
                     {originalPrice > currentPrice && (

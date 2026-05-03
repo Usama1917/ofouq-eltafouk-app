@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { User, Mail, Phone, MapPin, Edit3, Save, X, Coins, Award, LogOut } from "lucide-react";
+import { User, Mail, Phone, MapPin, Edit3, Save, X, Coins, Award, LogOut, Camera, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import {
   getGetPointsHistoryQueryKey,
@@ -14,6 +14,8 @@ import { Link, useLocation } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import { ar } from "date-fns/locale";
 import { isStudentFeatureVisible } from "@/config/soft-launch";
+import { formatLatinDate, formatNumber, toEnglishDigits } from "@/lib/format";
+import { resolveMediaUrl, uploadProfilePhoto } from "@/lib/media";
 
 const ROLE_LABELS: Record<string, string> = {
   student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", owner: "مالك",
@@ -45,6 +47,8 @@ export default function Profile() {
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState("");
   const [form, setForm] = useState({
     name: user?.name || "",
     phone: user?.phone || "",
@@ -53,7 +57,7 @@ export default function Profile() {
     governorate: user?.governorate || "",
   });
 
-  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
+  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: toEnglishDigits(v) }));
 
   const handleSave = async () => {
     setSaving(true);
@@ -70,6 +74,29 @@ export default function Profile() {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAvatarChange = async (file: File | null) => {
+    if (!file || !user) return;
+    setAvatarError("");
+    setAvatarUploading(true);
+    try {
+      const avatarUrl = await uploadProfilePhoto(file);
+      const res = await fetch(`${BASE}/api/auth/profile`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ avatarUrl }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error ?? "تعذر حفظ الصورة الشخصية.");
+      }
+      updateUser(payload);
+    } catch (err: any) {
+      setAvatarError(err?.message || "تعذر رفع الصورة الشخصية.");
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -99,6 +126,9 @@ export default function Profile() {
   }
 
   const roleColor = ROLE_COLORS[user.role] || ROLE_COLORS.student;
+  const avatarSrc = resolveMediaUrl(user.avatarUrl);
+  const displayName = toEnglishDigits(user.name);
+  const joinedText = toEnglishDigits(formatDistanceToNow(new Date(user.joinedAt), { addSuffix: true, locale: ar }));
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-3xl mx-auto space-y-6" dir="rtl">
@@ -107,20 +137,38 @@ export default function Profile() {
         <div className={`absolute inset-0 bg-gradient-to-br ${roleColor} opacity-5 pointer-events-none`} />
         <div className="flex flex-col sm:flex-row items-center gap-6">
           {/* Avatar */}
-          <div className={`w-24 h-24 rounded-3xl bg-gradient-to-br ${roleColor} flex items-center justify-center text-white font-display font-black text-4xl shadow-xl flex-shrink-0`}>
-            {user.name.charAt(0)}
-          </div>
+          <label className={`group relative w-24 h-24 rounded-full bg-gradient-to-br ${roleColor} flex items-center justify-center text-white font-display font-black text-4xl shadow-xl flex-shrink-0 overflow-hidden cursor-pointer ring-4 ring-white/70`}>
+            {avatarSrc ? (
+              <img src={avatarSrc} alt={displayName} className="h-full w-full object-cover" />
+            ) : (
+              displayName.charAt(0)
+            )}
+            <span className="absolute inset-x-0 bottom-0 flex items-center justify-center bg-black/45 py-2 text-white transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+              {avatarUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+            </span>
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              disabled={avatarUploading}
+              onChange={(event) => {
+                void handleAvatarChange(event.target.files?.[0] ?? null);
+                event.target.value = "";
+              }}
+            />
+          </label>
           <div className="flex-1 text-center sm:text-right space-y-2">
-            <h1 className="text-3xl font-display font-black text-foreground">{user.name}</h1>
-            <p className="text-muted-foreground text-sm">{user.email}</p>
+            <h1 className="text-3xl font-display font-black text-foreground break-words">{displayName}</h1>
+            <p className="text-muted-foreground text-sm break-all">{toEnglishDigits(user.email)}</p>
             <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
               <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full bg-gradient-to-r ${roleColor} text-white shadow-md`}>
                 {ROLE_LABELS[user.role] || user.role}
               </span>
               <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full bg-white/70 border border-white/70 text-muted-foreground">
-                انضم {formatDistanceToNow(new Date(user.joinedAt), { addSuffix: true, locale: ar })}
+                انضم {joinedText}
               </span>
             </div>
+            {avatarError && <p className="text-xs font-semibold text-rose-500">{avatarError}</p>}
           </div>
           <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white/60 border border-white/70 text-muted-foreground hover:text-rose-500 hover:border-rose-200 transition-all font-semibold text-sm">
             <LogOut className="w-4 h-4" />
@@ -138,7 +186,7 @@ export default function Profile() {
             { label: "مستخدمة", value: points?.totalSpent ?? 0, color: "text-rose-500", bg: "from-rose-50/80 to-pink-50/60" },
           ].map(s => (
             <div key={s.label} className={`glass-card p-4 text-center bg-gradient-to-br ${s.bg}`}>
-              <p className={`font-display font-black text-3xl ${s.color}`}>{s.value}</p>
+              <p className={`font-display font-black text-3xl ${s.color}`}>{formatNumber(s.value)}</p>
               <p className="text-xs text-muted-foreground mt-1 font-medium">{s.label}</p>
             </div>
           ))}
@@ -180,13 +228,13 @@ export default function Profile() {
               ].map(f => (
                 <div key={f.k} className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground">{f.label}</label>
-                  <input value={form[f.k as keyof typeof form]} onChange={e => set(f.k, e.target.value)}
+                  <input value={toEnglishDigits(form[f.k as keyof typeof form])} onChange={e => set(f.k, e.target.value)}
                     className="w-full px-4 py-2.5 rounded-xl bg-white/70 border border-white/70 focus:border-primary/50 focus:ring-2 focus:ring-primary/10 outline-none text-sm font-medium transition-all" />
                 </div>
               ))}
               <div className="sm:col-span-2 space-y-1.5">
                 <label className="text-xs font-semibold text-muted-foreground">نبذة شخصية</label>
-                <textarea rows={3} value={form.bio} onChange={e => set("bio", e.target.value)}
+                <textarea rows={3} value={toEnglishDigits(form.bio)} onChange={e => set("bio", e.target.value)}
                   className="w-full px-4 py-2.5 rounded-xl bg-white/70 border border-white/70 focus:border-primary/50 focus:ring-2 focus:ring-primary/10 outline-none text-sm font-medium resize-none transition-all" />
               </div>
             </>
@@ -202,14 +250,14 @@ export default function Profile() {
                 <f.icon className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                 <div>
                   <p className="text-xs text-muted-foreground font-medium">{f.label}</p>
-                  <p className="text-sm font-semibold text-foreground">{f.value}</p>
+                  <p className="text-sm font-semibold text-foreground break-words">{toEnglishDigits(f.value)}</p>
                 </div>
               </div>
             ))
           )}
         </div>
         {!editing && user.bio && (
-          <div className="p-4 rounded-xl bg-white/40 text-sm text-foreground leading-relaxed">{user.bio}</div>
+          <div className="p-4 rounded-xl bg-white/40 text-sm text-foreground leading-relaxed">{toEnglishDigits(user.bio)}</div>
         )}
       </div>
 
@@ -223,9 +271,9 @@ export default function Profile() {
           <div className="space-y-2">
             {history.slice(0, 5).map(tx => (
               <div key={tx.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/40 transition-colors">
-                <span className="text-sm font-medium text-foreground">{tx.description}</span>
+                <span className="text-sm font-medium text-foreground">{toEnglishDigits(tx.description)}</span>
                 <span className={`font-bold text-sm ${tx.type === "spend" ? "text-rose-500" : "text-emerald-600"}`}>
-                  {tx.type === "spend" ? "-" : "+"}{tx.amount}
+                  {tx.type === "spend" ? "-" : "+"}{formatNumber(tx.amount)}
                 </span>
               </div>
             ))}
@@ -243,8 +291,8 @@ export default function Profile() {
           <div className="space-y-2">
             {redemptions.slice(0, 5).map(r => (
               <div key={r.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/40 transition-colors">
-                <span className="text-sm font-semibold text-foreground">{r.rewardTitle}</span>
-                <span className="text-xs text-muted-foreground">{new Date(r.createdAt).toLocaleDateString("ar-EG")}</span>
+                <span className="text-sm font-semibold text-foreground">{toEnglishDigits(r.rewardTitle)}</span>
+                <span className="text-xs text-muted-foreground">{formatLatinDate(r.createdAt)}</span>
               </div>
             ))}
           </div>

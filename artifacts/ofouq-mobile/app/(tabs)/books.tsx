@@ -10,11 +10,12 @@ import {
   Text,
   TextInput,
   View,
+  useColorScheme,
 } from "react-native";
 
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
-import { useAppTheme } from "@/contexts/ThemeContext";
+import { formatNumber, toEnglishDigits } from "@/lib/format";
 
 const CATEGORIES = ["الكل", "رياضيات", "علوم", "لغة عربية", "تاريخ", "جغرافيا", "فيزياء"];
 
@@ -42,7 +43,9 @@ interface BookCardProps {
 }
 
 function BookCard({ book, onPress }: BookCardProps) {
-  const { colors } = useAppTheme();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const colors = isDark ? COLORS.dark : COLORS.light;
   const scale = useRef(new Animated.Value(1)).current;
   const catColor = categoryColors[book.category] ?? COLORS.primary;
 
@@ -75,7 +78,7 @@ function BookCard({ book, onPress }: BookCardProps) {
           <View style={styles.bookFooter}>
             <View style={styles.ratingRow}>
               <Ionicons name="star" size={13} color="#F59E0B" />
-              <Text style={[styles.ratingText, { color: colors.textSecondary }]}>{book.rating}</Text>
+              <Text style={[styles.ratingText, { color: colors.textSecondary }]}>{toEnglishDigits(book.rating)}</Text>
             </View>
             {book.owned ? (
               <View style={[styles.ownedTag, { backgroundColor: COLORS.success + "22" }]}>
@@ -84,7 +87,7 @@ function BookCard({ book, onPress }: BookCardProps) {
             ) : (
               <View style={styles.priceTag}>
                 <Ionicons name="star" size={11} color="#F59E0B" />
-                <Text style={styles.priceText}>{book.points}</Text>
+                <Text style={styles.priceText}>{formatNumber(book.points)}</Text>
               </View>
             )}
           </View>
@@ -95,7 +98,9 @@ function BookCard({ book, onPress }: BookCardProps) {
 }
 
 export default function BooksScreen() {
-  const { colors } = useAppTheme();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const colors = isDark ? COLORS.dark : COLORS.light;
   const { user } = useAuth();
 
   const [selectedCategory, setSelectedCategory] = useState("الكل");
@@ -158,11 +163,11 @@ export default function BooksScreen() {
             />
             <View style={styles.resultsRow}>
               <Text style={[styles.resultsText, { color: colors.textSecondary }]}>
-                {filtered.length} كتاب
+                {formatNumber(filtered.length)} كتاب
               </Text>
               <View style={styles.pointsIndicator}>
                 <Ionicons name="star" size={13} color="#F59E0B" />
-                <Text style={styles.userPoints}>{user?.points?.toLocaleString("ar") ?? "0"} نقطة</Text>
+                <Text style={styles.userPoints}>{formatNumber(user?.points ?? 0)} نقطة</Text>
               </View>
             </View>
           </View>

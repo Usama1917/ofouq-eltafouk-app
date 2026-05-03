@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLocation } from "wouter";
-import { GraduationCap, BookOpen, Users, ChevronRight, ChevronLeft, Check, Upload } from "lucide-react";
+import { GraduationCap, BookOpen, Users, ChevronRight, ChevronLeft, Check, Upload, Camera } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { useAuth } from "@/contexts/auth-context";
+import { isSupportedProfileImageFile, uploadProfilePhoto } from "@/lib/media";
+import { toEnglishDigits } from "@/lib/format";
 
 type Role = "student" | "teacher" | "parent";
 
@@ -55,6 +57,8 @@ export default function Register() {
   const [role, setRole] = useState<Role | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     name: "", email: "", password: "",
@@ -62,7 +66,17 @@ export default function Register() {
     specialty: "", qualifications: "", supportNeeded: "",
   });
 
-  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
+  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: toEnglishDigits(v) }));
+
+  useEffect(() => {
+    if (!avatarFile) {
+      setAvatarPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(avatarFile);
+    setAvatarPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [avatarFile]);
 
   const steps = role === "teacher" ? STEPS_TEACHER : role === "parent" ? STEPS_PARENT : STEPS_STUDENT;
   const totalSteps = steps.length;
@@ -73,7 +87,8 @@ export default function Register() {
   const handleSubmit = async () => {
     setError(""); setLoading(true);
     try {
-      await register({ ...form, role, age: form.age ? parseInt(form.age) : undefined });
+      const avatarUrl = avatarFile ? await uploadProfilePhoto(avatarFile) : undefined;
+      await register({ ...form, role, age: form.age ? parseInt(form.age) : undefined, avatarUrl });
       setStep(totalSteps - 1);
       setTimeout(() => setLocation("/"), 2000);
     } catch (err: any) {
@@ -144,6 +159,45 @@ export default function Register() {
             {step === 1 && (
               <motion.div key="basic" {...slide} className="space-y-4">
                 <h2 className="text-2xl font-display font-black text-foreground">البيانات الأساسية</h2>
+                <Field label="الصورة الشخصية">
+                  <label className="flex items-center gap-4 rounded-2xl border border-white/70 bg-white/55 p-4 transition-all hover:bg-white/75 cursor-pointer">
+                    <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-full bg-primary/10 text-primary flex items-center justify-center">
+                      {avatarPreview ? (
+                        <img src={avatarPreview} alt="الصورة الشخصية" className="h-full w-full object-cover" />
+                      ) : (
+                        <Camera className="h-7 w-7" />
+                      )}
+                      <span className="absolute bottom-0 left-0 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white ring-2 ring-white">
+                        <Upload className="h-3.5 w-3.5" />
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-foreground">
+                        {avatarFile ? "تغيير الصورة" : "اختيار صورة شخصية"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">اختياري ويمكن تغييره لاحقًا</p>
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] ?? null;
+                        if (!file) return;
+                        if (!isSupportedProfileImageFile(file)) {
+                          setError("اختر صورة بصيغة JPG أو PNG أو WebP أو HEIC.");
+                          return;
+                        }
+                        if (file.size > 5 * 1024 * 1024) {
+                          setError("اختر صورة بحجم أقل من 5MB.");
+                          return;
+                        }
+                        setError("");
+                        setAvatarFile(file);
+                      }}
+                    />
+                  </label>
+                </Field>
                 <Field label="الاسم الكامل"><Input placeholder="أحمد محمد" value={form.name} onChange={e => set("name", e.target.value)} required /></Field>
                 <Field label="البريد الإلكتروني"><Input type="email" placeholder="example@email.com" value={form.email} onChange={e => set("email", e.target.value)} required /></Field>
                 <Field label="كلمة المرور"><Input type="password" placeholder="••••••••" value={form.password} onChange={e => set("password", e.target.value)} required /></Field>
@@ -155,7 +209,7 @@ export default function Register() {
               <motion.div key="student" {...slide} className="space-y-4">
                 <h2 className="text-2xl font-display font-black text-foreground">معلومات الطالب</h2>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="العمر"><Input type="number" placeholder="16" min="5" max="100" value={form.age} onChange={e => set("age", e.target.value)} /></Field>
+                  <Field label="العمر"><Input type="number" placeholder="16" min="5" max="100" value={toEnglishDigits(form.age)} onChange={e => set("age", toEnglishDigits(e.target.value))} /></Field>
                   <Field label="رقم الهاتف"><Input placeholder="01000000000" value={form.phone} onChange={e => set("phone", e.target.value)} /></Field>
                 </div>
                 <Field label="هاتف ولي الأمر"><Input placeholder="01000000000" value={form.parentPhone} onChange={e => set("parentPhone", e.target.value)} /></Field>
@@ -179,7 +233,7 @@ export default function Register() {
               <motion.div key="teacher" {...slide} className="space-y-4">
                 <h2 className="text-2xl font-display font-black text-foreground">معلومات المعلم</h2>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="العمر"><Input type="number" placeholder="30" value={form.age} onChange={e => set("age", e.target.value)} /></Field>
+                  <Field label="العمر"><Input type="number" placeholder="30" value={toEnglishDigits(form.age)} onChange={e => set("age", toEnglishDigits(e.target.value))} /></Field>
                   <Field label="رقم الهاتف"><Input placeholder="01000000000" value={form.phone} onChange={e => set("phone", e.target.value)} /></Field>
                 </div>
                 <Field label="العنوان"><Input placeholder="المدينة، الشارع" value={form.address} onChange={e => set("address", e.target.value)} /></Field>

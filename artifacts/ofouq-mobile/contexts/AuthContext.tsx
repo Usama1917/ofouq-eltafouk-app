@@ -1,6 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 
+import { apiFetch } from "@/lib/api";
+
 export type UserRole = "student" | "teacher" | "parent" | "admin" | "moderator" | "owner";
 
 export interface User {
@@ -12,6 +14,10 @@ export interface User {
   governorate?: string;
   specialty?: string;
   phone?: string;
+  address?: string;
+  bio?: string;
+  avatarUrl?: string;
+  joinedAt?: string;
 }
 
 interface AuthContextValue {
@@ -32,18 +38,13 @@ interface RegisterData {
   phone?: string;
   governorate?: string;
   specialty?: string;
+  avatarUrl?: string;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const AUTH_USER_KEY = "ofouq_user";
 const AUTH_TOKEN_KEY = "ofouq_token";
-
-function getBaseUrl(): string {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}`;
-  return "http://localhost:3000";
-}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -70,17 +71,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const base = getBaseUrl();
-    const res = await fetch(`${base}/api/auth/login`, {
+    const data = await apiFetch<{ user: User; token: string }>("/api/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: "فشل تسجيل الدخول" }));
-      throw new Error(err.error || "فشل تسجيل الدخول");
-    }
-    const data = await res.json();
     setUser(data.user);
     setToken(data.token);
     await Promise.all([
@@ -90,17 +84,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const register = useCallback(async (formData: RegisterData) => {
-    const base = getBaseUrl();
-    const res = await fetch(`${base}/api/auth/register`, {
+    const data = await apiFetch<{ user: User; token: string }>("/api/auth/register", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(formData),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: "فشل إنشاء الحساب" }));
-      throw new Error(err.error || "فشل إنشاء الحساب");
-    }
-    const data = await res.json();
     setUser(data.user);
     setToken(data.token);
     await Promise.all([

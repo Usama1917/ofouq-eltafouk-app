@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Link } from "wouter";
 import { ArrowLeft, GraduationCap, PlayCircle, Sparkles, Video } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { formatNumber, toEnglishDigits } from "@/lib/format";
 
 type AcademicYear = {
   id: number;
@@ -83,7 +84,7 @@ export default function Dashboard() {
             </div>
             <p className="text-sm font-semibold text-muted-foreground">الدروس المتاحة الآن</p>
             <p className="mt-2 font-display text-4xl font-black text-foreground">
-              {isLoading ? "..." : years.length.toLocaleString("ar-EG")}
+              {isLoading ? "..." : formatNumber(years.length)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">مسار تعليمي مرئي</p>
           </div>
@@ -127,9 +128,9 @@ export default function Dashboard() {
                     <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-100 text-sky-600">
                       <GraduationCap className="h-5 w-5" />
                     </div>
-                    <h3 className="font-bold leading-snug text-foreground">{year.name}</h3>
+                    <h3 className="font-bold leading-snug text-foreground">{toEnglishDigits(year.name)}</h3>
                     {year.description ? (
-                      <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{year.description}</p>
+                      <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{toEnglishDigits(year.description)}</p>
                     ) : null}
                   </div>
                   <div className="mt-5 flex items-center justify-between text-sm font-bold text-primary">

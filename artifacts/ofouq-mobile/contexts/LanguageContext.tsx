@@ -6,11 +6,12 @@ import { Language, translations } from "@/localization/translations";
 export type { Language };
 
 const LANGUAGE_KEY = "ofouq_language";
+type TranslationBundle = (typeof translations)[Language];
 
 interface LanguageContextValue {
   language: Language;
   isRTL: boolean;
-  t: typeof translations.ar;
+  t: TranslationBundle;
   setLanguage: (lang: Language) => Promise<void>;
 }
 

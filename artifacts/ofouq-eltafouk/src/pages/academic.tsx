@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import CustomVideoPlayer from "@/components/custom-video-player";
+import { formatLatinDate, toEnglishDigits } from "@/lib/format";
 
 interface AcademicYear {
   id: number;
@@ -143,9 +144,9 @@ function formatVideoDuration(seconds: number): string {
   const mm = Math.floor((safe % 3600) / 60);
   const ss = safe % 60;
   if (hh > 0) {
-    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+    return toEnglishDigits(`${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`);
   }
-  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  return toEnglishDigits(`${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`);
 }
 
 function PageWrapper({ children }: { children: React.ReactNode }) {
@@ -278,9 +279,9 @@ export function AcademicYearsPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="mb-1 flex items-center gap-2 flex-wrap">
-                    <h3 className="font-bold text-foreground leading-snug">{year.name}</h3>
+                    <h3 className="font-bold text-foreground leading-snug">{toEnglishDigits(year.name)}</h3>
                   </div>
-                  {year.description ? <p className="text-xs text-muted-foreground truncate">{year.description}</p> : null}
+                  {year.description ? <p className="text-xs text-muted-foreground truncate">{toEnglishDigits(year.description)}</p> : null}
                 </div>
                 <ChevronLeft className={`w-4 h-4 flex-shrink-0 ${accent.arrow}`} />
               </motion.div>
@@ -323,7 +324,7 @@ export function AcademicSubjectsPage() {
         </Link>
       </div>
 
-      <SectionTitle icon={<BookOpen className="w-5 h-5" />} title={year?.name ?? "المواد"} subtitle="اختر المادة" />
+      <SectionTitle icon={<BookOpen className="w-5 h-5" />} title={toEnglishDigits(year?.name ?? "المواد")} subtitle="اختر المادة" />
 
       {isLoading ? <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div> : null}
       {!isLoading && subjects.length === 0 ? <EmptyState icon={<BookOpen className="w-8 h-8" />} message="لا توجد مواد منشورة" /> : null}
@@ -341,12 +342,12 @@ export function AcademicSubjectsPage() {
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-50 to-purple-50 flex items-center justify-center text-2xl">{subject.icon || "📚"}</div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-foreground">{subject.name}</h3>
+                      <h3 className="font-bold text-foreground">{toEnglishDigits(subject.name)}</h3>
                       <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${subjectAccessBadgeStyle(status)}`}>
                         {subjectAccessLabel(status)}
                       </span>
                     </div>
-                    {subject.description ? <p className="text-xs text-muted-foreground mt-1 truncate">{subject.description}</p> : null}
+                    {subject.description ? <p className="text-xs text-muted-foreground mt-1 truncate">{toEnglishDigits(subject.description)}</p> : null}
                   </div>
                   <LockOpen className="w-4 h-4 text-emerald-600" />
                   <ChevronLeft className="w-4 h-4 text-muted-foreground" />
@@ -362,14 +363,14 @@ export function AcademicSubjectsPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="font-bold text-foreground">{subject.name}</h3>
+                  <h3 className="font-bold text-foreground">{toEnglishDigits(subject.name)}</h3>
                   <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${subjectAccessBadgeStyle(status)}`}>
                     {subjectAccessLabel(status)}
                   </span>
                 </div>
-                {subject.description ? <p className="text-xs text-muted-foreground mt-1">{subject.description}</p> : null}
+                {subject.description ? <p className="text-xs text-muted-foreground mt-1">{toEnglishDigits(subject.description)}</p> : null}
                 {status === "rejected" && subject.latestRequest?.reviewNotes ? (
-                  <p className="text-xs text-rose-700 mt-1">ملاحظة المراجعة: {subject.latestRequest.reviewNotes}</p>
+                  <p className="text-xs text-rose-700 mt-1">ملاحظة المراجعة: {toEnglishDigits(subject.latestRequest.reviewNotes)}</p>
                 ) : null}
                 <div className="mt-2">
                   <Link href={subscribeHref}>
@@ -462,7 +463,7 @@ export function AcademicSubscriptionRequestPage() {
   }, [selectedSubject, subjects]);
 
   async function handleSubmit() {
-    const finalCode = code.trim();
+    const finalCode = toEnglishDigits(code).trim();
     if (!selectedSubject) {
       setErrorMessage("اختر المادة أولًا");
       return;
@@ -539,7 +540,7 @@ export function AcademicSubscriptionRequestPage() {
 
       <SectionTitle
         icon={<BookOpen className="w-5 h-5" />}
-        title={year ? `اشتراك مادة جديدة - ${year.name}` : "اشتراك مادة جديدة"}
+        title={year ? `اشتراك مادة جديدة - ${toEnglishDigits(year.name)}` : "اشتراك مادة جديدة"}
         subtitle="أدخل كود الاشتراك وارفع صورته لإرسال الطلب"
       />
 
@@ -548,7 +549,7 @@ export function AcademicSubscriptionRequestPage() {
           <div className="space-y-1.5">
             <label className="text-sm font-semibold text-muted-foreground">السنة الدراسية</label>
             <input
-              value={year?.name ?? ""}
+              value={toEnglishDigits(year?.name ?? "")}
               disabled
               className="w-full px-3 py-2.5 rounded-xl border border-white/60 bg-muted/30 text-sm text-foreground"
             />
@@ -562,7 +563,7 @@ export function AcademicSubscriptionRequestPage() {
             >
               {subjects.map((subject) => (
                 <option key={subject.id} value={subject.id}>
-                  {subject.name} - {subjectAccessLabel(subject.accessStatus ?? (subject.isLocked ? "none" : "approved"))}
+                  {toEnglishDigits(subject.name)} - {subjectAccessLabel(subject.accessStatus ?? (subject.isLocked ? "none" : "approved"))}
                 </option>
               ))}
             </select>
@@ -580,8 +581,8 @@ export function AcademicSubscriptionRequestPage() {
         <div className="space-y-1.5">
           <label className="text-sm font-semibold text-muted-foreground">كود الاشتراك</label>
           <input
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
+            value={toEnglishDigits(code)}
+            onChange={(event) => setCode(toEnglishDigits(event.target.value))}
             placeholder="مثال: 1106092724"
             className="w-full px-3 py-2.5 rounded-xl border border-white/60 bg-white/70 text-sm outline-none focus:border-primary/50"
           />
@@ -591,7 +592,7 @@ export function AcademicSubscriptionRequestPage() {
           <label className="text-sm font-semibold text-muted-foreground">صورة كود الاشتراك <span className="text-rose-600">*</span></label>
           <label className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl border border-dashed border-primary/40 bg-primary/5 text-primary text-sm font-semibold cursor-pointer hover:bg-primary/10 transition-all">
             <ImagePlus className="w-4 h-4" />
-            {codeImage ? codeImage.name : "ارفع الصورة أو التقطها من الكاميرا"}
+            {codeImage ? toEnglishDigits(codeImage.name) : "ارفع الصورة أو التقطها من الكاميرا"}
             <input
               type="file"
               accept="image/*"
@@ -645,11 +646,11 @@ export function AcademicSubscriptionRequestPage() {
           {requests.map((request) => (
             <div key={request.id} className="rounded-xl border border-white/50 bg-white/50 p-3 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-semibold text-sm text-foreground truncate">{request.subject.name}</p>
+                <p className="font-semibold text-sm text-foreground truncate">{toEnglishDigits(request.subject.name)}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {request.year.name} · {new Date(request.submittedAt).toLocaleDateString("ar-EG")}
+                  {toEnglishDigits(request.year.name)} · {formatLatinDate(request.submittedAt)}
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">الكود: {request.code}</p>
+                <p className="text-xs text-muted-foreground mt-1">الكود: {toEnglishDigits(request.code)}</p>
               </div>
               <RequestStatusBadge status={request.status} />
             </div>
@@ -682,11 +683,11 @@ export function AcademicUnitsPage() {
     <PageWrapper>
       <Link href={`/videos/years/${yearId}`}>
         <button className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-sm mb-6 transition-colors">
-          <ArrowLeft className="w-4 h-4 rotate-180" /> {subject?.name ?? "المواد"}
+          <ArrowLeft className="w-4 h-4 rotate-180" /> {toEnglishDigits(subject?.name ?? "المواد")}
         </button>
       </Link>
 
-      <SectionTitle icon={<Layers className="w-5 h-5" />} title={subject?.name ?? "الوحدات"} subtitle="اختر الوحدة / الفصل / الباب" />
+      <SectionTitle icon={<Layers className="w-5 h-5" />} title={toEnglishDigits(subject?.name ?? "الوحدات")} subtitle="اختر الوحدة / الفصل / الباب" />
 
       {isLoading ? <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div> : null}
       {isError ? (
@@ -716,8 +717,8 @@ export function AcademicUnitsPage() {
                 <Layers className="w-5 h-5 text-sky-500" />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-foreground leading-snug">{unit.name}</h3>
-                {unit.description ? <p className="text-xs text-muted-foreground mt-1 truncate">{unit.description}</p> : null}
+                <h3 className="font-semibold text-foreground leading-snug">{toEnglishDigits(unit.name)}</h3>
+                {unit.description ? <p className="text-xs text-muted-foreground mt-1 truncate">{toEnglishDigits(unit.description)}</p> : null}
               </div>
               <ChevronLeft className="w-4 h-4 text-muted-foreground" />
             </motion.div>
@@ -751,11 +752,11 @@ export function AcademicLessonsPage() {
     <PageWrapper>
       <Link href={`/videos/years/${yearId}/subjects/${subjectId}/units`}>
         <button className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-sm mb-6 transition-colors">
-          <ArrowLeft className="w-4 h-4 rotate-180" /> {unit?.name ?? "الوحدات"}
+          <ArrowLeft className="w-4 h-4 rotate-180" /> {toEnglishDigits(unit?.name ?? "الوحدات")}
         </button>
       </Link>
 
-      <SectionTitle icon={<PlayCircle className="w-5 h-5" />} title={unit?.name ?? "الدروس"} subtitle="اختر الدرس" />
+      <SectionTitle icon={<PlayCircle className="w-5 h-5" />} title={toEnglishDigits(unit?.name ?? "الدروس")} subtitle="اختر الدرس" />
 
       {isLoading ? <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div> : null}
       {isError ? (
@@ -786,7 +787,7 @@ export function AcademicLessonsPage() {
                 <div className="h-14 w-[92px] rounded-xl overflow-hidden flex-shrink-0 border border-white/70 bg-slate-100">
                   <img
                     src={lesson.video.thumbnailUrl}
-                    alt={lesson.title}
+                    alt={toEnglishDigits(lesson.title)}
                     className="w-full h-full object-cover object-center"
                     loading="lazy"
                     decoding="async"
@@ -799,10 +800,10 @@ export function AcademicLessonsPage() {
               )}
 
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-foreground text-sm leading-snug truncate">{lesson.title}</h3>
+                <h3 className="font-semibold text-foreground text-sm leading-snug truncate">{toEnglishDigits(lesson.title)}</h3>
                 {lesson.video ? (
                   <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                    <User className="w-3.5 h-3.5" strokeWidth={2.1} /> {lesson.video.instructor}
+                    <User className="w-3.5 h-3.5" strokeWidth={2.1} /> {toEnglishDigits(lesson.video.instructor)}
                     <Clock className="w-3.5 h-3.5 mr-1" strokeWidth={2.1} /> {formatVideoDuration(lesson.video.duration)}
                   </div>
                 ) : null}
@@ -867,8 +868,8 @@ export function AcademicLessonPage() {
       {lesson ? (
         <div className="space-y-7 md:space-y-8" dir="rtl">
           <div>
-            <h1 className="font-display font-black text-2xl text-foreground mb-2.5">{lesson.title}</h1>
-            {lesson.description ? <p className="text-muted-foreground leading-relaxed">{lesson.description}</p> : null}
+            <h1 className="font-display font-black text-2xl text-foreground mb-2.5">{toEnglishDigits(lesson.title)}</h1>
+            {lesson.description ? <p className="text-muted-foreground leading-relaxed">{toEnglishDigits(lesson.description)}</p> : null}
           </div>
 
           {lesson.video ? (
@@ -878,7 +879,7 @@ export function AcademicLessonPage() {
                   <div className="h-14 w-[88px] rounded-xl overflow-hidden flex-shrink-0 border border-white/70 bg-slate-100">
                     <img
                       src={lesson.video.thumbnailUrl}
-                      alt={lesson.video.title}
+                      alt={toEnglishDigits(lesson.video.title)}
                       className="w-full h-full object-cover object-center"
                       loading="lazy"
                       decoding="async"
@@ -890,8 +891,8 @@ export function AcademicLessonPage() {
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold text-foreground text-sm sm:text-base">{lesson.video.title}</p>
-                  <p className="mt-1 text-xs sm:text-sm text-muted-foreground">{lesson.video.instructor} · {formatVideoDuration(lesson.video.duration)}</p>
+                  <p className="truncate font-semibold text-foreground text-sm sm:text-base">{toEnglishDigits(lesson.video.title)}</p>
+                  <p className="mt-1 text-xs sm:text-sm text-muted-foreground">{toEnglishDigits(lesson.video.instructor)} · {formatVideoDuration(lesson.video.duration)}</p>
                 </div>
                 <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center flex-shrink-0 shadow-sm">
                   <Play className="w-5 h-5 text-white" strokeWidth={2.3} />
@@ -901,11 +902,11 @@ export function AcademicLessonPage() {
               <CustomVideoPlayer
                 videoUrl={lesson.video.videoUrl}
                 videoType={lesson.video.videoType}
-                title={lesson.video.title}
-                subtitle={lesson.video.instructor || ""}
+                title={toEnglishDigits(lesson.video.title)}
+                subtitle={toEnglishDigits(lesson.video.instructor || "")}
                 posterUrl={lesson.video.posterUrl ?? null}
                 segments={lesson.video.segments ?? []}
-                watermarkText={user ? `${user.name} - ${user.email}` : undefined}
+                watermarkText={user ? `${toEnglishDigits(user.name)} - ${toEnglishDigits(user.email)}` : undefined}
               />
             </div>
           ) : (

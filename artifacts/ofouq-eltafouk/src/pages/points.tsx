@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { useGetPoints, useGetPointsHistory, usePurchasePoints } from "@workspace/api-client-react";
 import { Coins, ArrowUpRight, ArrowDownRight, Sparkles, History, TrendingUp } from "lucide-react";
+import { formatNumber, toEnglishDigits } from "@/lib/format";
 
 const stagger = {
   container: { animate: { transition: { staggerChildren: 0.08 } } },
@@ -18,7 +19,7 @@ export default function Points() {
   const handlePurchase = (amount: number, packageName: string) => {
     purchasePoints.mutate(
       { data: { amount, packageName } },
-      { onSuccess: () => alert(`تم إضافة ${amount} نقطة بنجاح!`) }
+      { onSuccess: () => alert(`تم إضافة ${formatNumber(amount)} نقطة بنجاح!`) }
     );
   };
 
@@ -42,7 +43,7 @@ export default function Points() {
             </div>
             <div className="flex items-baseline gap-3 justify-center md:justify-start">
               <span className="font-display font-black text-7xl md:text-8xl text-foreground">
-                {pointsData?.balance ?? 0}
+                {formatNumber(pointsData?.balance ?? 0)}
               </span>
               <span className="text-xl text-muted-foreground font-medium">نقطة</span>
             </div>
@@ -59,7 +60,7 @@ export default function Points() {
                 <s.icon className={`w-5 h-5 ${s.color}`} />
                 <div>
                   <p className="text-xs text-muted-foreground">{s.label}</p>
-                  <p className={`font-bold text-lg ${s.color}`}>{s.value}</p>
+                  <p className={`font-bold text-lg ${s.color}`}>{formatNumber(s.value)}</p>
                 </div>
               </div>
             ))}
@@ -96,7 +97,7 @@ export default function Points() {
                   <Coins className="w-7 h-7" />
                 </div>
                 <p className="font-semibold text-muted-foreground text-sm mb-1">{pkg.name}</p>
-                <p className="font-display font-black text-4xl text-foreground mb-5">{pkg.amount}</p>
+                <p className="font-display font-black text-4xl text-foreground mb-5">{formatNumber(pkg.amount)}</p>
                 <button
                   onClick={() => handlePurchase(pkg.amount, pkg.name)}
                   disabled={purchasePoints.isPending}
@@ -139,11 +140,11 @@ export default function Points() {
                       {tx.type === "spend" ? <ArrowDownRight className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
                     </div>
                     <div>
-                      <p className="font-semibold text-xs text-foreground line-clamp-1">{tx.description}</p>
+                      <p className="font-semibold text-xs text-foreground line-clamp-1">{toEnglishDigits(tx.description)}</p>
                     </div>
                   </div>
                   <span className={`font-bold text-sm flex-shrink-0 ${tx.type === "spend" ? "text-rose-500" : "text-emerald-600"}`}>
-                    {tx.type === "spend" ? "-" : "+"}{tx.amount}
+                    {tx.type === "spend" ? "-" : "+"}{formatNumber(tx.amount)}
                   </span>
                 </div>
               ))

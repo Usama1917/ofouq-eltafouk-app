@@ -10,6 +10,8 @@ import { getGetPointsQueryKey, useGetPoints } from "@workspace/api-client-react"
 import { useAuth } from "@/contexts/auth-context";
 import { Logo } from "@/components/logo";
 import { isStudentFeatureVisible, type StudentFeature } from "@/config/soft-launch";
+import { formatNumber, toEnglishDigits } from "@/lib/format";
+import { resolveMediaUrl } from "@/lib/media";
 
 type NavSubItem = {
   href: string;
@@ -74,17 +76,23 @@ function UserBadge() {
     admin: "from-violet-500 to-purple-700",
     owner: "from-rose-400 to-pink-600",
   };
+  const avatarSrc = resolveMediaUrl(user.avatarUrl);
+  const displayName = toEnglishDigits(user.name);
 
   return (
     <div className="space-y-2">
       <Link href="/profile">
         <motion.div whileHover={{ y: -1 }}
           className="glass-card cursor-pointer p-3.5 flex items-center gap-3 hover:border-primary/30 transition-all mt-[10px] mb-[10px]">
-          <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${ROLE_COLORS[user.role] || ROLE_COLORS.student} flex items-center justify-center text-white font-display font-black text-sm`}>
-            {user.name.charAt(0)}
+          <div className={`w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br ${ROLE_COLORS[user.role] || ROLE_COLORS.student} flex items-center justify-center text-white font-display font-black text-sm flex-shrink-0`}>
+            {avatarSrc ? (
+              <img src={avatarSrc} alt={displayName} className="h-full w-full object-cover" />
+            ) : (
+              displayName.charAt(0)
+            )}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-foreground truncate">{user.name}</p>
+            <p className="text-sm font-bold text-foreground truncate">{displayName}</p>
             <p className="text-xs text-muted-foreground">{ROLE_LABELS[user.role] || user.role}</p>
           </div>
           <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />
@@ -120,6 +128,8 @@ export function Layout({ children }: { children: ReactNode }) {
     query: { enabled: Boolean(user && showPoints), queryKey: getGetPointsQueryKey() },
   });
   const studentNavItems = NAV_ITEMS.filter((item) => isStudentFeatureVisible(item.feature));
+  const mobileAvatarSrc = resolveMediaUrl(user?.avatarUrl);
+  const mobileDisplayName = toEnglishDigits(user?.name ?? "");
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     "/books": location.startsWith("/books"),
   });
@@ -289,7 +299,7 @@ export function Layout({ children }: { children: ReactNode }) {
                   <div>
                     <p className="text-xs text-muted-foreground font-medium mb-1">رصيد النقاط</p>
                     <p className="font-display font-black text-2xl text-foreground">
-                      {pointsData?.balance ?? 0}
+                      {formatNumber(pointsData?.balance ?? 0)}
                       <span className="text-sm font-sans text-muted-foreground font-normal mr-1">نقطة</span>
                     </p>
                   </div>
@@ -323,13 +333,17 @@ export function Layout({ children }: { children: ReactNode }) {
                 <Link href="/points">
                   <div className="flex items-center gap-1.5 bg-amber-400/15 text-amber-600 px-3 py-1.5 rounded-full font-bold text-sm border border-amber-200/50 cursor-pointer">
                     <Coins className="w-4 h-4" />
-                    {pointsData?.balance ?? 0}
+                    {formatNumber(pointsData?.balance ?? 0)}
                   </div>
                 </Link>
               )}
               <Link href="/profile">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center text-white text-sm font-bold cursor-pointer">
-                  {user.name.charAt(0)}
+                <div className="w-8 h-8 rounded-full overflow-hidden bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center text-white text-sm font-bold cursor-pointer">
+                  {mobileAvatarSrc ? (
+                    <img src={mobileAvatarSrc} alt={mobileDisplayName} className="h-full w-full object-cover" />
+                  ) : (
+                    mobileDisplayName.charAt(0)
+                  )}
                 </div>
               </Link>
             </>

@@ -1,367 +1,799 @@
-import { Feather, Ionicons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
-  Animated,
-  Modal,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
-import { useAuth } from "@/contexts/AuthContext";
-import { useAppTheme, ThemePreference } from "@/contexts/ThemeContext";
-import { useLanguage, Language } from "@/contexts/LanguageContext";
+import { useAuth, type User } from "@/contexts/AuthContext";
+import { usePreferences } from "@/contexts/PreferencesContext";
+import { apiFetch } from "@/lib/api";
+import { formatDate, toEnglishDigits } from "@/lib/format";
+import { isSupportedProfileImageType, resolveMediaUrl } from "@/lib/media";
 
-interface MenuItemProps {
-  icon: string;
+const ROLE_GRADIENTS: Record<string, [string, string]> = {
+  student: ["#3B82F6", "#4F46E5"],
+  teacher: ["#10B981", "#0F766E"],
+  parent: ["#F59E0B", "#EA580C"],
+  admin: ["#8B5CF6", "#6D28D9"],
+  moderator: ["#8B5CF6", "#6D28D9"],
+  owner: ["#F43F5E", "#DB2777"],
+};
+
+type ProfileForm = {
+  name: string;
+  phone: string;
+  address: string;
+  governorate: string;
+  bio: string;
+};
+
+function formatJoinedDate(joinedAt: string | undefined, locale: string, prefix: string) {
+  if (!joinedAt) return null;
+  const formatted = formatDate(joinedAt, locale);
+  return formatted ? `${prefix} ${formatted}` : null;
+}
+
+function FieldDisplay({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof Feather.glyphMap;
   label: string;
-  color: string;
-  colors: typeof COLORS.light;
-  onPress: () => void;
-}
-
-function MenuItem({ icon, label, color, colors, onPress }: MenuItemProps) {
-  const { isRTL } = useLanguage();
-  const scale = useRef(new Animated.Value(1)).current;
+  value?: string | null;
+}) {
+  const { colors, strings, textAlign, direction, rowDirection, alignStart } = usePreferences();
   return (
-    <Pressable
-      onPressIn={() => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true }).start()}
-      onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start()}
-      onPress={onPress}
+    <View
+      style={[
+        styles.infoTile,
+        { backgroundColor: colors.surface, flexDirection: rowDirection, direction },
+      ]}
     >
-      <Animated.View style={[styles.menuItem, { backgroundColor: colors.surface, transform: [{ scale }] }]}>
-        <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={18} color={colors.textTertiary} />
-        <View style={styles.menuItemLeft}>
-          <Text style={[styles.menuItemLabel, { color: colors.text, textAlign: isRTL ? "right" : "left" }]}>{label}</Text>
-        </View>
-        <View style={[styles.menuIcon, { backgroundColor: color + "22" }]}>
-          <Feather name={icon as any} size={18} color={color} />
-        </View>
-      </Animated.View>
-    </Pressable>
-  );
-}
-
-interface ChoiceSheetProps {
-  visible: boolean;
-  title: string;
-  options: { value: string; label: string }[];
-  selected: string;
-  onSelect: (v: string) => void;
-  onClose: () => void;
-  colors: typeof COLORS.light;
-  isRTL: boolean;
-}
-
-function ChoiceSheet({ visible, title, options, selected, onSelect, onClose, colors, isRTL }: ChoiceSheetProps) {
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.sheetOverlay} onPress={onClose}>
-        <View style={[styles.sheet, { backgroundColor: colors.surface }]}>
-          <View style={styles.sheetHandle} />
-          <Text style={[styles.sheetTitle, { color: colors.text, textAlign: isRTL ? "right" : "left" }]}>{title}</Text>
-          {options.map((opt) => (
-            <Pressable
-              key={opt.value}
-              style={[styles.sheetOption, { borderColor: colors.border, backgroundColor: selected === opt.value ? COLORS.primary + "14" : "transparent" }]}
-              onPress={() => { onSelect(opt.value); onClose(); }}
-            >
-              <View style={[styles.sheetCheck, { borderColor: selected === opt.value ? COLORS.primary : colors.textTertiary, backgroundColor: selected === opt.value ? COLORS.primary : "transparent" }]}>
-                {selected === opt.value && <Feather name="check" size={12} color="#fff" />}
-              </View>
-              <Text style={[styles.sheetOptionText, { color: colors.text, textAlign: isRTL ? "right" : "left", flex: 1 }]}>{opt.label}</Text>
-            </Pressable>
-          ))}
-          <View style={{ height: 24 }} />
-        </View>
-      </Pressable>
-    </Modal>
+      <Feather name={icon} size={17} color={colors.textSecondary} />
+      <View style={[styles.infoTextBlock, { alignItems: alignStart }]}>
+        <Text style={[styles.infoLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+          {label}
+        </Text>
+        <Text style={[styles.infoValue, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={2}>
+          {value ? toEnglishDigits(value) : strings.common.placeholderDash}
+        </Text>
+      </View>
+    </View>
   );
 }
 
 export default function ProfileScreen() {
-  const { colors, isDark, preference, setPreference } = useAppTheme();
-  const { language, isRTL, t, setLanguage } = useLanguage();
-  const { user, logout } = useAuth();
+  const {
+    colors,
+    resolvedScheme,
+    strings,
+    isRTL,
+    textAlign,
+    direction,
+    rowDirection,
+    alignStart,
+    alignEnd,
+  } = usePreferences();
+  const { user, token, logout, updateUser, isLoading } = useAuth();
+  const insets = useSafeAreaInsets();
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [form, setForm] = useState<ProfileForm>({
+    name: "",
+    phone: "",
+    address: "",
+    governorate: "",
+    bio: "",
+  });
 
-  const [showLangSheet, setShowLangSheet] = useState(false);
-  const [showThemeSheet, setShowThemeSheet] = useState(false);
+  useEffect(() => {
+    if (!user) return;
+    setForm({
+      name: user.name ?? "",
+      phone: user.phone ?? "",
+      address: user.address ?? "",
+      governorate: user.governorate ?? "",
+      bio: user.bio ?? "",
+    });
+  }, [user]);
 
-  const roleLabels: Record<string, string> = {
-    student: t.roles.student,
-    teacher: t.roles.teacher,
-    parent: t.roles.parent,
-    admin: t.roles.admin,
-    moderator: t.roles.moderator,
-    owner: t.roles.owner,
-  };
+  const roleKey = (user?.role ?? "student") as keyof typeof strings.roles;
+  const roleLabel = strings.roles[roleKey] ?? strings.roles.student;
+  const roleGradient = ROLE_GRADIENTS[user?.role ?? "student"] ?? ROLE_GRADIENTS.student;
+  const joinedText = useMemo(
+    () => formatJoinedDate(user?.joinedAt, strings.locale, strings.profile.joinedIn),
+    [strings.locale, strings.profile.joinedIn, user?.joinedAt],
+  );
+  const avatarUri = resolveMediaUrl(user?.avatarUrl);
 
-  const roleColors: Record<string, string> = {
-    student: "#3B82F6", teacher: "#10B981", parent: "#F59E0B",
-    admin: "#EF4444", moderator: "#8B5CF6", owner: "#F59E0B",
-  };
+  async function handleAvatarPick() {
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(strings.profile.photoPermissionTitle, strings.profile.photoPermissionMessage);
+      return;
+    }
 
-  const STATS = [
-    { id: "books", label: t.profile.books, value: "8" },
-    { id: "videos", label: t.profile.videos, value: "24" },
-    { id: "days", label: t.profile.days, value: "14" },
-  ];
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.82,
+    });
+    if (result.canceled) return;
 
-  const MENU_ITEMS = [
-    { id: "edit", icon: "edit-2", label: t.profile.editProfile, color: "#3B82F6" },
-    { id: "purchases", icon: "shopping-bag", label: t.profile.myPurchases, color: "#10B981" },
-    { id: "progress", icon: "trending-up", label: t.profile.academicProgress, color: "#F59E0B" },
-    { id: "notifications", icon: "bell", label: t.profile.notifications, color: "#8B5CF6" },
-    { id: "help", icon: "help-circle", label: t.profile.helpSupport, color: "#06B6D4" },
-    { id: "about", icon: "info", label: t.profile.about, color: "#94A3B8" },
-  ];
+    const asset = result.assets[0];
+    if (!isSupportedProfileImageType(asset.mimeType)) {
+      Alert.alert(strings.auth.errorTitle, strings.profile.photoUnsupported);
+      return;
+    }
+    if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+      Alert.alert(strings.auth.errorTitle, strings.profile.photoTooLarge);
+      return;
+    }
 
-  const langOptions = [
-    { value: "ar", label: t.settings.languageArabic },
-    { value: "en", label: t.settings.languageEnglish },
-  ];
+    setAvatarUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("avatar", {
+        uri: asset.uri,
+        name: asset.fileName ?? "profile-photo.jpg",
+        type: asset.mimeType ?? "image/jpeg",
+      } as any);
+      const upload = await apiFetch<{ url: string }>("/api/auth/profile-photo/upload", {
+        method: "POST",
+        body: fd,
+      });
+      const updated = await apiFetch<User>("/api/auth/profile", {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ avatarUrl: upload.url }),
+      });
+      updateUser(updated);
+    } catch (err) {
+      Alert.alert(
+        strings.profile.photoUploadError,
+        err instanceof Error ? err.message : strings.profile.photoUploadError,
+      );
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
 
-  const themeOptions = [
-    { value: "system", label: t.settings.themeSystem },
-    { value: "light", label: t.settings.themeLight },
-    { value: "dark", label: t.settings.themeDark },
-  ];
+  async function handleSave() {
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await apiFetch<User>("/api/auth/profile", {
+        method: "PUT",
+        token,
+        body: JSON.stringify({
+          name: toEnglishDigits(form.name),
+          phone: toEnglishDigits(form.phone),
+          address: toEnglishDigits(form.address),
+          governorate: toEnglishDigits(form.governorate),
+          bio: toEnglishDigits(form.bio),
+        }),
+      });
+      updateUser(updated);
+      setEditing(false);
+    } catch (err) {
+      Alert.alert(
+        strings.profile.saveErrorTitle,
+        err instanceof Error ? err.message : strings.profile.saveErrorMessage,
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
 
-  const currentLangLabel = langOptions.find(o => o.value === language)?.label ?? "";
-  const currentThemeLabel = themeOptions.find(o => o.value === preference)?.label ?? "";
-
-  const handleLogout = () => {
-    Alert.alert(
-      t.auth.logoutConfirmTitle,
-      t.auth.logoutConfirmMessage,
-      [
-        { text: t.common.cancel, style: "cancel" },
-        {
-          text: t.auth.logoutConfirmButton,
-          style: "destructive",
-          onPress: async () => {
-            await logout();
-            router.replace("/login");
-          },
+  function handleLogout() {
+    Alert.alert(strings.profile.logoutTitle, strings.profile.logoutMessage, [
+      { text: strings.common.cancel, style: "cancel" },
+      {
+        text: strings.profile.logoutAction,
+        style: "destructive",
+        onPress: async () => {
+          await logout();
+          router.replace("/login");
         },
-      ]
-    );
-  };
+      },
+    ]);
+  }
 
-  const roleColor = roleColors[user?.role ?? "student"] ?? COLORS.primary;
-  const roleLabel = roleLabels[user?.role ?? "student"] ?? t.roles.student;
+  if (isLoading) {
+    return (
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={COLORS.primary} />
+      </View>
+    );
+  }
 
   if (!user) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }]}>
-        <Feather name="user" size={64} color={colors.textTertiary} />
-        <Text style={[styles.noUserTitle, { color: colors.text }]}>{t.auth.notLoggedIn}</Text>
-        <Text style={[styles.noUserSub, { color: colors.textSecondary }]}>{t.auth.notLoggedInSub}</Text>
-        <Pressable style={styles.loginBtn} onPress={() => router.push("/login")}>
-          <LinearGradient colors={[COLORS.primary, COLORS.primaryDark]} style={styles.loginBtnGrad}>
-            <Text style={styles.loginBtnText}>{t.auth.login}</Text>
-          </LinearGradient>
-        </Pressable>
-        <Pressable style={styles.registerLink} onPress={() => router.push("/register")}>
-          <Text style={[styles.registerLinkText, { color: COLORS.primary }]}>{t.auth.createAccount}</Text>
-        </Pressable>
+      <View style={[styles.center, { backgroundColor: colors.background, paddingHorizontal: 24 }]}>
+        <View style={[styles.guestCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.guestIcon}>
+            <Feather name="user" size={30} color={COLORS.primary} />
+          </View>
+          <Text style={[styles.guestTitle, { color: colors.text, writingDirection: direction }]}>
+            {strings.profile.guestTitle}
+          </Text>
+          <Text style={[styles.guestText, { color: colors.textSecondary, writingDirection: direction }]}>
+            {strings.profile.guestText}
+          </Text>
+          <Pressable style={styles.loginButton} onPress={() => router.push("/login")}>
+            <Text style={[styles.loginButtonText, { writingDirection: direction }]}>
+              {strings.common.signIn}
+            </Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
 
   return (
-    <ScrollView
+    <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.background }]}
-      contentInsetAdjustmentBehavior="automatic"
-      showsVerticalScrollIndicator={false}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <LinearGradient colors={["#1D4ED8", "#1E3A8A"]} style={styles.profileHeader}>
-        <View style={styles.avatarWrapper}>
-          <LinearGradient colors={[roleColor, roleColor + "BB"]} style={styles.avatar}>
-            <Text style={styles.avatarInitial}>{user.name?.[0] ?? "م"}</Text>
-          </LinearGradient>
-          <View style={[styles.roleBadge, { backgroundColor: roleColor }]}>
-            <Text style={styles.roleBadgeText}>{roleLabel}</Text>
-          </View>
-        </View>
-        <Text style={styles.userName}>{user.name}</Text>
-        <Text style={styles.userEmail}>{user.email}</Text>
-        {user.governorate && (
-          <View style={styles.locationRow}>
-            <Feather name="map-pin" size={13} color="rgba(255,255,255,0.7)" />
-            <Text style={styles.locationText}>{user.governorate}</Text>
-          </View>
-        )}
-        <View style={styles.statsRow}>
-          <View style={styles.pointsStat}>
-            <Ionicons name="star" size={18} color="#FCD34D" />
-            <Text style={styles.pointsValue}>{user.points?.toLocaleString(language === "ar" ? "ar" : "en") ?? "0"}</Text>
-            <Text style={styles.pointsLabel}>{t.profile.points}</Text>
-          </View>
-          {STATS.map((s) => (
-            <View key={s.id} style={styles.statBox}>
-              <Text style={styles.statValue}>{s.value}</Text>
-              <Text style={styles.statLabel}>{s.label}</Text>
-            </View>
-          ))}
-        </View>
-      </LinearGradient>
+      <LinearGradient
+        colors={
+          resolvedScheme === "dark"
+            ? ["#0A0F1E", "#111827", "#0F172A"]
+            : ["#EEF5FF", "#F8FBFF", "#F5F2FF"]
+        }
+        style={StyleSheet.absoluteFill}
+      />
 
-      <View style={[styles.progressSection, { backgroundColor: colors.surface }]}>
-        <Text style={[styles.progressTitle, { color: colors.text, textAlign: isRTL ? "right" : "left" }]}>{t.profile.learningLevel}</Text>
-        <View style={styles.progressBarBg}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{
+          paddingTop: insets.top + 20,
+          paddingHorizontal: 18,
+          paddingBottom: insets.bottom + 118,
+          gap: 18,
+        }}
+      >
+        <View style={[styles.headerCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <LinearGradient
-            colors={[COLORS.accent, COLORS.accentLight]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={[styles.progressBarFill, { width: "68%" }]}
+            colors={[roleGradient[0] + "12", roleGradient[1] + "08", "rgba(255,255,255,0)"]}
+            start={{ x: isRTL ? 1 : 0, y: 0 }}
+            end={{ x: isRTL ? 0 : 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
           />
+          <View style={[styles.headerTop, { alignItems: alignEnd }]}>
+            <Pressable
+              onPress={handleLogout}
+              style={[styles.logoutPill, { flexDirection: rowDirection, direction }]}
+            >
+              <Feather name="log-out" size={16} color={colors.textSecondary} />
+              <Text style={[styles.logoutText, { color: colors.textSecondary, writingDirection: direction }]}>
+                {strings.common.logoutShort}
+              </Text>
+            </Pressable>
+          </View>
+
+          <View
+            style={[
+              styles.profileHeaderRow,
+              { flexDirection: rowDirection, direction },
+            ]}
+          >
+            <Pressable
+              onPress={handleAvatarPick}
+              disabled={avatarUploading}
+              style={({ pressed }) => [
+                styles.avatarButton,
+                { opacity: pressed || avatarUploading ? 0.78 : 1 },
+              ]}
+            >
+              <LinearGradient colors={roleGradient} style={styles.avatar}>
+                {avatarUri ? (
+                  <Image source={{ uri: avatarUri }} style={styles.avatarImage} contentFit="cover" />
+                ) : (
+                  <Text style={styles.avatarText}>{user.name?.charAt(0) ?? strings.settings.accountInitial}</Text>
+                )}
+                <View style={styles.avatarOverlay}>
+                  {avatarUploading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Feather name="camera" size={15} color="#fff" />
+                  )}
+                </View>
+              </LinearGradient>
+            </Pressable>
+
+            <View style={[styles.identityBlock, { alignItems: alignStart }]}>
+              <Text
+                style={[styles.userName, { color: colors.text, textAlign, writingDirection: direction }]}
+                numberOfLines={2}
+                adjustsFontSizeToFit
+                minimumFontScale={0.78}
+              >
+                {toEnglishDigits(user.name)}
+              </Text>
+              <Text
+                style={[styles.userEmail, { color: colors.textSecondary, textAlign, writingDirection: direction }]}
+                numberOfLines={1}
+              >
+                {toEnglishDigits(user.email)}
+              </Text>
+              <View style={[styles.badgesRow, { flexDirection: rowDirection, justifyContent: alignStart, direction }]}>
+                <View style={[styles.roleBadge, { backgroundColor: roleGradient[0] }]}>
+                  <Text style={[styles.roleBadgeText, { writingDirection: direction }]}>{roleLabel}</Text>
+                </View>
+                {joinedText ? (
+                  <View style={[styles.joinedBadge, { backgroundColor: colors.surface }]}>
+                    <Text style={[styles.joinedText, { color: colors.textSecondary, writingDirection: direction }]}>
+                      {toEnglishDigits(joinedText)}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          </View>
         </View>
-        <View style={styles.progressLabels}>
-          <Text style={[styles.progressPercent, { color: COLORS.accent }]}>68%</Text>
-          <Text style={[styles.progressNote, { color: colors.textSecondary }]}>{t.profile.advancedLevel}</Text>
+
+        <View style={[styles.infoCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.cardHeader, { flexDirection: rowDirection, direction }]}>
+            <View style={[styles.cardTitleRow, { flexDirection: rowDirection, direction }]}>
+              <Feather name="user" size={19} color={COLORS.primary} />
+              <Text style={[styles.cardTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+                {strings.profile.personalInfo}
+              </Text>
+            </View>
+            {!editing ? (
+              <Pressable
+                onPress={() => setEditing(true)}
+                style={[styles.editButton, { flexDirection: rowDirection, direction }]}
+              >
+                <Feather name="edit-2" size={15} color={COLORS.primary} />
+                <Text style={[styles.editText, { writingDirection: direction }]}>{strings.common.edit}</Text>
+              </Pressable>
+            ) : (
+              <View style={[styles.editActions, { flexDirection: rowDirection, direction }]}>
+                <Pressable onPress={() => setEditing(false)} style={styles.cancelButton} disabled={saving}>
+                  <Text style={[styles.cancelText, { color: colors.textSecondary, writingDirection: direction }]}>
+                    {strings.common.cancel}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => void handleSave()}
+                  style={[styles.saveButton, { flexDirection: rowDirection, direction }]}
+                  disabled={saving}
+                >
+                  {saving ? <ActivityIndicator color="#fff" /> : <Feather name="save" size={15} color="#fff" />}
+                  <Text style={[styles.saveText, { writingDirection: direction }]}>
+                    {saving ? strings.common.saving : strings.common.save}
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+
+          {editing ? (
+            <View style={styles.formGrid}>
+              {[
+                { key: "name", label: strings.profile.fullName, icon: "user" },
+                { key: "phone", label: strings.profile.phone, icon: "phone" },
+                { key: "address", label: strings.profile.address, icon: "map-pin" },
+                { key: "governorate", label: strings.profile.governorate, icon: "map-pin" },
+              ].map((field) => (
+                <View key={field.key} style={styles.inputGroup}>
+                  <Text style={[styles.inputLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                    {field.label}
+                  </Text>
+                  <TextInput
+                    value={toEnglishDigits(form[field.key as keyof ProfileForm])}
+                    onChangeText={(value) =>
+                      setForm((prev) => ({ ...prev, [field.key]: toEnglishDigits(value) }))
+                    }
+                    style={[
+                      styles.input,
+                      {
+                        color: colors.text,
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                        writingDirection: direction,
+                      },
+                    ]}
+                    placeholderTextColor={colors.textTertiary}
+                    textAlign={textAlign}
+                  />
+                </View>
+              ))}
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.inputLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                  {strings.profile.bio}
+                </Text>
+                <TextInput
+                  value={toEnglishDigits(form.bio)}
+                  onChangeText={(value) => setForm((prev) => ({ ...prev, bio: toEnglishDigits(value) }))}
+                  multiline
+                  style={[
+                    styles.input,
+                    styles.bioInput,
+                    {
+                      color: colors.text,
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                      writingDirection: direction,
+                    },
+                  ]}
+                  placeholderTextColor={colors.textTertiary}
+                  textAlign={textAlign}
+                  textAlignVertical="top"
+                />
+              </View>
+            </View>
+          ) : (
+            <View style={styles.infoGrid}>
+              <FieldDisplay icon="user" label={strings.profile.name} value={user.name} />
+              <FieldDisplay icon="mail" label={strings.profile.email} value={user.email} />
+              <FieldDisplay icon="phone" label={strings.profile.phone} value={user.phone} />
+              <FieldDisplay icon="map-pin" label={strings.profile.address} value={user.address} />
+              <FieldDisplay icon="map-pin" label={strings.profile.governorate} value={user.governorate} />
+              {user.bio ? <FieldDisplay icon="file-text" label={strings.profile.bio} value={user.bio} /> : null}
+            </View>
+          )}
         </View>
-      </View>
 
-      <View style={styles.menu}>
-        {MENU_ITEMS.map((item) => (
-          <MenuItem
-            key={item.id}
-            icon={item.icon}
-            label={item.label}
-            color={item.color}
-            colors={colors}
-            onPress={() => {}}
-          />
-        ))}
-      </View>
-
-      <View style={[styles.settingsSection, { marginHorizontal: 20, marginTop: 20 }]}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary, textAlign: isRTL ? "right" : "left" }]}>
-          {t.settings.settingsSection}
-        </Text>
-
-        <Pressable
-          style={[styles.settingRow, { backgroundColor: colors.surface }]}
-          onPress={() => setShowLangSheet(true)}
-        >
-          <Text style={[styles.settingValue, { color: colors.textSecondary }]}>{currentLangLabel}</Text>
-          <View style={styles.settingLeft}>
-            <Text style={[styles.settingLabel, { color: colors.text, textAlign: isRTL ? "right" : "left" }]}>{t.settings.language}</Text>
-          </View>
-          <View style={[styles.menuIcon, { backgroundColor: "#3B82F622" }]}>
-            <Feather name="globe" size={18} color="#3B82F6" />
-          </View>
-        </Pressable>
-
-        <Pressable
-          style={[styles.settingRow, { backgroundColor: colors.surface }]}
-          onPress={() => setShowThemeSheet(true)}
-        >
-          <Text style={[styles.settingValue, { color: colors.textSecondary }]}>{currentThemeLabel}</Text>
-          <View style={styles.settingLeft}>
-            <Text style={[styles.settingLabel, { color: colors.text, textAlign: isRTL ? "right" : "left" }]}>{t.settings.theme}</Text>
-          </View>
-          <View style={[styles.menuIcon, { backgroundColor: "#F59E0B22" }]}>
-            <Feather name={isDark ? "moon" : "sun"} size={18} color="#F59E0B" />
-          </View>
-        </Pressable>
-      </View>
-
-      <Pressable style={[styles.logoutBtn, { marginHorizontal: 20, marginTop: 10 }]} onPress={handleLogout}>
-        <View style={[styles.menuItem, { backgroundColor: colors.surface }]}>
-          <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={18} color={colors.textTertiary} />
-          <View style={styles.menuItemLeft}>
-            <Text style={[styles.menuItemLabel, { color: COLORS.error, textAlign: isRTL ? "right" : "left" }]}>{t.auth.logout}</Text>
-          </View>
-          <View style={[styles.menuIcon, { backgroundColor: COLORS.error + "22" }]}>
-            <Feather name="log-out" size={18} color={COLORS.error} />
-          </View>
+        <View style={[styles.actionsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Pressable
+            onPress={() => router.push("/(tabs)/settings")}
+            style={({ pressed }) => [
+              styles.actionRow,
+              {
+                backgroundColor: pressed ? colors.surfaceSecondary : colors.surface,
+                flexDirection: rowDirection,
+                direction,
+              },
+            ]}
+          >
+            <View style={[styles.actionLeading, { flexDirection: rowDirection, direction }]}>
+              <View style={styles.actionIcon}>
+                <Feather name="settings" size={18} color={COLORS.primary} />
+              </View>
+              <View style={[styles.actionTextBlock, { alignItems: alignStart }]}>
+                <Text style={[styles.actionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+                  {strings.profile.settings}
+                </Text>
+                <Text style={[styles.actionSubtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                  {strings.profile.settingsSubtitle}
+                </Text>
+              </View>
+            </View>
+            <Feather name={isRTL ? "chevron-left" : "chevron-right"} size={19} color={colors.textTertiary} />
+          </Pressable>
         </View>
-      </Pressable>
-
-      <View style={{ height: 100 }} />
-
-      <ChoiceSheet
-        visible={showLangSheet}
-        title={t.settings.language}
-        options={langOptions}
-        selected={language}
-        onSelect={(v) => setLanguage(v as Language)}
-        onClose={() => setShowLangSheet(false)}
-        colors={colors}
-        isRTL={isRTL}
-      />
-      <ChoiceSheet
-        visible={showThemeSheet}
-        title={t.settings.theme}
-        options={themeOptions}
-        selected={preference}
-        onSelect={(v) => setPreference(v as ThemePreference)}
-        onClose={() => setShowThemeSheet(false)}
-        colors={colors}
-        isRTL={isRTL}
-      />
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  profileHeader: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 28, alignItems: "center", gap: 6, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
-  avatarWrapper: { position: "relative", marginBottom: 4 },
-  avatar: { width: 80, height: 80, borderRadius: 40, alignItems: "center", justifyContent: "center", borderWidth: 3, borderColor: "rgba(255,255,255,0.3)" },
-  avatarInitial: { fontFamily: "Cairo_700Bold", fontSize: 32, color: "#fff" },
-  roleBadge: { position: "absolute", bottom: -4, right: -4, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 2, borderColor: "#fff" },
-  roleBadgeText: { fontFamily: "Cairo_700Bold", fontSize: 10, color: "#fff" },
-  userName: { fontFamily: "Cairo_700Bold", fontSize: 22, color: "#fff" },
-  userEmail: { fontFamily: "Cairo_400Regular", fontSize: 13, color: "rgba(255,255,255,0.75)" },
-  locationRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  locationText: { fontFamily: "Cairo_400Regular", fontSize: 12, color: "rgba(255,255,255,0.7)" },
-  statsRow: { flexDirection: "row", alignItems: "center", gap: 16, marginTop: 8, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 16, paddingHorizontal: 20, paddingVertical: 14 },
-  pointsStat: { alignItems: "center", flexDirection: "row", gap: 6, flex: 1.4 },
-  pointsValue: { fontFamily: "Cairo_700Bold", fontSize: 20, color: "#FCD34D" },
-  pointsLabel: { fontFamily: "Cairo_400Regular", fontSize: 12, color: "rgba(255,255,255,0.7)" },
-  statBox: { alignItems: "center", flex: 1 },
-  statValue: { fontFamily: "Cairo_700Bold", fontSize: 18, color: "#fff" },
-  statLabel: { fontFamily: "Cairo_400Regular", fontSize: 11, color: "rgba(255,255,255,0.7)" },
-  progressSection: { marginHorizontal: 20, marginTop: 16, borderRadius: 16, padding: 16, gap: 10 },
-  progressTitle: { fontFamily: "Cairo_700Bold", fontSize: 15 },
-  progressBarBg: { height: 8, backgroundColor: "#E2E8F0", borderRadius: 4, overflow: "hidden" },
-  progressBarFill: { height: "100%", borderRadius: 4 },
-  progressLabels: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  progressPercent: { fontFamily: "Cairo_700Bold", fontSize: 14 },
-  progressNote: { fontFamily: "Cairo_400Regular", fontSize: 12 },
-  menu: { marginHorizontal: 20, marginTop: 16, gap: 10 },
-  menuItem: { flexDirection: "row", alignItems: "center", borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, gap: 12, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
-  menuItemLeft: { flex: 1 },
-  menuItemLabel: { fontFamily: "Cairo_600SemiBold", fontSize: 15 },
-  menuIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  logoutBtn: {},
-  noUserTitle: { fontFamily: "Cairo_700Bold", fontSize: 22, marginTop: 16 },
-  noUserSub: { fontFamily: "Cairo_400Regular", fontSize: 14, textAlign: "center", marginBottom: 24 },
-  loginBtn: { width: "80%", borderRadius: 16, overflow: "hidden" },
-  loginBtnGrad: { paddingVertical: 16, alignItems: "center" },
-  loginBtnText: { fontFamily: "Cairo_700Bold", fontSize: 16, color: "#fff" },
-  registerLink: { marginTop: 12 },
-  registerLinkText: { fontFamily: "Cairo_600SemiBold", fontSize: 14 },
-  settingsSection: { gap: 10 },
-  sectionTitle: { fontFamily: "Cairo_600SemiBold", fontSize: 12, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 },
-  settingRow: { flexDirection: "row", alignItems: "center", borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, gap: 12, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
-  settingLeft: { flex: 1 },
-  settingLabel: { fontFamily: "Cairo_600SemiBold", fontSize: 15 },
-  settingValue: { fontFamily: "Cairo_400Regular", fontSize: 13 },
-  sheetOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
-  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, gap: 10, paddingTop: 12 },
-  sheetHandle: { width: 40, height: 4, backgroundColor: "#CBD5E1", borderRadius: 2, alignSelf: "center", marginBottom: 12 },
-  sheetTitle: { fontFamily: "Cairo_700Bold", fontSize: 17, marginBottom: 8 },
-  sheetOption: { flexDirection: "row", alignItems: "center", borderRadius: 14, borderWidth: 1, padding: 14, gap: 12 },
-  sheetOptionText: { fontFamily: "Cairo_600SemiBold", fontSize: 15 },
-  sheetCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  guestCard: {
+    width: "100%",
+    borderRadius: 28,
+    borderWidth: 1,
+    padding: 26,
+    alignItems: "center",
+    gap: 12,
+  },
+  guestIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primary + "10",
+  },
+  guestTitle: {
+    fontFamily: "Cairo_700Bold",
+    fontSize: 24,
+  },
+  guestText: {
+    fontFamily: "Cairo_400Regular",
+    fontSize: 14,
+    lineHeight: 23,
+    textAlign: "center",
+  },
+  loginButton: {
+    marginTop: 6,
+    minHeight: 50,
+    borderRadius: 17,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primary,
+  },
+  loginButtonText: {
+    fontFamily: "Cairo_700Bold",
+    fontSize: 14,
+    color: "#fff",
+  },
+  headerCard: {
+    borderRadius: 30,
+    borderWidth: 1,
+    padding: 18,
+    overflow: "hidden",
+    shadowColor: "#1E3A8A",
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.1,
+    shadowRadius: 28,
+  },
+  headerTop: {
+    marginBottom: 14,
+  },
+  logoutPill: {
+    minHeight: 40,
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 12,
+  },
+  logoutText: {
+    fontFamily: "Cairo_600SemiBold",
+    fontSize: 13,
+  },
+  profileHeaderRow: {
+    alignItems: "center",
+    gap: 16,
+  },
+  avatarButton: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    flexShrink: 0,
+  },
+  avatar: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 18,
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+  },
+  avatarOverlay: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primary,
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  avatarText: {
+    fontFamily: "Cairo_700Bold",
+    color: "#fff",
+    fontSize: 38,
+  },
+  identityBlock: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "flex-end",
+    gap: 2,
+  },
+  userName: {
+    fontFamily: "Cairo_700Bold",
+    fontSize: 26,
+    lineHeight: 36,
+    textAlign: "right",
+    flexShrink: 1,
+    maxWidth: "100%",
+  },
+  userEmail: {
+    fontFamily: "Cairo_400Regular",
+    fontSize: 14,
+    textAlign: "right",
+    flexShrink: 1,
+    maxWidth: "100%",
+  },
+  badgesRow: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+    flexWrap: "wrap",
+    maxWidth: "100%",
+  },
+  roleBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  roleBadgeText: {
+    fontFamily: "Cairo_700Bold",
+    fontSize: 12,
+    color: "#fff",
+  },
+  joinedBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  joinedText: {
+    fontFamily: "Cairo_600SemiBold",
+    fontSize: 11,
+  },
+  infoCard: {
+    borderRadius: 26,
+    borderWidth: 1,
+    padding: 18,
+    gap: 16,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  cardTitleRow: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: 8,
+  },
+  cardTitle: {
+    fontFamily: "Cairo_700Bold",
+    fontSize: 18,
+    textAlign: "right",
+  },
+  editButton: {
+    minHeight: 38,
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 6,
+  },
+  editText: {
+    fontFamily: "Cairo_700Bold",
+    fontSize: 13,
+    color: COLORS.primary,
+  },
+  editActions: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: 8,
+  },
+  cancelButton: { minHeight: 40, justifyContent: "center", paddingHorizontal: 6 },
+  cancelText: {
+    fontFamily: "Cairo_600SemiBold",
+    fontSize: 13,
+  },
+  saveButton: {
+    minHeight: 40,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    backgroundColor: COLORS.primary,
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: 6,
+  },
+  saveText: {
+    fontFamily: "Cairo_700Bold",
+    color: "#fff",
+    fontSize: 12,
+  },
+  infoGrid: { gap: 10 },
+  infoTile: {
+    minHeight: 70,
+    borderRadius: 18,
+    padding: 13,
+    flexDirection: "row-reverse",
+    alignItems: "flex-start",
+    gap: 11,
+  },
+  infoTextBlock: { flex: 1, alignItems: "flex-end" },
+  infoLabel: {
+    fontFamily: "Cairo_600SemiBold",
+    fontSize: 12,
+    textAlign: "right",
+  },
+  infoValue: {
+    fontFamily: "Cairo_700Bold",
+    fontSize: 14,
+    textAlign: "right",
+    marginTop: 2,
+  },
+  formGrid: { gap: 12 },
+  inputGroup: { gap: 6 },
+  inputLabel: {
+    fontFamily: "Cairo_600SemiBold",
+    fontSize: 12,
+    textAlign: "right",
+  },
+  input: {
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    fontFamily: "Cairo_600SemiBold",
+    fontSize: 14,
+  },
+  bioInput: {
+    minHeight: 92,
+    paddingTop: 12,
+  },
+  actionsCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 12,
+  },
+  actionRow: {
+    borderRadius: 18,
+    padding: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  actionLeading: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "center",
+    gap: 12,
+  },
+  actionTextBlock: { flex: 1, alignItems: "flex-end" },
+  actionTitle: {
+    fontFamily: "Cairo_700Bold",
+    fontSize: 14,
+    textAlign: "right",
+  },
+  actionSubtitle: {
+    fontFamily: "Cairo_400Regular",
+    fontSize: 12,
+    textAlign: "right",
+  },
+  actionIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primary + "10",
+  },
 });

@@ -11,12 +11,14 @@ import {
   Text,
   TextInput,
   View,
+  useColorScheme,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
+import { getBaseUrl } from "@/constants/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { useAppTheme } from "@/contexts/ThemeContext";
+import { toEnglishDigits } from "@/lib/format";
 
 interface Message {
   id: string;
@@ -40,13 +42,7 @@ const INITIAL_MSG: Message = {
 };
 
 function formatTime(d: Date) {
-  return d.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
-}
-
-function getBaseUrl(): string {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}`;
-  return "http://localhost:3000";
+  return toEnglishDigits(d.toLocaleTimeString("ar-EG-u-nu-latn", { hour: "2-digit", minute: "2-digit" }));
 }
 
 interface BubbleProps {
@@ -95,7 +91,9 @@ function Bubble({ message, isDark }: BubbleProps) {
 }
 
 export default function ChatScreen() {
-  const { colors } = useAppTheme();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const colors = isDark ? COLORS.dark : COLORS.light;
   const insets = useSafeAreaInsets();
   const { user, token } = useAuth();
 

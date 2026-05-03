@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { useListRewards, useRedeemReward, useListRedemptions, useGetPoints } from "@workspace/api-client-react";
 import { Gift, Coins, CheckCircle, BookOpen, Ticket } from "lucide-react";
+import { formatLatinDate, formatNumber, toEnglishDigits } from "@/lib/format";
 
 const stagger = {
   container: { animate: { transition: { staggerChildren: 0.07 } } },
@@ -49,7 +50,7 @@ export default function Rewards() {
               <p className="text-xs text-muted-foreground font-medium mb-1">رصيدك</p>
               <p className="font-display font-black text-2xl text-amber-500 flex items-center gap-1.5 justify-center">
                 <Coins className="w-5 h-5" />
-                {pointsData.balance}
+                {formatNumber(pointsData.balance)}
               </p>
             </div>
           )}
@@ -77,21 +78,21 @@ export default function Rewards() {
                 {/* Image / Icon */}
                 <div className="w-full aspect-video rounded-2xl mb-4 overflow-hidden bg-gradient-to-br from-muted/50 to-muted/30 flex items-center justify-center text-muted-foreground/30">
                   {reward.imageUrl ? (
-                    <img src={reward.imageUrl} alt={reward.title} className="w-full h-full object-cover" />
+                    <img src={reward.imageUrl} alt={toEnglishDigits(reward.title)} className="w-full h-full object-cover" />
                   ) : reward.type === "book" ? (
                     <BookOpen className="w-14 h-14" />
                   ) : (
                     <Ticket className="w-14 h-14" />
                   )}
                 </div>
-                <h3 className="font-bold text-base text-foreground mb-1">{reward.title}</h3>
+                <h3 className="font-bold text-base text-foreground mb-1">{toEnglishDigits(reward.title)}</h3>
                 <p className="text-xs text-muted-foreground mb-4 line-clamp-2 leading-relaxed flex-1">
-                  {reward.description}
+                  {toEnglishDigits(reward.description)}
                 </p>
                 <div className="flex items-center justify-between mt-auto">
                   <span className="flex items-center gap-1 font-bold text-sm text-amber-500">
                     <Coins className="w-4 h-4" />
-                    {reward.pointsCost}
+                    {formatNumber(reward.pointsCost)}
                   </span>
                   <button
                     onClick={() => handleRedeem(reward.id, reward.pointsCost)}
@@ -124,10 +125,10 @@ export default function Rewards() {
                 <tbody className="divide-y divide-white/30">
                   {redemptions.map((r) => (
                     <tr key={r.id} className="hover:bg-white/30 transition-colors">
-                      <td className="px-5 py-4 font-semibold text-foreground">{r.rewardTitle}</td>
-                      <td className="px-5 py-4 text-rose-500 font-bold">-{r.pointsSpent}</td>
+                      <td className="px-5 py-4 font-semibold text-foreground">{toEnglishDigits(r.rewardTitle)}</td>
+                      <td className="px-5 py-4 text-rose-500 font-bold">-{formatNumber(r.pointsSpent)}</td>
                       <td className="px-5 py-4 text-muted-foreground">
-                        {new Date(r.createdAt).toLocaleDateString("ar-EG")}
+                        {formatLatinDate(r.createdAt)}
                       </td>
                       <td className="px-5 py-4">
                         <span className="inline-flex items-center gap-1.5 text-emerald-600 bg-emerald-100/80 border border-emerald-200/60 px-3 py-1 rounded-full text-xs font-bold">

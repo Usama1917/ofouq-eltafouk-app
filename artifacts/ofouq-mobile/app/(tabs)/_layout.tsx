@@ -9,45 +9,36 @@ import { Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
-import { useAppTheme } from "@/contexts/ThemeContext";
-import { useLanguage } from "@/contexts/LanguageContext";
-import { isFeatureVisible } from "@/config/soft-launch";
+import { usePreferences } from "@/contexts/PreferencesContext";
 
 function NativeTabLayout() {
-  const { t } = useLanguage();
+  const { strings, language } = usePreferences();
+
   return (
-    <NativeTabs>
+    <NativeTabs key={language}>
       <NativeTabs.Trigger name="index">
         <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>{t.tabs.home}</Label>
+        <Label>{strings.tabs.home}</Label>
       </NativeTabs.Trigger>
-      {isFeatureVisible("books") && (
-        <NativeTabs.Trigger name="books">
-          <Icon sf={{ default: "book", selected: "book.fill" }} />
-          <Label>{t.tabs.books}</Label>
-        </NativeTabs.Trigger>
-      )}
       <NativeTabs.Trigger name="videos">
-        <Icon sf={{ default: "play.circle", selected: "play.circle.fill" }} />
-        <Label>{t.tabs.videos}</Label>
+        <Icon sf={{ default: "video", selected: "video.fill" }} />
+        <Label>{strings.tabs.videos}</Label>
       </NativeTabs.Trigger>
-      {isFeatureVisible("aiAssistant") && (
-        <NativeTabs.Trigger name="chat">
-          <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
-          <Label>{t.tabs.assistant}</Label>
-        </NativeTabs.Trigger>
-      )}
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
-        <Label>{t.tabs.account}</Label>
+        <Label>{strings.tabs.profile}</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="settings">
+        <Icon sf={{ default: "gearshape", selected: "gearshape.fill" }} />
+        <Label>{strings.tabs.settings}</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
 
 function ClassicTabLayout() {
-  const { colors, isDark } = useAppTheme();
-  const { t } = useLanguage();
+  const { resolvedScheme, colors, strings, direction } = usePreferences();
+  const isDark = resolvedScheme === "dark";
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
   const safeAreaInsets = useSafeAreaInsets();
@@ -80,13 +71,14 @@ function ClassicTabLayout() {
         tabBarLabelStyle: {
           fontFamily: "Cairo_400Regular",
           fontSize: 11,
+          writingDirection: direction,
         },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: t.tabs.home,
+          title: strings.tabs.home,
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="house" tintColor={color} size={24} />
@@ -101,57 +93,45 @@ function ClassicTabLayout() {
       />
       <Tabs.Screen
         name="books"
-        options={
-          isFeatureVisible("books")
-            ? {
-                title: t.tabs.books,
-                tabBarIcon: ({ color }) =>
-                  isIOS ? (
-                    <SymbolView name="book" tintColor={color} size={24} />
-                  ) : (
-                    <Feather name="book" size={22} color={color} />
-                  ),
-              }
-            : { href: null }
-        }
+        options={{ href: null }}
       />
       <Tabs.Screen
         name="videos"
         options={{
-          title: t.tabs.videos,
+          title: strings.tabs.videos,
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="play.circle" tintColor={color} size={24} />
+              <SymbolView name="video" tintColor={color} size={24} />
             ) : (
-              <Feather name="play-circle" size={22} color={color} />
+              <Feather name="video" size={22} color={color} />
             ),
         }}
       />
       <Tabs.Screen
         name="chat"
-        options={
-          isFeatureVisible("aiAssistant")
-            ? {
-                title: t.tabs.assistant,
-                tabBarIcon: ({ color }) =>
-                  isIOS ? (
-                    <SymbolView name="sparkles" tintColor={color} size={24} />
-                  ) : (
-                    <Ionicons name="sparkles-outline" size={22} color={color} />
-                  ),
-              }
-            : { href: null }
-        }
+        options={{ href: null }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: t.tabs.account,
+          title: strings.tabs.profile,
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="person" tintColor={color} size={24} />
             ) : (
               <Feather name="user" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: strings.tabs.settings,
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="gearshape" tintColor={color} size={24} />
+            ) : (
+              <Ionicons name="settings-outline" size={22} color={color} />
             ),
         }}
       />

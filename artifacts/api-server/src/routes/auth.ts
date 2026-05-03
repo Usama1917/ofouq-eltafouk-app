@@ -1,8 +1,41 @@
 import { Router, type IRouter } from "express";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 
 const router: IRouter = Router();
+const profilePhotosUploadDir = path.resolve(process.cwd(), "uploads/profile-photos");
+fs.mkdirSync(profilePhotosUploadDir, { recursive: true });
+const PROFILE_PHOTO_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "image/heic": ".heic",
+  "image/heif": ".heif",
+};
+
+const profilePhotoStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, profilePhotosUploadDir),
+  filename: (_req, file, cb) => {
+    const ext = PROFILE_PHOTO_EXTENSIONS[file.mimetype] ?? ".jpg";
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
+
+const uploadProfilePhotoFile = multer({
+  storage: profilePhotoStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (PROFILE_PHOTO_EXTENSIONS[file.mimetype]) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only JPEG, PNG, WebP, GIF, or HEIC image files are allowed"));
+    }
+  },
+});
 
 function normalizeEmail(email: string) {
   return String(email).trim().toLowerCase();
@@ -119,6 +152,19 @@ function sendDatabaseError(res: any, err: unknown) {
   return res.status(503).json({ error: "تعذّر الاتصال بقاعدة البيانات" });
 }
 
+router.post("/auth/profile-photo/upload", (req, res) => {
+  uploadProfilePhotoFile.single("avatar")(req, res, (err) => {
+    if (err) {
+      req.log.error({ err: getErrorDetails(err) }, "Upload profile photo validation error");
+      return res.status(400).json({ error: "تعذر رفع الصورة الشخصية" });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: "No profile photo file provided" });
+    }
+    return res.json({ url: `/api/uploads/profile-photos/${req.file.filename}` });
+  });
+});
+
 // Register
 router.post("/auth/register", async (req, res) => {
   try {
@@ -136,6 +182,7 @@ router.post("/auth/register", async (req, res) => {
       howDidYouHear,
       supportNeeded,
       governorate,
+      avatarUrl,
     } = req.body ?? {};
 
     const normalizedEmail = typeof email === "string" ? normalizeEmail(email) : "";
@@ -169,6 +216,7 @@ router.post("/auth/register", async (req, res) => {
         howDidYouHear: howDidYouHear === undefined ? undefined : String(howDidYouHear),
         supportNeeded: supportNeeded === undefined ? undefined : String(supportNeeded),
         governorate: governorate === undefined ? undefined : String(governorate),
+        avatarUrl: avatarUrl === undefined ? undefined : String(avatarUrl),
       })
       .returning();
 
