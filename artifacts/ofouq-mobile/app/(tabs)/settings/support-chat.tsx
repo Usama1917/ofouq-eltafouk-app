@@ -55,6 +55,8 @@ const QUICK_QUESTIONS_EN = [
   "I have a problem uploading the code image",
 ];
 
+const TAB_BAR_CLEARANCE = Platform.OS === "ios" ? 86 : 74;
+
 export default function SupportChatScreen() {
   const {
     colors,
@@ -252,7 +254,7 @@ export default function SupportChatScreen() {
                     key={item.id}
                     style={[
                       styles.messageRow,
-                      { alignItems: isUserMessage ? "flex-end" : "flex-start" },
+                      { alignItems: isUserMessage ? "flex-start" : "flex-end" },
                     ]}
                   >
                     <View
@@ -314,7 +316,7 @@ export default function SupportChatScreen() {
               style={[
                 styles.composer,
                 {
-                  paddingBottom: insets.bottom + 10,
+                  paddingBottom: insets.bottom + TAB_BAR_CLEARANCE,
                   backgroundColor: colors.background,
                   borderTopColor: colors.border,
                   flexDirection: rowDirection,
