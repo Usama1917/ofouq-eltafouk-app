@@ -12,3 +12,4 @@ export * from "./banners";
 export * from "./academic";
 export * from "./materials";
 export * from "./subscriptions";
+export * from "./notifications";

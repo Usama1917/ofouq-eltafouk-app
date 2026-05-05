@@ -32,8 +32,36 @@ export const TRANSLATIONS = {
     tabs: {
       home: "الرئيسية",
       videos: "الدروس المرئية",
+      notifications: "الإشعارات",
       profile: "حسابي",
       settings: "الإعدادات",
+    },
+    notifications: {
+      title: "الإشعارات",
+      subtitle: "تابع آخر تنبيهات الدروس والحساب من مكان واحد.",
+      unread: "غير مقروء",
+      emptyTitle: "لا توجد إشعارات حالياً",
+      emptyText: "سنخبرك هنا عند إضافة درس جديد أو تحديث حالة اشتراكك.",
+      items: [
+        {
+          title: "تم إضافة درس جديد",
+          body: "راجع الدروس المرئية لمتابعة آخر محتوى متاح لك.",
+          time: "منذ 10 دقائق",
+          tone: "primary",
+        },
+        {
+          title: "تحديث حالة الاشتراك",
+          body: "يمكنك متابعة حالة الاشتراكات من صفحة الدروس المرئية.",
+          time: "اليوم",
+          tone: "success",
+        },
+        {
+          title: "تذكير بالمذاكرة",
+          body: "استكمل مشاهدة الدرس الذي توقفت عنده آخر مرة.",
+          time: "أمس",
+          tone: "warning",
+        },
+      ],
     },
     settings: {
       title: "الإعدادات",
@@ -42,6 +70,8 @@ export const TRANSLATIONS = {
       accountManage: "إدارة بيانات الحساب",
       accountLoginSubtitle: "ادخل لحسابك لمتابعة الدروس",
       accountInitial: "أ",
+      contactUs: "تواصل معنا",
+      contactUsSubtitle: "اتصل بنا على 17057",
       logoutTitle: "تسجيل الخروج",
       logoutMessage: "هل تريد تسجيل الخروج من التطبيق؟",
       logoutAction: "خروج",
@@ -216,8 +246,36 @@ export const TRANSLATIONS = {
     tabs: {
       home: "Home",
       videos: "Visual Lessons",
+      notifications: "Notifications",
       profile: "My Account",
       settings: "Settings",
+    },
+    notifications: {
+      title: "Notifications",
+      subtitle: "Follow lesson and account alerts in one place.",
+      unread: "Unread",
+      emptyTitle: "No notifications yet",
+      emptyText: "New lessons and subscription updates will appear here.",
+      items: [
+        {
+          title: "New lesson added",
+          body: "Check visual lessons for the latest content available to you.",
+          time: "10 minutes ago",
+          tone: "primary",
+        },
+        {
+          title: "Subscription update",
+          body: "You can track subscription status from Visual Lessons.",
+          time: "Today",
+          tone: "success",
+        },
+        {
+          title: "Study reminder",
+          body: "Continue watching the lesson you paused last time.",
+          time: "Yesterday",
+          tone: "warning",
+        },
+      ],
     },
     settings: {
       title: "Settings",
@@ -226,6 +284,8 @@ export const TRANSLATIONS = {
       accountManage: "Manage account details",
       accountLoginSubtitle: "Sign in to continue your lessons",
       accountInitial: "S",
+      contactUs: "Contact us",
+      contactUsSubtitle: "Call us on 17057",
       logoutTitle: "Sign out",
       logoutMessage: "Do you want to sign out of the app?",
       logoutAction: "Sign out",

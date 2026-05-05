@@ -20,6 +20,7 @@ import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
 import { toEnglishDigits } from "@/lib/format";
+import { resolveMediaUrl } from "@/lib/media";
 
 interface Lesson {
   id: number;
@@ -169,57 +170,61 @@ export default function LessonsScreen() {
             </View>
           </View>
         }
-        renderItem={({ item }) => (
-          <Pressable
-            onPress={() =>
-              router.push(
-                (`${academicRoute(routeBase, "lesson")}?lessonId=${item.id}&lessonTitle=${encode(item.title)}` +
-                  `&yearId=${yearId}&yearName=${encode(String(yearName))}` +
-                  `&subjectId=${subjectId}&subjectName=${encode(String(subjectName))}` +
-                  `&unitId=${unitId}&unitName=${encode(title)}`) as any,
-              )
-            }
-            style={({ pressed }) => [
-              styles.lessonCard,
-              {
-                backgroundColor: colors.card,
-                borderColor: pressed ? COLORS.primary + "55" : colors.border,
-                flexDirection: rowDirection,
-                direction,
-                opacity: pressed ? 0.84 : 1,
-              },
-            ]}
-          >
-            {item.video?.thumbnailUrl ? (
-              <Image source={{ uri: item.video.thumbnailUrl }} style={styles.thumbnail} contentFit="cover" />
-            ) : (
-              <View style={styles.thumbnailFallback}>
-                <Ionicons name="play-circle-outline" size={28} color={COLORS.primary} />
-              </View>
-            )}
-            <View style={[styles.lessonBody, { alignItems: alignStart }]}>
-              <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={2}>
-                {toEnglishDigits(item.title)}
-              </Text>
-              {item.video ? (
-                <View style={[styles.lessonMeta, { flexDirection: rowDirection, direction }]}>
-                  <Feather name="user" size={13} color={colors.textSecondary} />
-                  <Text style={[styles.lessonMetaText, { color: colors.textSecondary }]} numberOfLines={1}>
-                    {toEnglishDigits(item.video.instructor)}
-                  </Text>
-                  <Feather name="clock" size={13} color={colors.textSecondary} />
-                  <Text style={[styles.lessonMetaText, { color: colors.textSecondary }]}>
-                    {formatVideoDuration(item.video.duration)}
-                  </Text>
+        renderItem={({ item }) => {
+          const thumbnailUrl = resolveMediaUrl(item.video?.thumbnailUrl ?? item.video?.posterUrl);
+
+          return (
+            <Pressable
+              onPress={() =>
+                router.push(
+                  (`${academicRoute(routeBase, "lesson")}?lessonId=${item.id}&lessonTitle=${encode(item.title)}` +
+                    `&yearId=${yearId}&yearName=${encode(String(yearName))}` +
+                    `&subjectId=${subjectId}&subjectName=${encode(String(subjectName))}` +
+                    `&unitId=${unitId}&unitName=${encode(title)}`) as any,
+                )
+              }
+              style={({ pressed }) => [
+                styles.lessonCard,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: pressed ? COLORS.primary + "55" : colors.border,
+                  flexDirection: rowDirection,
+                  direction,
+                  opacity: pressed ? 0.84 : 1,
+                },
+              ]}
+            >
+              {thumbnailUrl ? (
+                <Image source={{ uri: thumbnailUrl }} style={styles.thumbnail} contentFit="cover" />
+              ) : (
+                <View style={styles.thumbnailFallback}>
+                  <Ionicons name="play-circle-outline" size={28} color={COLORS.primary} />
                 </View>
-              ) : null}
-            </View>
-            <View style={[styles.watchButton, { flexDirection: rowDirection, direction }]}>
-              <Text style={[styles.watchText, { writingDirection: direction }]}>{strings.academic.watch}</Text>
-              <Feather name="play" size={15} color="#fff" />
-            </View>
-          </Pressable>
-        )}
+              )}
+              <View style={[styles.lessonBody, { alignItems: alignStart }]}>
+                <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={2}>
+                  {toEnglishDigits(item.title)}
+                </Text>
+                {item.video ? (
+                  <View style={[styles.lessonMeta, { flexDirection: rowDirection, direction }]}>
+                    <Feather name="user" size={13} color={colors.textSecondary} />
+                    <Text style={[styles.lessonMetaText, { color: colors.textSecondary }]} numberOfLines={1}>
+                      {toEnglishDigits(item.video.instructor)}
+                    </Text>
+                    <Feather name="clock" size={13} color={colors.textSecondary} />
+                    <Text style={[styles.lessonMetaText, { color: colors.textSecondary }]}>
+                      {formatVideoDuration(item.video.duration)}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <View style={[styles.watchButton, { flexDirection: rowDirection, direction }]}>
+                <Text style={[styles.watchText, { writingDirection: direction }]}>{strings.academic.watch}</Text>
+                <Feather name="play" size={15} color="#fff" />
+              </View>
+            </Pressable>
+          );
+        }}
         ListEmptyComponent={
           <View style={[styles.stateCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {isLoading ? (

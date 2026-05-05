@@ -81,20 +81,27 @@ function formatJoinedDate(joinedAt: string | undefined, locale: string, prefix: 
   return formatted ? `${prefix} ${formatted}` : null;
 }
 
+function resolveTextDirection(value: string, fallback: "rtl" | "ltr") {
+  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(value) ? "rtl" : fallback === "rtl" ? "ltr" : fallback;
+}
+
 function FieldDisplay({
   icon,
   label,
   value,
   valueDirection,
+  wrapRtlValue,
 }: {
   icon: keyof typeof Feather.glyphMap;
   label: string;
   value?: string | null;
   valueDirection?: "rtl" | "ltr";
+  wrapRtlValue?: boolean;
 }) {
-  const { colors, strings, textAlign, direction, rowDirection } = usePreferences();
-  const resolvedValueDirection = valueDirection ?? direction;
-  const resolvedValueAlign = valueDirection === "rtl" ? "right" : textAlign;
+  const { colors, strings, direction, rowDirection } = usePreferences();
+  const displayValue = value ? toEnglishDigits(value) : strings.common.placeholderDash;
+  const resolvedValueDirection = valueDirection ?? resolveTextDirection(displayValue, direction);
+  const rtlValueTokens = displayValue.split(/\s+/).filter(Boolean);
 
   return (
     <View
@@ -104,24 +111,39 @@ function FieldDisplay({
       ]}
     >
       <Feather name={icon} size={17} color={colors.textSecondary} />
-      <View style={styles.infoTextBlock}>
-        <Text style={[styles.infoLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+      <View style={[styles.infoTextBlock, { direction: "ltr" }]}>
+        <Text style={[styles.infoLabel, { color: colors.textSecondary, writingDirection: direction }]}>
           {label}
         </Text>
-        <Text
-          style={[
-            styles.infoValue,
-            {
-              color: colors.text,
-              direction: resolvedValueDirection,
-              textAlign: resolvedValueAlign,
-              writingDirection: resolvedValueDirection,
-            },
-          ]}
-          numberOfLines={2}
-        >
-          {value ? toEnglishDigits(value) : strings.common.placeholderDash}
-        </Text>
+        <View style={styles.infoValueRow}>
+          {wrapRtlValue ? (
+            <View style={styles.infoRtlValueWrap}>
+              {rtlValueTokens.map((token, index) => (
+                <Text
+                  key={`${token}-${index}`}
+                  style={[styles.infoRtlValueToken, { color: colors.text, writingDirection: "rtl" }]}
+                >
+                  {token}
+                </Text>
+              ))}
+            </View>
+          ) : (
+            <Text
+              style={[
+                styles.infoValue,
+                {
+                  color: colors.text,
+                  direction: resolvedValueDirection,
+                  textAlign: "right",
+                  writingDirection: resolvedValueDirection,
+                },
+              ]}
+              numberOfLines={2}
+            >
+              {displayValue}
+            </Text>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -566,7 +588,13 @@ export default function ProfileScreen() {
               <FieldDisplay icon="user" label={strings.profile.name} value={user.name} />
               <FieldDisplay icon="mail" label={strings.profile.email} value={user.email} />
               <FieldDisplay icon="phone" label={strings.profile.phone} value={user.phone} />
-              <FieldDisplay icon="map-pin" label={strings.profile.address} value={user.address} valueDirection="rtl" />
+              <FieldDisplay
+                icon="map-pin"
+                label={strings.profile.address}
+                value={user.address}
+                valueDirection="rtl"
+                wrapRtlValue
+              />
               <FieldDisplay icon="map-pin" label={strings.profile.governorate} value={user.governorate} />
               {user.bio ? <FieldDisplay icon="file-text" label={strings.profile.bio} value={user.bio} /> : null}
             </View>
@@ -639,7 +667,7 @@ export default function ProfileScreen() {
                             ? colors.surfaceSecondary
                             : colors.surface,
                         borderBottomColor: isLast ? "transparent" : colors.border,
-                        direction,
+                        direction: "ltr",
                       },
                     ]}
                   >
@@ -648,7 +676,7 @@ export default function ProfileScreen() {
                         styles.governorateOptionText,
                         {
                           color: selected ? COLORS.primary : colors.text,
-                          textAlign: isRTL ? "right" : "left",
+                          textAlign: "right",
                           writingDirection: direction,
                         },
                       ]}
@@ -933,21 +961,39 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 11,
   },
-  infoTextBlock: { flex: 1, alignItems: "flex-end" },
+  infoTextBlock: { flex: 1, alignItems: "stretch", minWidth: 0 },
   infoLabel: {
     fontFamily: "Cairo_600SemiBold",
     fontSize: 12,
     width: "100%",
     textAlign: "right",
   },
+  infoValueRow: {
+    width: "100%",
+    alignItems: "flex-end",
+  },
   infoValue: {
     fontFamily: "Cairo_700Bold",
     fontSize: 14,
     lineHeight: 24,
     paddingTop: 2,
-    width: "100%",
+    maxWidth: "100%",
     textAlign: "right",
     marginTop: 2,
+  },
+  infoRtlValueWrap: {
+    width: "100%",
+    flexDirection: "row-reverse",
+    flexWrap: "wrap",
+    justifyContent: "flex-start",
+    columnGap: 5,
+    rowGap: 0,
+    paddingTop: 2,
+  },
+  infoRtlValueToken: {
+    fontFamily: "Cairo_700Bold",
+    fontSize: 14,
+    lineHeight: 24,
   },
   formGrid: { gap: 12 },
   inputGroup: { gap: 6 },
@@ -1061,7 +1107,9 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 18,
   },
   governorateOptionText: {
-    width: "100%",
+    position: "absolute",
+    left: 48,
+    right: 16,
     fontFamily: "Cairo_600SemiBold",
     fontSize: 14,
   },

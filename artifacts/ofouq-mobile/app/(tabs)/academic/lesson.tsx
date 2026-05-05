@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams, useNavigation, usePathname } from "expo-router";
-import React, { useEffect } from "react";
+import React, { useCallback, useEffect } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -21,6 +21,7 @@ import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
 import { toEnglishDigits } from "@/lib/format";
+import { resolveMediaUrl } from "@/lib/media";
 
 const HORIZONTAL_PADDING = 18;
 
@@ -71,6 +72,7 @@ export default function LessonDetailScreen() {
     subjectName,
     unitId,
     unitName,
+    seekSeconds,
   } = useLocalSearchParams<{
     lessonId: string;
     lessonTitle: string;
@@ -80,6 +82,7 @@ export default function LessonDetailScreen() {
     subjectName?: string;
     unitId?: string;
     unitName?: string;
+    seekSeconds?: string;
   }>();
 
   useEffect(() => {
@@ -107,6 +110,23 @@ export default function LessonDetailScreen() {
   const subscribePath =
     `${academicRoute(routeBase, "subscribe")}?yearId=${yearId ?? ""}&yearName=${encode(String(yearName ?? ""))}` +
     `&subjectId=${subjectId ?? ""}&subjectName=${encode(String(subjectName ?? ""))}`;
+  const summaryThumbnailUrl = resolveMediaUrl(lesson?.video?.thumbnailUrl ?? lesson?.video?.posterUrl);
+  const initialSeekSeconds = Math.max(0, Math.floor(Number(seekSeconds) || 0));
+
+  const reportLessonProgress = useCallback(
+    (progress: { currentTime: number; duration: number }) => {
+      if (!token || !lesson?.id) return;
+      void apiFetch(`/api/academic/lessons/${lesson.id}/progress`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          currentSeconds: progress.currentTime,
+          durationSeconds: progress.duration,
+        }),
+      }).catch(() => undefined);
+    },
+    [lesson?.id, token],
+  );
 
   function backToLessonsList() {
     const stackNavigation = navigation as {
@@ -218,8 +238,8 @@ export default function LessonDetailScreen() {
                     { backgroundColor: colors.card, borderColor: colors.border, flexDirection: rowDirection, direction },
                   ]}
                 >
-                  {lesson.video.thumbnailUrl ? (
-                    <Image source={{ uri: lesson.video.thumbnailUrl }} style={styles.summaryThumb} contentFit="cover" />
+                  {summaryThumbnailUrl ? (
+                    <Image source={{ uri: summaryThumbnailUrl }} style={styles.summaryThumb} contentFit="cover" />
                   ) : (
                     <View style={styles.summaryThumbFallback}>
                       <Feather name="play" size={22} color={COLORS.primary} />
@@ -252,6 +272,8 @@ export default function LessonDetailScreen() {
                   thumbnailUrl={lesson.video.thumbnailUrl ?? null}
                   segments={lesson.video.segments ?? []}
                   watermarkText={user ? `${toEnglishDigits(user.name)} - ${toEnglishDigits(user.email)}` : undefined}
+                  initialSeekSeconds={initialSeekSeconds}
+                  onProgressUpdate={reportLessonProgress}
                 />
               </>
             ) : (

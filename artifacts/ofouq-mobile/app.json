@@ -3,7 +3,7 @@
     "name": "أفق التفوق — Mobile",
     "slug": "ofouq-mobile",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "ofouq-mobile",
     "userInterfaceStyle": "automatic",
@@ -36,6 +36,12 @@
         }
       ],
       "expo-font",
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "PORTRAIT_UP"
+        }
+      ],
       "expo-web-browser"
     ],
     "experiments": {

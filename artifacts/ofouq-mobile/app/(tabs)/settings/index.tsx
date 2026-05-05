@@ -4,7 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React from "react";
 import {
-  Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -30,22 +30,12 @@ export default function SettingsScreen() {
     rowDirection,
     alignStart,
   } = usePreferences();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const avatarUri = resolveMediaUrl(user?.avatarUrl);
 
-  function handleLogout() {
-    Alert.alert(strings.settings.logoutTitle, strings.settings.logoutMessage, [
-      { text: strings.common.cancel, style: "cancel" },
-      {
-        text: strings.settings.logoutAction,
-        style: "destructive",
-        onPress: async () => {
-          await logout();
-          router.replace("/login");
-        },
-      },
-    ]);
+  function handleContactPress() {
+    void Linking.openURL("tel:17057");
   }
 
   return (
@@ -88,7 +78,7 @@ export default function SettingsScreen() {
           </View>
 
           <Pressable
-            onPress={() => router.push(user ? "/(tabs)/profile" : "/login")}
+            onPress={() => router.push(user ? "/(tabs)/settings/account" : "/login")}
             style={({ pressed }) => [
               styles.accountRow,
               {
@@ -129,24 +119,45 @@ export default function SettingsScreen() {
             />
           </Pressable>
 
-          {user ? (
-            <Pressable
-              onPress={handleLogout}
-              style={[
-                styles.logoutRow,
-                {
-                  alignSelf: alignStart,
-                  flexDirection: rowDirection,
-                  direction,
-                },
-              ]}
-            >
-              <Feather name="log-out" size={18} color={COLORS.error} />
-              <Text style={[styles.logoutText, { writingDirection: direction }]}>
-                {strings.common.logout}
-              </Text>
-            </Pressable>
-          ) : null}
+        </View>
+
+        <View style={[styles.contactCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Pressable
+            onPress={handleContactPress}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.contactRow,
+              {
+                backgroundColor: pressed ? colors.surfaceSecondary : colors.surface,
+                flexDirection: rowDirection,
+                direction,
+              },
+            ]}
+          >
+            <View style={[styles.contactLeading, { flexDirection: rowDirection, direction }]}>
+              <View style={styles.contactIcon}>
+                <Feather name="phone-call" size={20} color={COLORS.primary} />
+              </View>
+              <View style={[styles.contactTextBlock, { alignItems: alignStart }]}>
+                <Text style={[styles.contactTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+                  {strings.settings.contactUs}
+                </Text>
+                <Text
+                  style={[
+                    styles.contactSubtitle,
+                    { color: colors.textSecondary, textAlign, writingDirection: direction },
+                  ]}
+                >
+                  {toEnglishDigits(strings.settings.contactUsSubtitle)}
+                </Text>
+              </View>
+            </View>
+            <Feather
+              name={isRTL ? "chevron-left" : "chevron-right"}
+              size={19}
+              color={colors.textTertiary}
+            />
+          </Pressable>
         </View>
       </ScrollView>
     </View>
@@ -185,8 +196,8 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 26,
     borderWidth: 1,
-    padding: 16,
-    gap: 10,
+    padding: 14,
+    gap: 8,
     shadowColor: "#1E3A8A",
     shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.08,
@@ -243,9 +254,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   accountRow: {
-    minHeight: 74,
+    minHeight: 66,
     borderRadius: 18,
-    padding: 12,
+    padding: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -286,17 +297,47 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: "#fff",
   },
-  logoutRow: {
-    alignSelf: "flex-end",
-    minHeight: 42,
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 8,
+  contactCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 10,
+    shadowColor: "#1E3A8A",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.07,
+    shadowRadius: 22,
   },
-  logoutText: {
+  contactRow: {
+    minHeight: 64,
+    borderRadius: 18,
+    padding: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  contactLeading: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "center",
+    gap: 12,
+  },
+  contactIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primary + "12",
+  },
+  contactTextBlock: { flex: 1, alignItems: "flex-end" },
+  contactTitle: {
     fontFamily: "Cairo_700Bold",
-    fontSize: 13,
-    color: COLORS.error,
+    fontSize: 14,
+    textAlign: "right",
+  },
+  contactSubtitle: {
+    fontFamily: "Cairo_400Regular",
+    fontSize: 12,
+    textAlign: "right",
   },
 });

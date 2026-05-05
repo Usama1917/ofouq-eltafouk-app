@@ -88,6 +88,12 @@
     @apply font-bold tracking-tight;
     letter-spacing: -0.01em;
   }
+
+  .arabic-diacritics-safe {
+    line-height: 1.4;
+    padding-block: 0.06em;
+    letter-spacing: 0;
+  }
 }
 
 /* ─── Scrollbar ─────────────────────────────────────────────── */

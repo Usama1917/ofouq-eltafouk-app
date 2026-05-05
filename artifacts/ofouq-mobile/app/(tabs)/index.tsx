@@ -15,13 +15,13 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Logo } from "@/components/Logo";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { formatNumber, toEnglishDigits } from "@/lib/format";
 import { resolveMediaUrl } from "@/lib/media";
+import { fetchNotificationSummary, notificationsQueryKey } from "@/lib/notifications";
 
 type AcademicYear = {
   id: number;
@@ -158,7 +158,7 @@ function HomeSubtitle() {
 }
 
 export default function HomeScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const {
     colors,
     resolvedScheme,
@@ -175,6 +175,15 @@ export default function HomeScreen() {
   const slideAnim = useRef(new Animated.Value(18)).current;
   const topBarDirection = isRTL ? reverseRowDirection : rowDirection;
   const avatarUri = resolveMediaUrl(user?.avatarUrl);
+  const { data: notificationSummary } = useQuery({
+    queryKey: [...notificationsQueryKey, "summary", token],
+    queryFn: () => fetchNotificationSummary(token),
+    enabled: Boolean(user && token),
+    refetchInterval: 30000,
+  });
+  const unreadNotificationsCount = user ? notificationSummary?.unreadCount ?? 0 : 0;
+  const unreadNotificationsLabel =
+    unreadNotificationsCount > 99 ? "99+" : toEnglishDigits(String(unreadNotificationsCount));
 
   const {
     data: years = [],
@@ -220,9 +229,28 @@ export default function HomeScreen() {
           ]}
         >
           <View style={[styles.topBar, { flexDirection: topBarDirection, direction }]}>
-            <Logo size={38} />
             <Pressable
-              onPress={() => router.push(user ? "/(tabs)/profile" : "/login")}
+              onPress={() => router.push("/(tabs)/notifications")}
+              style={({ pressed }) => [
+                styles.notificationButton,
+                {
+                  backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
+                  borderColor: colors.border,
+                  opacity: pressed ? 0.82 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={strings.tabs.notifications}
+            >
+              <Feather name="bell" size={21} color={COLORS.primary} />
+              {unreadNotificationsCount > 0 ? (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>{unreadNotificationsLabel}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+            <Pressable
+              onPress={() => router.push(user ? "/(tabs)/settings/account" : "/login")}
               style={({ pressed }) => [
                 styles.accountPill,
                 {
@@ -384,6 +412,44 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  notificationButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#1E3A8A",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+  },
+  notificationBadge: {
+    position: "absolute",
+    top: -5,
+    right: -5,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.error,
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  notificationBadgeText: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 2,
+    fontFamily: "Cairo_700Bold",
+    fontSize: 12,
+    lineHeight: 16,
+    includeFontPadding: false,
+    textAlign: "center",
+    color: "#fff",
+  },
   accountPill: {
     minHeight: 46,
     borderRadius: 18,
@@ -453,9 +519,12 @@ const styles = StyleSheet.create({
   heroTitle: {
     fontFamily: "Cairo_700Bold",
     fontSize: 31,
-    lineHeight: 44,
+    lineHeight: 54,
+    paddingTop: 5,
+    paddingBottom: 2,
     textAlign: "right",
     writingDirection: "rtl",
+    includeFontPadding: true,
   },
   heroTitleAccent: { color: COLORS.primary },
   heroSubtitle: {

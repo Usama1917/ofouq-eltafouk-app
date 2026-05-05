@@ -62,7 +62,7 @@ export default function Dashboard() {
             </div>
 
             <div className="space-y-3">
-              <h1 className="text-4xl font-display font-black leading-tight text-foreground md:text-5xl">
+              <h1 className="arabic-diacritics-safe text-4xl font-display font-black text-foreground md:text-5xl">
                 مرحبًا بك في <span className="text-primary">أفق التفوق</span>
               </h1>
               <p className="text-base font-medium leading-relaxed text-muted-foreground md:text-lg">

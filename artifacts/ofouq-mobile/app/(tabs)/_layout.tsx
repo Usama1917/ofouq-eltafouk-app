@@ -24,10 +24,11 @@ function NativeTabLayout() {
         <Icon sf={{ default: "video", selected: "video.fill" }} />
         <Label>{strings.tabs.videos}</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="profile">
-        <Icon sf={{ default: "person", selected: "person.fill" }} />
-        <Label>{strings.tabs.profile}</Label>
+      <NativeTabs.Trigger name="notifications">
+        <Icon sf={{ default: "bell", selected: "bell.fill" }} />
+        <Label>{strings.tabs.notifications}</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="profile" hidden />
       <NativeTabs.Trigger name="settings">
         <Icon sf={{ default: "gearshape", selected: "gearshape.fill" }} />
         <Label>{strings.tabs.settings}</Label>
@@ -113,13 +114,17 @@ function ClassicTabLayout() {
       />
       <Tabs.Screen
         name="profile"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="notifications"
         options={{
-          title: strings.tabs.profile,
+          title: strings.tabs.notifications,
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="person" tintColor={color} size={24} />
+              <SymbolView name="bell" tintColor={color} size={24} />
             ) : (
-              <Feather name="user" size={22} color={color} />
+              <Feather name="bell" size={22} color={color} />
             ),
         }}
       />

@@ -2,11 +2,13 @@ import { Feather } from "@expo/vector-icons";
 import { AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
+import * as ScreenOrientation from "expo-screen-orientation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
   GestureResponderEvent,
+  LayoutChangeEvent,
   Modal,
   Pressable,
   PressableProps,
@@ -45,7 +47,29 @@ type AcademicVideoPlayerProps = {
   thumbnailUrl?: string | null;
   segments?: AcademicVideoSegment[] | null;
   watermarkText?: string;
+  initialSeekSeconds?: number | null;
+  onProgressUpdate?: (progress: {
+    currentTime: number;
+    duration: number;
+    isPlaying: boolean;
+    hasStarted: boolean;
+  }) => void;
 };
+
+type PendingSeek = {
+  target: number;
+  requestedAt: number;
+};
+
+type MeasuredRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type FullscreenOrientation = "portrait" | "landscape";
+type ControlOptionMenu = "quality" | "speed";
 
 function PlayerHost({
   fullscreen,
@@ -120,6 +144,12 @@ function AnimatedPressable({
 
 const PLAYER_RATIO = 9 / 16;
 const DOUBLE_TAP_MS = 280;
+const CONTROLS_DISSOLVE_IN_MS = 210;
+const CONTROLS_DISSOLVE_OUT_MS = 320;
+const SCRUB_LABEL_UPDATE_MS = 120;
+const SEEK_CONFIRM_TOLERANCE_SECONDS = 0.85;
+const SEEK_CONFIRM_PLAYING_TOLERANCE_SECONDS = 2.5;
+const SEEK_RETRY_MS = 900;
 const DEFAULT_PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const FALLBACK_QUALITY_LEVELS = ["hd720", "large", "medium", "auto"];
 
@@ -134,6 +164,22 @@ function resolveMediaUrl(url: string | null | undefined) {
 function parseYouTubeId(url: string): string | null {
   const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([^&?/\s]{11})/);
   return match ? match[1] : null;
+}
+
+function isYouTubeHostedImage(url: string | null) {
+  if (!url) return false;
+  try {
+    const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    return (
+      hostname === "i.ytimg.com" ||
+      hostname.endsWith(".ytimg.com") ||
+      hostname === "img.youtube.com" ||
+      hostname.endsWith(".youtube.com") ||
+      hostname.endsWith(".youtube-nocookie.com")
+    );
+  } catch {
+    return /(?:ytimg\.com|youtube(?:-nocookie)?\.com)/i.test(url);
+  }
 }
 
 function formatTime(seconds: number) {
@@ -308,29 +354,54 @@ export function AcademicVideoPlayer({
   thumbnailUrl,
   segments,
   watermarkText,
+  initialSeekSeconds,
+  onProgressUpdate,
 }: AcademicVideoPlayerProps) {
   const { colors } = usePreferences();
   const { width, height } = useWindowDimensions();
   const videoRef = useRef<Video>(null);
   const webViewRef = useRef<WebView>(null);
+  const segmentButtonRef = useRef<View>(null);
+  const progressTrackRef = useRef<View>(null);
+  const progressTrackFrameRef = useRef<MeasuredRect | null>(null);
   const lastTapRef = useRef<{ time: number; side: "left" | "right" } | null>(null);
   const segmentPanelProgress = useRef(new Animated.Value(0)).current;
+  const controlsProgress = useRef(new Animated.Value(1)).current;
+  const timelineProgress = useRef(new Animated.Value(0)).current;
+  const optionMenuProgress = useRef(new Animated.Value(0)).current;
+  const pendingSeekRef = useRef<PendingSeek | null>(null);
+  const initialSeekSecondsRef = useRef<number | null>(null);
+  const initialSeekAppliedRef = useRef(false);
+  const onProgressUpdateRef = useRef(onProgressUpdate);
+  const progressSnapshotRef = useRef({
+    currentTime: 0,
+    duration: 0,
+    isPlaying: false,
+    hasStarted: false,
+  });
   const [ready, setReady] = useState(videoType === "upload" ? false : false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [scrubTime, setScrubTime] = useState<number | null>(null);
+  const isScrubbingRef = useRef(false);
+  const scrubTimeRef = useRef<number | null>(null);
+  const lastScrubLabelUpdateRef = useRef(0);
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [pendingFullscreenPlay, setPendingFullscreenPlay] = useState(false);
   const [pendingSeekSeconds, setPendingSeekSeconds] = useState<number | null>(null);
-  const [rotationDegrees, setRotationDegrees] = useState(0);
+  const [fullscreenOrientation, setFullscreenOrientation] = useState<FullscreenOrientation>("portrait");
   const [segmentPanelOpen, setSegmentPanelOpen] = useState(false);
   const [segmentPanelVisible, setSegmentPanelVisible] = useState(false);
+  const [segmentButtonFrame, setSegmentButtonFrame] = useState<MeasuredRect | null>(null);
+  const [segmentPanelSize, setSegmentPanelSize] = useState<{ width: number; height: number } | null>(null);
   const [seekToast, setSeekToast] = useState<"-10s" | "+10s" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [optionMenu, setOptionMenu] = useState<ControlOptionMenu | null>(null);
+  const [optionMenuOpen, setOptionMenuOpen] = useState(false);
   const [progressTrackWidth, setProgressTrackWidth] = useState(1);
-  const [volume, setVolume] = useState(78);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [playbackRates, setPlaybackRates] = useState<number[]>(DEFAULT_PLAYBACK_RATES);
   const [quality, setQuality] = useState("hd720");
@@ -343,14 +414,34 @@ export function AcademicVideoPlayer({
   const youTubeId = useMemo(() => (isYouTube ? parseYouTubeId(videoUrl) : null), [isYouTube, videoUrl]);
   const webHtml = useMemo(() => (youTubeId ? buildYouTubeHtml(youTubeId) : ""), [youTubeId]);
   const resolvedVideoUrl = resolveMediaUrl(videoUrl);
-  const resolvedPosterUrl = resolveMediaUrl(posterUrl) ?? resolveMediaUrl(thumbnailUrl);
+  const posterCandidateUrl = resolveMediaUrl(posterUrl) ?? resolveMediaUrl(thumbnailUrl);
+  const resolvedPosterUrl = isYouTube && isYouTubeHostedImage(posterCandidateUrl) ? null : posterCandidateUrl;
+  const shouldShowCleanYouTubeCover = isYouTube && (!isFullscreen || !hasStarted);
+  const shouldShowPosterOverlay = Boolean(
+    resolvedPosterUrl && (isYouTube ? shouldShowCleanYouTubeCover : (!isFullscreen || !hasStarted)),
+  );
   const playerWidth = Math.min(width - 36, 760);
   const playerHeight = playerWidth * PLAYER_RATIO;
   const shellWidth = isFullscreen ? width : playerWidth;
   const shellHeight = isFullscreen ? height : playerHeight;
-  const isSideways = rotationDegrees % 180 !== 0;
-  const mediaWidth = isSideways ? shellHeight : shellWidth;
-  const mediaHeight = isSideways ? shellWidth : shellHeight;
+  const mediaWidth = shellWidth;
+  const mediaHeight = shellHeight;
+  const isLandscapeFullscreen = isFullscreen && fullscreenOrientation === "landscape";
+  const isPortraitFullscreen = isFullscreen && fullscreenOrientation === "portrait";
+  const containedVideoWidth = mediaWidth * PLAYER_RATIO <= mediaHeight ? mediaWidth : mediaHeight / PLAYER_RATIO;
+  const containedVideoHeight = containedVideoWidth * PLAYER_RATIO;
+  const containedVideoLeft = (mediaWidth - containedVideoWidth) / 2;
+  const containedVideoTop = (mediaHeight - containedVideoHeight) / 2;
+  const portraitVideoWatermarkStyle = isPortraitFullscreen
+    ? {
+        top: containedVideoTop + 12,
+        left: containedVideoLeft + 12,
+        maxWidth: Math.max(140, containedVideoWidth - 24),
+      }
+    : null;
+  const landscapeControlInset = Math.max(28, Math.min(56, width * 0.06));
+  const segmentPanelInset = 14;
+  const landscapeSegmentPanelWidth = Math.max(320, Math.min(width - 28, (width - segmentPanelInset * 2) / 2));
   const isCompactControls = width < 650;
   const displayQualityLevels = useMemo(() => {
     if (!isYouTube) return ["auto"];
@@ -378,31 +469,165 @@ export function AcademicVideoPlayer({
       .sort((a, b) => (a.startSeconds - b.startSeconds) || ((a.orderIndex ?? 0) - (b.orderIndex ?? 0)));
   }, [segments]);
 
-  const progress = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
+  const displayedTime = scrubTime ?? currentTime;
   const watermarkLabel = watermarkText ? `${watermarkText} · ${clockText}` : null;
+  const segmentPanelWidth = isLandscapeFullscreen ? landscapeSegmentPanelWidth : Math.max(1, width - 36);
+  const segmentPanelBottom = isLandscapeFullscreen ? 12 : isPortraitFullscreen ? 16 : 154;
+  const segmentPanelLeft = isLandscapeFullscreen ? width - landscapeControlInset - landscapeSegmentPanelWidth : 18;
+  const estimatedSegmentPanelHeight = Math.min(
+    isLandscapeFullscreen ? 188 : 230,
+    68 + Math.max(1, normalizedSegments.length) * 62,
+  );
+  const segmentPanelHeight = segmentPanelSize?.height ?? estimatedSegmentPanelHeight;
+  const segmentButtonSize = isLandscapeFullscreen ? 36 : isPortraitFullscreen ? 40 : 44;
+  const controlsRightInset = isLandscapeFullscreen ? landscapeControlInset : isPortraitFullscreen ? 18 : 12;
+  const controlsBottomInset = isLandscapeFullscreen ? 12 : isPortraitFullscreen ? 16 : 14;
+  const controlsPaddingX = isLandscapeFullscreen ? 12 : isPortraitFullscreen ? 13 : 14;
+  const controlsPaddingY = isLandscapeFullscreen ? 6 : isPortraitFullscreen ? 9 : 12;
+  const controlsTopRowHeight = isLandscapeFullscreen ? 40 : isPortraitFullscreen ? 54 : 68;
+  const controlsContentGap = isLandscapeFullscreen ? 3 : isPortraitFullscreen ? 5 : 10;
+  const timeRowHeight = isLandscapeFullscreen ? 14 : isPortraitFullscreen ? 16 : 18;
+  const timelineGap = isLandscapeFullscreen ? 3 : isPortraitFullscreen ? 5 : 8;
+  const progressTrackHeight = isLandscapeFullscreen ? 22 : isPortraitFullscreen ? 28 : 34;
+  const bottomRowGap = isLandscapeFullscreen ? 4 : isPortraitFullscreen ? 6 : 10;
+  const bottomChipHeight = isLandscapeFullscreen ? 30 : isPortraitFullscreen ? 36 : 42;
+  const estimatedControlsHeight =
+    controlsPaddingY * 2 +
+    controlsTopRowHeight +
+    controlsContentGap +
+    timeRowHeight +
+    timelineGap +
+    progressTrackHeight +
+    bottomRowGap +
+    bottomChipHeight;
+  const segmentButtonTopOffset = isLandscapeFullscreen ? 2 : isPortraitFullscreen ? 7 : 10;
+  const fallbackSegmentButtonFrame = {
+    x: width - controlsRightInset - controlsPaddingX - segmentButtonSize,
+    y: height - controlsBottomInset - estimatedControlsHeight + controlsPaddingY + segmentButtonTopOffset,
+    width: segmentButtonSize,
+    height: segmentButtonSize,
+  };
+  const segmentTransitionButtonFrame = segmentButtonFrame ?? fallbackSegmentButtonFrame;
+  const segmentPanelCenterX = segmentPanelLeft + segmentPanelWidth / 2;
+  const segmentPanelCenterY = height - segmentPanelBottom - segmentPanelHeight / 2;
+  const segmentButtonCenterX = segmentTransitionButtonFrame.x + segmentTransitionButtonFrame.width / 2;
+  const segmentButtonCenterY = segmentTransitionButtonFrame.y + segmentTransitionButtonFrame.height / 2;
+  const segmentStartScaleX = Math.max(0.06, Math.min(1, segmentTransitionButtonFrame.width / segmentPanelWidth));
+  const segmentStartScaleY = Math.max(0.06, Math.min(1, segmentTransitionButtonFrame.height / segmentPanelHeight));
   const segmentPanelAnimatedStyle = {
-    opacity: segmentPanelProgress,
+    opacity: segmentPanelProgress.interpolate({
+      inputRange: [0, 0.08, 1],
+      outputRange: [0.96, 1, 1],
+    }),
     transform: [
       {
         translateX: segmentPanelProgress.interpolate({
           inputRange: [0, 1],
-          outputRange: [Math.min(width * 0.42, 220), 0],
+          outputRange: [segmentButtonCenterX - segmentPanelCenterX, 0],
         }),
       },
       {
         translateY: segmentPanelProgress.interpolate({
           inputRange: [0, 1],
-          outputRange: [150, 0],
+          outputRange: [segmentButtonCenterY - segmentPanelCenterY, 0],
         }),
       },
       {
-        scale: segmentPanelProgress.interpolate({
+        scaleX: segmentPanelProgress.interpolate({
           inputRange: [0, 1],
-          outputRange: [0.08, 1],
+          outputRange: [segmentStartScaleX, 1],
+        }),
+      },
+      {
+        scaleY: segmentPanelProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [segmentStartScaleY, 1],
         }),
       },
     ],
   };
+  const segmentPanelContentAnimatedStyle = {
+    opacity: segmentPanelProgress.interpolate({
+      inputRange: [0, 0.24, 1],
+      outputRange: [0, 0, 1],
+    }),
+  };
+  const controlsAnimatedStyle = {
+    opacity: controlsProgress,
+    transform: [
+      {
+        scale: controlsProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [1.025, 1],
+        }),
+      },
+    ],
+  };
+  const closeButtonAnimatedStyle = {
+    opacity: controlsProgress,
+    transform: [
+      {
+        scale: controlsProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [1.12, 1],
+        }),
+      },
+    ],
+  };
+  const optionMenuAnimatedStyle = {
+    opacity: optionMenuProgress,
+    transform: [
+      {
+        translateY: optionMenuProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [8, 0],
+        }),
+      },
+      {
+        scale: optionMenuProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.94, 1],
+        }),
+      },
+    ],
+  };
+
+  function emitProgressUpdate() {
+    const snapshot = progressSnapshotRef.current;
+    if (!onProgressUpdateRef.current) return;
+    if (!snapshot.hasStarted || snapshot.duration <= 0) return;
+    onProgressUpdateRef.current(snapshot);
+  }
+
+  useEffect(() => {
+    onProgressUpdateRef.current = onProgressUpdate;
+  }, [onProgressUpdate]);
+
+  useEffect(() => {
+    progressSnapshotRef.current = {
+      currentTime,
+      duration,
+      isPlaying,
+      hasStarted,
+    };
+  }, [currentTime, duration, hasStarted, isPlaying]);
+
+  useEffect(() => {
+    const safeInitialSeek = Math.max(0, Math.floor(Number(initialSeekSeconds) || 0));
+    initialSeekSecondsRef.current = safeInitialSeek > 0 ? safeInitialSeek : null;
+    if (safeInitialSeek <= 0 || initialSeekAppliedRef.current) return;
+
+    initialSeekAppliedRef.current = true;
+    setCurrentTime(safeInitialSeek);
+  }, [initialSeekSeconds]);
+
+  useEffect(() => {
+    const interval = setInterval(emitProgressUpdate, 15000);
+    return () => {
+      clearInterval(interval);
+      emitProgressUpdate();
+    };
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -412,19 +637,44 @@ export function AcademicVideoPlayer({
   }, []);
 
   useEffect(() => {
-    if (!isPlaying) return;
-    const timeout = setTimeout(() => setShowControls(false), 2600);
-    return () => clearTimeout(timeout);
-  }, [isPlaying, showControls, currentTime]);
+    return () => {
+      void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
+    };
+  }, []);
 
   useEffect(() => {
-    if (!ready) return;
-    if (isYouTube) {
-      inject(`window.__ofqPlayer && window.__ofqPlayer.setVolume(${volume})`);
-      return;
-    }
-    void videoRef.current?.setVolumeAsync(volume / 100);
-  }, [isYouTube, ready, volume]);
+    if (!isFullscreen || !showControls) return;
+    measureSegmentButton();
+  }, [fullscreenOrientation, height, isFullscreen, showControls, width]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    if (scrubTime !== null) return;
+    if (optionMenu) return;
+    const timeout = setTimeout(() => setShowControls(false), 2600);
+    return () => clearTimeout(timeout);
+  }, [currentTime, isPlaying, optionMenu, scrubTime, showControls]);
+
+  useEffect(() => {
+    if (isScrubbingRef.current) return;
+    Animated.timing(timelineProgress, {
+      toValue: getTimelinePositionForTime(currentTime),
+      duration: isPlaying ? 160 : 90,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [currentTime, duration, isPlaying, progressTrackWidth, timelineProgress]);
+
+  useEffect(() => {
+    Animated.timing(controlsProgress, {
+      toValue: isFullscreen && showControls ? 1 : 0,
+      duration: showControls ? CONTROLS_DISSOLVE_IN_MS : CONTROLS_DISSOLVE_OUT_MS,
+      easing: showControls
+        ? Easing.bezier(0.16, 1, 0.3, 1)
+        : Easing.bezier(0.7, 0, 0.84, 0),
+      useNativeDriver: true,
+    }).start();
+  }, [controlsProgress, isFullscreen, showControls]);
 
   useEffect(() => {
     if (!ready) return;
@@ -455,14 +705,31 @@ export function AcademicVideoPlayer({
     webViewRef.current?.injectJavaScript(`${command}; true;`);
   }
 
+  function getOrientationLock(nextOrientation: FullscreenOrientation) {
+    return nextOrientation === "landscape"
+      ? ScreenOrientation.OrientationLock.LANDSCAPE
+      : ScreenOrientation.OrientationLock.PORTRAIT_UP;
+  }
+
+  async function lockFullscreenOrientation(nextOrientation: FullscreenOrientation) {
+    setFullscreenOrientation(nextOrientation);
+    await ScreenOrientation.lockAsync(getOrientationLock(nextOrientation)).catch(() => undefined);
+  }
+
   async function play() {
     if (!isFullscreen) {
-      openFullscreen({ autoPlay: true });
+      const initialTarget = initialSeekSecondsRef.current;
+      initialSeekSecondsRef.current = null;
+      openFullscreen({ autoPlay: true, seekToSeconds: initialTarget });
       return;
     }
     setHasStarted(true);
     setShowControls(true);
     if (isYouTube) {
+      const pendingTarget = pendingSeekRef.current?.target;
+      if (pendingTarget !== undefined) {
+        requestYouTubePlayerSeek(pendingTarget);
+      }
       inject("window.__ofqPlayer && window.__ofqPlayer.play()");
       setIsPlaying(true);
       return;
@@ -479,6 +746,7 @@ export function AcademicVideoPlayer({
   } = {}) {
     closeSegmentPanel();
     setShowControls(true);
+    void lockFullscreenOrientation("portrait");
     setIsFullscreen(true);
     setReady(false);
     setIsPlaying(false);
@@ -487,9 +755,11 @@ export function AcademicVideoPlayer({
   }
 
   async function closeFullscreen() {
+    closeFloatingControlPanels();
     await pause();
     closeSegmentPanel();
     setShowControls(true);
+    await lockFullscreenOrientation("portrait");
     setIsFullscreen(false);
   }
 
@@ -508,16 +778,111 @@ export function AcademicVideoPlayer({
     else void play();
   }
 
+  function closeOptionMenu() {
+    if (!optionMenu) return;
+    setOptionMenuOpen(false);
+    Animated.timing(optionMenuProgress, {
+      toValue: 0,
+      duration: 170,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setOptionMenu(null);
+    });
+  }
+
+  function openOptionMenu(nextMenu: ControlOptionMenu) {
+    setShowControls(true);
+    closeSegmentPanel();
+    if (optionMenu === nextMenu && optionMenuOpen) {
+      closeOptionMenu();
+      return;
+    }
+    setOptionMenu(nextMenu);
+    setOptionMenuOpen(true);
+    optionMenuProgress.setValue(0);
+    Animated.timing(optionMenuProgress, {
+      toValue: 1,
+      duration: 230,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }
+
+  function closeFloatingControlPanels() {
+    closeOptionMenu();
+  }
+
+  function clampTime(seconds: number) {
+    const safeSeconds = Math.max(0, Number(seconds) || 0);
+    return Math.min(duration > 0 ? duration : safeSeconds, safeSeconds);
+  }
+
+  function commitTimelinePosition(target: number) {
+    const safeTarget = clampTime(target);
+    timelineProgress.stopAnimation();
+    timelineProgress.setValue(getTimelinePositionForTime(safeTarget));
+    setCurrentTime(safeTarget);
+    return safeTarget;
+  }
+
+  function markPendingSeek(target: number) {
+    pendingSeekRef.current = {
+      target: clampTime(target),
+      requestedAt: Date.now(),
+    };
+  }
+
+  function requestYouTubePlayerSeek(target: number) {
+    inject(`window.__ofqPlayer && window.__ofqPlayer.seekTo(${target})`);
+  }
+
+  function retryPendingSeek(pendingSeek: PendingSeek) {
+    const now = Date.now();
+    if (now - pendingSeek.requestedAt < SEEK_RETRY_MS) return;
+    pendingSeek.requestedAt = now;
+    if (isYouTube) {
+      requestYouTubePlayerSeek(pendingSeek.target);
+      return;
+    }
+    void videoRef.current?.setPositionAsync(pendingSeek.target * 1000);
+  }
+
+  function shouldApplyIncomingPlaybackTime(nextTime: number) {
+    if (isScrubbingRef.current) return false;
+    const pendingSeek = pendingSeekRef.current;
+    if (!pendingSeek) return true;
+
+    const seekDelta = nextTime - pendingSeek.target;
+    const hasConfirmedSeek =
+      Math.abs(seekDelta) <= SEEK_CONFIRM_TOLERANCE_SECONDS ||
+      (isPlaying && seekDelta >= 0 && seekDelta <= SEEK_CONFIRM_PLAYING_TOLERANCE_SECONDS);
+    if (hasConfirmedSeek) {
+      pendingSeekRef.current = null;
+      return true;
+    }
+
+    retryPendingSeek(pendingSeek);
+    return false;
+  }
+
+  function updateDuration(nextDuration: number) {
+    const safeDuration = Math.max(0, Number(nextDuration) || 0);
+    setDuration((current) => (Math.abs(current - safeDuration) < 0.05 ? current : safeDuration));
+  }
+
   async function seekTo(seconds: number, autoPlay = false) {
+    initialSeekSecondsRef.current = null;
     if (autoPlay && !isFullscreen) {
       openFullscreen({ autoPlay: true, seekToSeconds: seconds });
       return;
     }
-    const target = Math.max(0, Math.min(duration || seconds, seconds));
-    setCurrentTime(target);
+    const target = commitTimelinePosition(seconds);
+    markPendingSeek(target);
     setShowControls(true);
     if (isYouTube) {
-      inject(`window.__ofqPlayer && window.__ofqPlayer.seekTo(${target})`);
+      if (isFullscreen) setHasStarted(true);
+      requestYouTubePlayerSeek(target);
       if (autoPlay) void play();
       return;
     }
@@ -541,6 +906,11 @@ export function AcademicVideoPlayer({
       return;
     }
 
+    if (optionMenu) {
+      closeFloatingControlPanels();
+      return;
+    }
+
     const x = event.nativeEvent.locationX;
     const surfaceWidth = isFullscreen ? width : playerWidth;
     const side = x >= surfaceWidth / 2 ? "right" : "left";
@@ -557,60 +927,185 @@ export function AcademicVideoPlayer({
     setShowControls((value) => !value);
   }
 
-  function seekFromProgressEvent(event: GestureResponderEvent) {
+  function rememberProgressTrackFrame(nextFrame: MeasuredRect) {
+    progressTrackFrameRef.current = nextFrame;
+    setProgressTrackWidth((current) => (Math.abs(current - nextFrame.width) < 0.5 ? current : nextFrame.width));
+  }
+
+  function measureProgressTrack() {
+    requestAnimationFrame(() => {
+      progressTrackRef.current?.measureInWindow((x, y, measuredWidth, measuredHeight) => {
+        if (measuredWidth <= 1 || measuredHeight <= 0) return;
+        rememberProgressTrackFrame({
+          x,
+          y,
+          width: measuredWidth,
+          height: measuredHeight,
+        });
+      });
+    });
+  }
+
+  function handleProgressTrackLayout(event: LayoutChangeEvent) {
+    const nextWidth = Math.max(1, event.nativeEvent.layout.width);
+    setProgressTrackWidth((current) => (Math.abs(current - nextWidth) < 0.5 ? current : nextWidth));
+    measureProgressTrack();
+  }
+
+  function getProgressTargetTime(event: GestureResponderEvent) {
+    const trackFrame = progressTrackFrameRef.current;
+    const trackWidth = trackFrame?.width && trackFrame.width > 1 ? trackFrame.width : progressTrackWidth;
+    if (duration <= 0 || trackWidth <= 1) return currentTime;
+    const pageX = Number(event.nativeEvent.pageX);
+    const localX = trackFrame && Number.isFinite(pageX) ? pageX - trackFrame.x : event.nativeEvent.locationX;
+    const ratio = Math.min(1, Math.max(0, localX / trackWidth));
+    return ratio * duration;
+  }
+
+  function getTimelinePositionForTime(seconds: number) {
+    if (duration <= 0 || progressTrackWidth <= 1) return 0;
+    const safeSeconds = Math.min(duration, Math.max(0, Number(seconds) || 0));
+    return (safeSeconds / duration) * progressTrackWidth;
+  }
+
+  function updateScrubPreview(target: number, forceLabelUpdate = false) {
+    const safeTarget = Math.min(duration, Math.max(0, Number(target) || 0));
+    scrubTimeRef.current = safeTarget;
+    timelineProgress.setValue(getTimelinePositionForTime(safeTarget));
+
+    const now = Date.now();
+    if (forceLabelUpdate || now - lastScrubLabelUpdateRef.current >= SCRUB_LABEL_UPDATE_MS) {
+      lastScrubLabelUpdateRef.current = now;
+      setScrubTime(safeTarget);
+    }
+  }
+
+  function beginProgressScrub(event: GestureResponderEvent) {
     if (duration <= 0) return;
-    const x = event.nativeEvent.locationX;
-    const ratio = Math.min(1, Math.max(0, x / progressTrackWidth));
-    void seekTo(ratio * duration, isPlaying);
-  }
-
-  function toggleMute() {
-    setVolume((value) => (value > 0 ? 0 : 78));
-  }
-
-  function rotateVideo() {
-    setRotationDegrees((value) => (value + 90) % 360);
+    measureProgressTrack();
+    const target = getProgressTargetTime(event);
+    isScrubbingRef.current = true;
+    pendingSeekRef.current = null;
+    timelineProgress.stopAnimation();
+    if (isYouTube && isFullscreen) setHasStarted(true);
+    updateScrubPreview(target, true);
     setShowControls(true);
+  }
+
+  function moveProgressScrub(event: GestureResponderEvent) {
+    if (duration <= 0 || !isScrubbingRef.current) return;
+    const target = getProgressTargetTime(event);
+    updateScrubPreview(target);
+  }
+
+  function finishProgressScrub(event?: GestureResponderEvent) {
+    if (duration <= 0) {
+      isScrubbingRef.current = false;
+      scrubTimeRef.current = null;
+      setScrubTime(null);
+      return;
+    }
+    const target = scrubTimeRef.current ?? (event ? getProgressTargetTime(event) : null);
+    isScrubbingRef.current = false;
+    scrubTimeRef.current = null;
+    setScrubTime(null);
+    if (target === null || target === undefined) return;
+    commitTimelinePosition(target);
+    setShowControls(true);
+    void seekTo(target, isPlaying);
+  }
+
+  function toggleFullscreenOrientation() {
+    const nextOrientation = fullscreenOrientation === "landscape" ? "portrait" : "landscape";
+    closeFloatingControlPanels();
+    setShowControls(true);
+    void lockFullscreenOrientation(nextOrientation);
+  }
+
+  function rememberSegmentButtonFrame(nextFrame: MeasuredRect) {
+    setSegmentButtonFrame((current) => {
+      if (
+        current &&
+        Math.abs(current.x - nextFrame.x) < 0.5 &&
+        Math.abs(current.y - nextFrame.y) < 0.5 &&
+        Math.abs(current.width - nextFrame.width) < 0.5 &&
+        Math.abs(current.height - nextFrame.height) < 0.5
+      ) {
+        return current;
+      }
+      return nextFrame;
+    });
+  }
+
+  function measureSegmentButton() {
+    requestAnimationFrame(() => {
+      segmentButtonRef.current?.measureInWindow((x, y, measuredWidth, measuredHeight) => {
+        if (measuredWidth <= 0 || measuredHeight <= 0) return;
+        rememberSegmentButtonFrame({
+          x,
+          y,
+          width: measuredWidth,
+          height: measuredHeight,
+        });
+      });
+    });
+  }
+
+  function handleSegmentPanelLayout(event: LayoutChangeEvent) {
+    const { width: measuredWidth, height: measuredHeight } = event.nativeEvent.layout;
+    if (measuredWidth <= 0 || measuredHeight <= 0) return;
+    setSegmentPanelSize((current) => {
+      if (
+        current &&
+        Math.abs(current.width - measuredWidth) < 0.5 &&
+        Math.abs(current.height - measuredHeight) < 0.5
+      ) {
+        return current;
+      }
+      return { width: measuredWidth, height: measuredHeight };
+    });
   }
 
   function openSegmentPanel() {
     if (normalizedSegments.length === 0) return;
+    closeFloatingControlPanels();
+    measureSegmentButton();
+    segmentPanelProgress.stopAnimation();
+    segmentPanelProgress.setValue(0);
     setSegmentPanelVisible(true);
     setSegmentPanelOpen(true);
     Animated.timing(segmentPanelProgress, {
       toValue: 1,
-      duration: 240,
-      easing: Easing.out(Easing.cubic),
+      duration: 320,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
       useNativeDriver: true,
     }).start();
   }
 
   function closeSegmentPanel() {
     setSegmentPanelOpen(false);
+    measureSegmentButton();
+    segmentPanelProgress.stopAnimation();
     Animated.timing(segmentPanelProgress, {
       toValue: 0,
-      duration: 190,
-      easing: Easing.in(Easing.cubic),
+      duration: 240,
+      easing: Easing.bezier(0.7, 0, 0.84, 0),
       useNativeDriver: true,
     }).start(({ finished }) => {
       if (finished) setSegmentPanelVisible(false);
     });
   }
 
-  function cyclePlaybackRate() {
-    const options = displayPlaybackRates;
-    const index = options.findIndex((value) => Math.abs(value - playbackRate) < 0.01);
-    const next = options[(index + 1 + options.length) % options.length] ?? 1;
-    setPlaybackRate(next);
+  function selectPlaybackRate(nextRate: number) {
+    setPlaybackRate(nextRate);
     setShowControls(true);
+    closeOptionMenu();
   }
 
-  function cycleQuality() {
-    const options = displayQualityLevels;
-    const index = options.indexOf(quality);
-    const next = options[(index + 1 + options.length) % options.length] ?? "auto";
-    setQuality(next);
+  function selectQuality(nextQuality: string) {
+    setQuality(nextQuality);
     setShowControls(true);
+    closeOptionMenu();
   }
 
   function handleWebMessage(event: WebViewMessageEvent) {
@@ -627,7 +1122,7 @@ export function AcademicVideoPlayer({
       };
       if (payload.type === "ready") {
         setReady(true);
-        setDuration(Number(payload.duration) || 0);
+        updateDuration(Number(payload.duration) || 0);
         if (Array.isArray(payload.qualityLevels) && payload.qualityLevels.length > 0) {
           setQualityLevels(Array.from(new Set([...payload.qualityLevels, "auto"])));
         }
@@ -643,8 +1138,11 @@ export function AcademicVideoPlayer({
         return;
       }
       if (payload.type === "time") {
-        setCurrentTime(Number(payload.currentTime) || 0);
-        setDuration(Number(payload.duration) || duration);
+        const nextTime = Number(payload.currentTime) || 0;
+        if (shouldApplyIncomingPlaybackTime(nextTime)) {
+          setCurrentTime(nextTime);
+        }
+        updateDuration(Number(payload.duration) || duration);
         return;
       }
       if (payload.type === "playing") {
@@ -672,9 +1170,60 @@ export function AcademicVideoPlayer({
     }
     setReady(true);
     setIsPlaying(status.isPlaying);
-    setDuration((status.durationMillis ?? 0) / 1000);
-    setCurrentTime(status.positionMillis / 1000);
+    updateDuration((status.durationMillis ?? 0) / 1000);
+    const nextTime = status.positionMillis / 1000;
+    if (shouldApplyIncomingPlaybackTime(nextTime)) {
+      setCurrentTime(nextTime);
+    }
     if (status.isPlaying) setHasStarted(true);
+  }
+
+  function renderOptionMenu(menu: ControlOptionMenu) {
+    if (optionMenu !== menu) return null;
+
+    const isQualityMenu = menu === "quality";
+    const options = isQualityMenu
+      ? displayQualityLevels.map((value) => ({
+          key: value,
+          label: labelQuality(value),
+          active: value === quality,
+          onPress: () => selectQuality(value),
+        }))
+      : displayPlaybackRates.map((value) => ({
+          key: String(value),
+          label: formatRate(value),
+          active: Math.abs(value - playbackRate) < 0.01,
+          onPress: () => selectPlaybackRate(value),
+        }));
+
+    return (
+      <Animated.View
+        pointerEvents={optionMenuOpen ? "auto" : "none"}
+        style={[
+          styles.optionMenuPanel,
+          isPortraitFullscreen ? styles.optionMenuPanelPortrait : null,
+          isLandscapeFullscreen ? styles.optionMenuPanelLandscape : null,
+          optionMenuAnimatedStyle,
+        ]}
+      >
+        <Text style={styles.optionMenuTitle}>{isQualityMenu ? "الجودة" : "السرعة"}</Text>
+        <ScrollView
+          style={[styles.optionMenuList, isLandscapeFullscreen ? styles.optionMenuListLandscape : null]}
+          showsVerticalScrollIndicator={false}
+        >
+          {options.map((item) => (
+            <Pressable
+              key={item.key}
+              style={[styles.optionMenuItem, item.active ? styles.optionMenuItemActive : null]}
+              onPress={item.onPress}
+            >
+              <Text style={[styles.optionMenuItemText, item.active ? styles.optionMenuItemTextActive : null]}>{item.label}</Text>
+              {item.active ? <Feather name="check" size={13} color="#fff" /> : null}
+            </Pressable>
+          ))}
+        </ScrollView>
+      </Animated.View>
+    );
   }
 
   return (
@@ -695,16 +1244,16 @@ export function AcademicVideoPlayer({
               height: mediaHeight,
               marginLeft: -mediaWidth / 2,
               marginTop: -mediaHeight / 2,
-              transform: [{ rotate: `${rotationDegrees}deg` }],
             },
           ]}
         >
         {isYouTube ? (
-          youTubeId ? (
+          youTubeId && isFullscreen ? (
             <WebView
               ref={webViewRef}
               source={{ html: webHtml, baseUrl: "https://www.youtube-nocookie.com" }}
               originWhitelist={["*"]}
+              pointerEvents="none"
               javaScriptEnabled
               allowsInlineMediaPlayback
               mediaPlaybackRequiresUserAction={false}
@@ -714,6 +1263,8 @@ export function AcademicVideoPlayer({
               onMessage={handleWebMessage}
               style={styles.webView}
             />
+          ) : youTubeId ? (
+            <View style={styles.cleanVideoSurface} />
           ) : (
             <View style={styles.videoFallback}><Text style={styles.videoFallbackText}>رابط الفيديو غير صالح</Text></View>
           )
@@ -733,22 +1284,45 @@ export function AcademicVideoPlayer({
           <View style={styles.videoFallback}><Text style={styles.videoFallbackText}>رابط الفيديو غير صالح</Text></View>
         )}
 
-        {resolvedPosterUrl && (!isFullscreen || !hasStarted) ? (
+        {shouldShowCleanYouTubeCover ? (
+          <View pointerEvents="none" style={styles.posterOverlay}>
+            {resolvedPosterUrl ? (
+              <>
+                <Image source={{ uri: resolvedPosterUrl }} style={styles.posterImage} contentFit="cover" />
+                {isFullscreen ? <View style={styles.posterScrim} /> : null}
+              </>
+            ) : (
+              <View style={styles.cleanVideoPlaceholder}>
+                <View style={styles.cleanVideoAccent} />
+                <Text style={styles.cleanVideoTitle} numberOfLines={2}>{toEnglishDigits(title)}</Text>
+                {subtitle ? <Text style={styles.cleanVideoSubtitle} numberOfLines={1}>{toEnglishDigits(subtitle)}</Text> : null}
+              </View>
+            )}
+          </View>
+        ) : shouldShowPosterOverlay && resolvedPosterUrl ? (
           <View pointerEvents="none" style={styles.posterOverlay}>
             <Image source={{ uri: resolvedPosterUrl }} style={styles.posterImage} contentFit="cover" />
-            <View style={styles.posterScrim} />
+            {isFullscreen ? <View style={styles.posterScrim} /> : null}
           </View>
         ) : null}
 
-        <View pointerEvents="none" style={styles.brandGuardTop} />
-        <View pointerEvents="none" style={styles.brandGuardBottom} />
-        <View pointerEvents="none" style={styles.brandGuardLeft} />
-        <View pointerEvents="none" style={styles.brandGuardRight} />
+        {isFullscreen ? (
+          <>
+            <View pointerEvents="none" style={styles.brandGuardTop} />
+            <View pointerEvents="none" style={styles.brandGuardBottom} />
+            <View pointerEvents="none" style={styles.brandGuardLeft} />
+            <View pointerEvents="none" style={styles.brandGuardRight} />
+          </>
+        ) : null}
 
-        {watermarkLabel ? (
+        {watermarkLabel && isFullscreen ? (
           <View
             pointerEvents="none"
-            style={[styles.watermark, isFullscreen ? styles.watermarkFullscreen : null]}
+            style={[
+              styles.watermark,
+              isFullscreen ? styles.watermarkFullscreen : null,
+              portraitVideoWatermarkStyle,
+            ]}
           >
             <Text style={styles.watermarkText} numberOfLines={1}>{toEnglishDigits(watermarkLabel)}</Text>
           </View>
@@ -757,18 +1331,10 @@ export function AcademicVideoPlayer({
 
         <Pressable style={StyleSheet.absoluteFill} onPress={handleSurfacePress} />
 
-        {!isFullscreen ? <View pointerEvents="none" style={styles.previewCleanLayer} /> : null}
-
         {seekToast ? (
           <View pointerEvents="none" style={styles.seekToast}>
             <Text style={styles.seekToastText}>{seekToast}</Text>
           </View>
-        ) : null}
-
-        {!isFullscreen ? (
-          <AnimatedPressable style={styles.previewPlayButton} onPress={() => void play()} pressedScale={0.9}>
-            <Feather name="play" size={36} color="#fff" />
-          </AnimatedPressable>
         ) : null}
 
         {error ? (
@@ -779,72 +1345,329 @@ export function AcademicVideoPlayer({
         ) : null}
 
         {isFullscreen ? (
-          <AnimatedPressable style={styles.fullscreenCloseButton} onPress={closeFullscreen} pressedScale={0.9}>
-            <Feather name="x" size={24} color="#fff" />
-          </AnimatedPressable>
+          <Animated.View
+            pointerEvents={showControls ? "auto" : "none"}
+            style={[styles.fullscreenCloseButtonLayer, closeButtonAnimatedStyle]}
+          >
+            <AnimatedPressable style={styles.fullscreenCloseButton} onPress={closeFullscreen} pressedScale={0.9}>
+              <Feather name="x" size={24} color="#fff" />
+            </AnimatedPressable>
+          </Animated.View>
         ) : null}
 
-        {isFullscreen && showControls ? (
-          <BlurView intensity={44} tint="dark" style={[styles.controls, isCompactControls ? styles.controlsCompact : null]}>
-            <View style={[styles.controlsTopRow, isCompactControls ? styles.controlsTopRowCompact : null]}>
-              <AnimatedPressable
-                style={[styles.controlIcon, styles.topRightControl]}
-                onPress={openSegmentPanel}
-                disabled={normalizedSegments.length === 0}
-              >
-                <Feather name="list" size={22} color={normalizedSegments.length > 0 ? "#fff" : "rgba(255,255,255,0.35)"} />
-              </AnimatedPressable>
+        {isFullscreen ? (
+          <Animated.View
+            pointerEvents={showControls ? "auto" : "none"}
+            style={[
+              styles.controls,
+              isCompactControls ? styles.controlsCompact : null,
+              isPortraitFullscreen ? styles.controlsPortrait : null,
+              isLandscapeFullscreen ? [styles.controlsLandscape, { left: landscapeControlInset, right: landscapeControlInset }] : null,
+              controlsAnimatedStyle,
+            ]}
+          >
+            <BlurView
+              pointerEvents="none"
+              intensity={44}
+              tint="dark"
+              style={[
+                styles.controlsSurface,
+                isCompactControls ? styles.controlsSurfaceCompact : null,
+                isPortraitFullscreen ? styles.controlsSurfacePortrait : null,
+                isLandscapeFullscreen ? styles.controlsSurfaceLandscape : null,
+              ]}
+            />
+            <View
+              style={[
+                styles.controlsContent,
+                isPortraitFullscreen ? styles.controlsContentPortrait : null,
+                isLandscapeFullscreen ? styles.controlsContentLandscape : null,
+              ]}
+            >
+            <View
+              style={[
+                styles.controlsTopRow,
+                isCompactControls ? styles.controlsTopRowCompact : null,
+                isPortraitFullscreen ? styles.controlsTopRowPortrait : null,
+                isLandscapeFullscreen ? styles.controlsTopRowLandscape : null,
+              ]}
+            >
+              {optionMenu ? (
+                <Pressable
+                  pointerEvents={optionMenuOpen ? "auto" : "none"}
+                  style={styles.optionMenuBackdrop}
+                  onPress={closeOptionMenu}
+                />
+              ) : null}
 
-              <View style={styles.transportRow}>
-                <AnimatedPressable style={styles.seekTenButton} onPress={() => seekBy(10)} pressedScale={0.88}>
-                  <Feather name="rotate-cw" size={26} color="#E5E7EB" />
+              <View
+                ref={segmentButtonRef}
+                collapsable={false}
+                style={[
+                  styles.segmentButtonAnchor,
+                  styles.topRightControl,
+                  isPortraitFullscreen ? styles.topSideControlPortrait : null,
+                  isLandscapeFullscreen ? styles.topSideControlLandscape : null,
+                ]}
+                onLayout={measureSegmentButton}
+              >
+                <AnimatedPressable
+                  style={[
+                    styles.controlIcon,
+                    isPortraitFullscreen ? styles.controlIconPortrait : null,
+                    isLandscapeFullscreen ? styles.controlIconLandscape : null,
+                  ]}
+                  onPress={openSegmentPanel}
+                  disabled={normalizedSegments.length === 0}
+                >
+                  <Feather name="list" size={22} color={normalizedSegments.length > 0 ? "#fff" : "rgba(255,255,255,0.35)"} />
+                </AnimatedPressable>
+              </View>
+
+              <View
+                style={[
+                  styles.transportRow,
+                  isPortraitFullscreen ? styles.transportRowPortrait : null,
+                  isLandscapeFullscreen ? styles.transportRowLandscape : null,
+                ]}
+              >
+                <AnimatedPressable
+                  style={[
+                    styles.seekTenButton,
+                    isPortraitFullscreen ? styles.seekTenButtonPortrait : null,
+                    isLandscapeFullscreen ? styles.seekTenButtonLandscape : null,
+                  ]}
+                  onPress={() => seekBy(10)}
+                  pressedScale={0.88}
+                >
+                  <Feather name="rotate-cw" size={isLandscapeFullscreen ? 22 : isPortraitFullscreen ? 23 : 26} color="#E5E7EB" />
                   <Text style={styles.seekTenText}>10</Text>
                 </AnimatedPressable>
-                <AnimatedPressable style={styles.playButton} onPress={togglePlayback} disabled={!ready && isYouTube} pressedScale={0.9}>
-                  <Feather name={isPlaying ? "pause" : "play"} size={30} color="#0F172A" />
+                <AnimatedPressable
+                  style={[
+                    styles.playButton,
+                    isPortraitFullscreen ? styles.playButtonPortrait : null,
+                    isLandscapeFullscreen ? styles.playButtonLandscape : null,
+                  ]}
+                  onPress={togglePlayback}
+                  disabled={!ready && isYouTube}
+                  pressedScale={0.9}
+                >
+                  <Feather name={isPlaying ? "pause" : "play"} size={isLandscapeFullscreen ? 25 : isPortraitFullscreen ? 27 : 30} color="#0F172A" />
                 </AnimatedPressable>
-                <AnimatedPressable style={styles.seekTenButton} onPress={() => seekBy(-10)} pressedScale={0.88}>
-                  <Feather name="rotate-ccw" size={26} color="#E5E7EB" />
+                <AnimatedPressable
+                  style={[
+                    styles.seekTenButton,
+                    isPortraitFullscreen ? styles.seekTenButtonPortrait : null,
+                    isLandscapeFullscreen ? styles.seekTenButtonLandscape : null,
+                  ]}
+                  onPress={() => seekBy(-10)}
+                  pressedScale={0.88}
+                >
+                  <Feather name="rotate-ccw" size={isLandscapeFullscreen ? 22 : isPortraitFullscreen ? 23 : 26} color="#E5E7EB" />
                   <Text style={styles.seekTenText}>10</Text>
                 </AnimatedPressable>
               </View>
 
-              <AnimatedPressable style={[styles.controlIcon, styles.topLeftControl]} onPress={rotateVideo}>
-                <Feather name="rotate-cw" size={20} color="#fff" />
+              <AnimatedPressable
+                style={[
+                  styles.controlIcon,
+                  isPortraitFullscreen ? styles.controlIconPortrait : null,
+                  isLandscapeFullscreen ? styles.controlIconLandscape : null,
+                  styles.topLeftControl,
+                  isPortraitFullscreen ? styles.topSideControlPortrait : null,
+                  isLandscapeFullscreen ? styles.topSideControlLandscape : null,
+                ]}
+                onPress={toggleFullscreenOrientation}
+                accessibilityRole="button"
+                accessibilityLabel={fullscreenOrientation === "landscape" ? "الرجوع للفول سكرين بالطول" : "الفول سكرين بالعرض"}
+              >
+                <Feather
+                  name={fullscreenOrientation === "landscape" ? "minimize-2" : "maximize-2"}
+                  size={isLandscapeFullscreen ? 18 : isPortraitFullscreen ? 19 : 20}
+                  color="#fff"
+                />
               </AnimatedPressable>
             </View>
 
-            <View style={[styles.controlsBottomRow, isCompactControls ? styles.controlsBottomRowCompact : null]}>
-              <View style={styles.timelineGroup}>
-                <Text style={styles.timeText}>{formatTime(currentTime)} / {formatTime(duration)}</Text>
+            <View
+              style={[
+                styles.controlsBottomRow,
+                isCompactControls ? styles.controlsBottomRowCompact : null,
+                isPortraitFullscreen ? styles.controlsBottomRowPortrait : null,
+                isLandscapeFullscreen ? styles.controlsBottomRowLandscape : null,
+              ]}
+            >
+              <View
+                style={[
+                  styles.timelineGroup,
+                  isPortraitFullscreen ? styles.timelineGroupPortrait : null,
+                  isLandscapeFullscreen ? styles.timelineGroupLandscape : null,
+                ]}
+              >
                 <View
-                  style={styles.progressTrack}
-                  onLayout={(event) => setProgressTrackWidth(Math.max(1, event.nativeEvent.layout.width))}
-                  onStartShouldSetResponder={() => true}
-                  onMoveShouldSetResponder={() => true}
-                  onResponderGrant={seekFromProgressEvent}
-                  onResponderMove={seekFromProgressEvent}
+                  style={[
+                    styles.timeRow,
+                    isPortraitFullscreen ? styles.timeRowPortrait : null,
+                    isLandscapeFullscreen ? styles.timeRowLandscape : null,
+                  ]}
                 >
-                  <View style={[styles.progressFill, { width: `${progress}%` }]} />
-                  <View style={[styles.progressKnob, { left: `${progress}%` }]} />
+                  <Text
+                    style={[
+                      styles.timeText,
+                      isPortraitFullscreen ? styles.timeTextPortrait : null,
+                      isLandscapeFullscreen ? styles.timeTextLandscape : null,
+                    ]}
+                  >
+                    {formatTime(displayedTime)}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.timeText,
+                      isPortraitFullscreen ? styles.timeTextPortrait : null,
+                      isLandscapeFullscreen ? styles.timeTextLandscape : null,
+                    ]}
+                  >
+                    {formatTime(duration)}
+                  </Text>
+                </View>
+                <View
+                  ref={progressTrackRef}
+                  collapsable={false}
+                  style={[
+                    styles.progressTrack,
+                    isPortraitFullscreen ? styles.progressTrackPortrait : null,
+                    isLandscapeFullscreen ? styles.progressTrackLandscape : null,
+                  ]}
+                  accessible
+                  accessibilityRole="adjustable"
+                  accessibilityLabel="شريط تقدم الفيديو"
+                  accessibilityValue={{
+                    min: 0,
+                    max: Math.max(1, Math.round(duration)),
+                    now: Math.round(Math.min(duration || displayedTime, displayedTime)),
+                    text: `${formatTime(displayedTime)} / ${formatTime(duration)}`,
+                  }}
+                  accessibilityActions={[
+                    { name: "decrement", label: "رجوع 10 ثوانٍ" },
+                    { name: "increment", label: "تقديم 10 ثوانٍ" },
+                  ]}
+                  onAccessibilityAction={(event) => {
+                    if (duration <= 0) return;
+                    if (event.nativeEvent.actionName === "increment") {
+                      void seekTo(currentTime + 10, isPlaying);
+                    }
+                    if (event.nativeEvent.actionName === "decrement") {
+                      void seekTo(currentTime - 10, isPlaying);
+                    }
+                  }}
+                  onLayout={handleProgressTrackLayout}
+                  onStartShouldSetResponder={() => true}
+                  onStartShouldSetResponderCapture={() => true}
+                  onMoveShouldSetResponder={() => true}
+                  onMoveShouldSetResponderCapture={() => true}
+                  onResponderGrant={beginProgressScrub}
+                  onResponderMove={moveProgressScrub}
+                  onResponderRelease={finishProgressScrub}
+                  onResponderTerminate={() => finishProgressScrub()}
+                  onResponderTerminationRequest={() => false}
+                >
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.progressBaseLine,
+                      isPortraitFullscreen ? styles.progressBaseLinePortrait : null,
+                      isLandscapeFullscreen ? styles.progressBaseLineLandscape : null,
+                    ]}
+                  />
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.progressFill,
+                      isPortraitFullscreen ? styles.progressFillPortrait : null,
+                      isLandscapeFullscreen ? styles.progressFillLandscape : null,
+                      { width: timelineProgress },
+                    ]}
+                  />
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.progressKnob,
+                      isPortraitFullscreen ? styles.progressKnobPortrait : null,
+                      isLandscapeFullscreen ? styles.progressKnobLandscape : null,
+                      { transform: [{ translateX: timelineProgress }] },
+                    ]}
+                  />
                 </View>
               </View>
 
-              <View style={styles.bottomControlsRow}>
-                <AnimatedPressable style={styles.volumeChip} onPress={toggleMute}>
-                  <Text style={styles.volumeText}>{volume}%</Text>
-                  <Feather name={volume === 0 ? "volume-x" : "volume-2"} size={19} color="#fff" />
-                </AnimatedPressable>
+              {optionMenu ? (
+                <Pressable
+                  pointerEvents={optionMenuOpen ? "auto" : "none"}
+                  style={styles.optionMenuBackdrop}
+                  onPress={closeOptionMenu}
+                />
+              ) : null}
 
-                <AnimatedPressable style={styles.optionChip} onPress={cycleQuality}>
-                  <Text style={styles.optionText}>{labelQuality(quality)}</Text>
-                </AnimatedPressable>
-                <AnimatedPressable style={styles.optionChip} onPress={cyclePlaybackRate}>
-                  <Text style={styles.optionText}>{formatRate(playbackRate)}</Text>
-                </AnimatedPressable>
+              <View
+                pointerEvents={optionMenu ? "box-none" : "auto"}
+                style={[
+                  styles.bottomControlsRow,
+                  isPortraitFullscreen ? styles.bottomControlsRowPortrait : null,
+                  isLandscapeFullscreen ? styles.bottomControlsRowLandscape : null,
+                ]}
+              >
+                <View style={[styles.controlChipAnchor, optionMenu === "quality" ? styles.controlChipAnchorActive : null]}>
+                  {renderOptionMenu("quality")}
+                  <AnimatedPressable
+                    style={[
+                      styles.optionChip,
+                      isPortraitFullscreen ? styles.mediaChipPortrait : null,
+                      isLandscapeFullscreen ? styles.mediaChipLandscape : null,
+                      optionMenu === "quality" && optionMenuOpen ? styles.mediaChipActive : null,
+                    ]}
+                    onPress={() => openOptionMenu("quality")}
+                  >
+                    <Text
+                      style={[
+                        styles.optionText,
+                        isPortraitFullscreen ? styles.mediaChipTextPortrait : null,
+                        isLandscapeFullscreen ? styles.mediaChipTextLandscape : null,
+                      ]}
+                    >
+                      {labelQuality(quality)}
+                    </Text>
+                    <Feather name="chevron-up" size={isLandscapeFullscreen ? 13 : 14} color="rgba(255,255,255,0.82)" />
+                  </AnimatedPressable>
+                </View>
+
+                <View style={[styles.controlChipAnchor, optionMenu === "speed" ? styles.controlChipAnchorActive : null]}>
+                  {renderOptionMenu("speed")}
+                  <AnimatedPressable
+                    style={[
+                      styles.optionChip,
+                      isPortraitFullscreen ? styles.mediaChipPortrait : null,
+                      isLandscapeFullscreen ? styles.mediaChipLandscape : null,
+                      optionMenu === "speed" && optionMenuOpen ? styles.mediaChipActive : null,
+                    ]}
+                    onPress={() => openOptionMenu("speed")}
+                  >
+                    <Text
+                      style={[
+                        styles.optionText,
+                        isPortraitFullscreen ? styles.mediaChipTextPortrait : null,
+                        isLandscapeFullscreen ? styles.mediaChipTextLandscape : null,
+                      ]}
+                    >
+                      {formatRate(playbackRate)}
+                    </Text>
+                    <Feather name="chevron-up" size={isLandscapeFullscreen ? 13 : 14} color="rgba(255,255,255,0.82)" />
+                  </AnimatedPressable>
+                </View>
               </View>
             </View>
-          </BlurView>
+            </View>
+          </Animated.View>
         ) : null}
 
         {segmentPanelVisible ? (
@@ -856,35 +1679,57 @@ export function AcademicVideoPlayer({
             />
             <Animated.View
               pointerEvents={segmentPanelOpen ? "auto" : "none"}
-              style={[styles.segmentPanel, segmentPanelAnimatedStyle]}
+              style={[
+                styles.segmentPanel,
+                isPortraitFullscreen ? styles.segmentPanelPortrait : null,
+                isLandscapeFullscreen
+                  ? [
+                      styles.segmentPanelLandscape,
+                      {
+                        left: width - landscapeControlInset - landscapeSegmentPanelWidth,
+                        bottom: 12,
+                        width: landscapeSegmentPanelWidth,
+                      },
+                    ]
+                  : null,
+                segmentPanelAnimatedStyle,
+              ]}
+              onLayout={handleSegmentPanelLayout}
             >
-              <View style={styles.segmentPanelHeader}>
-                <Text style={styles.segmentPanelTitle}>تقسيمات الدرس</Text>
-                <AnimatedPressable style={styles.segmentClose} onPress={closeSegmentPanel} pressedScale={0.88}>
-                  <Feather name="x" size={16} color="#fff" />
-                </AnimatedPressable>
-              </View>
-              <ScrollView style={styles.segmentPanelList} showsVerticalScrollIndicator={false}>
-                {normalizedSegments.map((segment) => (
-                  <AnimatedPressable
-                    key={`panel-${segment.id}-${segment.startSeconds}`}
-                    style={styles.segmentRow}
-                    onPress={() => {
-                      closeSegmentPanel();
-                      void seekTo(segment.startSeconds, true);
-                    }}
-                    pressedScale={0.97}
-                  >
-                    <View style={styles.segmentRowIcon}>
-                      <Feather name="play" size={15} color="#fff" />
-                    </View>
-                    <View style={styles.segmentRowBody}>
-                      <Text style={styles.segmentRowTitle} numberOfLines={1}>{toEnglishDigits(segment.title)}</Text>
-                      <Text style={styles.segmentRowMeta}>{segmentLabel(segment.segmentType)} · {formatTime(segment.startSeconds)}</Text>
-                    </View>
+              <BlurView pointerEvents="none" intensity={44} tint="dark" style={styles.segmentPanelSurface} />
+              <Animated.View style={[styles.segmentPanelContent, segmentPanelContentAnimatedStyle]}>
+                <View style={styles.segmentPanelHeader}>
+                  <AnimatedPressable style={styles.segmentClose} onPress={closeSegmentPanel} pressedScale={0.88}>
+                    <Feather name="x" size={16} color="#fff" />
                   </AnimatedPressable>
-                ))}
-              </ScrollView>
+                  <Text style={styles.segmentPanelTitle}>تقسيمات الدرس</Text>
+                </View>
+                <ScrollView
+                  style={styles.segmentPanelList}
+                  contentContainerStyle={styles.segmentPanelListContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {normalizedSegments.map((segment) => (
+                    <AnimatedPressable
+                      key={`panel-${segment.id}-${segment.startSeconds}`}
+                      style={styles.segmentRow}
+                      onPress={() => {
+                        closeSegmentPanel();
+                        void seekTo(segment.startSeconds, true);
+                      }}
+                      pressedScale={0.97}
+                    >
+                      <View style={styles.segmentRowIcon}>
+                        <Feather name="play" size={15} color="#fff" />
+                      </View>
+                      <View style={styles.segmentRowBody}>
+                        <Text style={styles.segmentRowTitle} numberOfLines={1}>{toEnglishDigits(segment.title)}</Text>
+                        <Text style={styles.segmentRowMeta}>{segmentLabel(segment.segmentType)} · {formatTime(segment.startSeconds)}</Text>
+                      </View>
+                    </AnimatedPressable>
+                  ))}
+                </ScrollView>
+              </Animated.View>
             </Animated.View>
           </>
         ) : null}
@@ -1050,6 +1895,40 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#fff",
   },
+  cleanVideoSurface: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#0B1120",
+  },
+  cleanVideoPlaceholder: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    backgroundColor: "#0B1120",
+  },
+  cleanVideoAccent: {
+    width: 54,
+    height: 4,
+    marginBottom: 13,
+    borderRadius: 999,
+    backgroundColor: "rgba(37,99,235,0.95)",
+  },
+  cleanVideoTitle: {
+    fontFamily: "Cairo_700Bold",
+    fontSize: 17,
+    lineHeight: 27,
+    color: "rgba(255,255,255,0.92)",
+    textAlign: "center",
+    writingDirection: "rtl",
+  },
+  cleanVideoSubtitle: {
+    marginTop: 4,
+    fontFamily: "Cairo_600SemiBold",
+    fontSize: 11,
+    color: "rgba(226,232,240,0.7)",
+    textAlign: "center",
+    writingDirection: "rtl",
+  },
   posterOverlay: {
     ...StyleSheet.absoluteFillObject,
   },
@@ -1146,28 +2025,13 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(2,6,23,0.42)",
   },
-  previewPlayButton: {
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-    width: 74,
-    height: 74,
-    marginLeft: -37,
-    marginTop: -37,
-    borderRadius: 37,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.primary,
-    shadowColor: COLORS.primary,
-    shadowOpacity: 0.28,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
-  },
-  fullscreenCloseButton: {
+  fullscreenCloseButtonLayer: {
     position: "absolute",
     top: 64,
     right: 18,
+    zIndex: 30,
+  },
+  fullscreenCloseButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
@@ -1181,7 +2045,6 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
     elevation: 8,
-    zIndex: 30,
   },
   controls: {
     position: "absolute",
@@ -1190,13 +2053,54 @@ const styles = StyleSheet.create({
     bottom: 14,
     minHeight: 118,
     borderRadius: 34,
+    overflow: "visible",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+    zIndex: 24,
+  },
+  controlsSurface: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 34,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.18)",
     backgroundColor: "rgba(10,13,18,0.9)",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+  },
+  controlsSurfacePortrait: {
+    borderRadius: 28,
+  },
+  controlsSurfaceLandscape: {
+    borderRadius: 26,
+  },
+  controlsSurfaceCompact: {
+    borderRadius: 26,
+  },
+  controlsContent: {
     gap: 10,
+    zIndex: 2,
+  },
+  controlsContentPortrait: {
+    gap: 5,
+  },
+  controlsContentLandscape: {
+    gap: 3,
+  },
+  controlsPortrait: {
+    left: 18,
+    right: 18,
+    bottom: 16,
+    minHeight: 0,
+    borderRadius: 28,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+  },
+  controlsLandscape: {
+    bottom: 12,
+    minHeight: 0,
+    borderRadius: 26,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   controlsCompact: {
     left: 10,
@@ -1211,6 +2115,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+  },
+  controlsTopRowPortrait: {
+    minHeight: 54,
+  },
+  controlsTopRowLandscape: {
+    minHeight: 40,
   },
   controlsTopRowCompact: {
     justifyContent: "center",
@@ -1268,6 +2178,12 @@ const styles = StyleSheet.create({
     gap: 12,
     flexShrink: 0,
   },
+  transportRowPortrait: {
+    gap: 11,
+  },
+  transportRowLandscape: {
+    gap: 9,
+  },
   controlIcon: {
     width: 44,
     height: 44,
@@ -1277,6 +2193,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: "rgba(255,255,255,0.07)",
+  },
+  controlIconPortrait: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  controlIconLandscape: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  segmentButtonAnchor: {
+    position: "absolute",
   },
   controlsActions: {
     minWidth: 144,
@@ -1295,6 +2224,12 @@ const styles = StyleSheet.create({
     left: 0,
     top: 10,
   },
+  topSideControlPortrait: {
+    top: 7,
+  },
+  topSideControlLandscape: {
+    top: 2,
+  },
   seekTenButton: {
     width: 48,
     height: 48,
@@ -1304,6 +2239,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.16)",
     backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  seekTenButtonPortrait: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+  },
+  seekTenButtonLandscape: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
   },
   seekTenText: {
     position: "absolute",
@@ -1324,98 +2269,294 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
   },
+  playButtonPortrait: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  playButtonLandscape: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+  },
   controlsBottomRow: {
+    position: "relative",
     flexDirection: "column",
     alignItems: "stretch",
     gap: 10,
   },
+  controlsBottomRowPortrait: {
+    gap: 6,
+  },
+  controlsBottomRowLandscape: {
+    gap: 4,
+  },
   controlsBottomRowCompact: {
     justifyContent: "center",
-  },
-  volumeChip: {
-    minWidth: 76,
-    height: 44,
-    borderRadius: 22,
-    paddingHorizontal: 12,
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.07)",
-  },
-  volumeText: {
-    fontFamily: "Cairo_700Bold",
-    fontSize: 12,
-    color: "#fff",
   },
   timelineGroup: {
     width: "100%",
     flexDirection: "column",
     alignItems: "stretch",
-    gap: 6,
+    gap: 8,
     direction: "ltr",
   },
+  timelineGroupPortrait: {
+    gap: 5,
+  },
+  timelineGroupLandscape: {
+    gap: 3,
+  },
+  timeRow: {
+    minHeight: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    direction: "ltr",
+  },
+  timeRowPortrait: {
+    minHeight: 16,
+  },
+  timeRowLandscape: {
+    minHeight: 14,
+  },
   timeText: {
-    alignSelf: "flex-start",
     fontFamily: "Cairo_600SemiBold",
     fontSize: 12,
     color: "rgba(255,255,255,0.84)",
     textAlign: "left",
+    includeFontPadding: false,
+  },
+  timeTextPortrait: {
+    fontSize: 11,
+  },
+  timeTextLandscape: {
+    fontSize: 10,
   },
   progressTrack: {
     width: "100%",
-    height: 24,
+    height: 34,
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.18)",
     justifyContent: "center",
     overflow: "visible",
     direction: "ltr",
   },
+  progressTrackPortrait: {
+    height: 28,
+  },
+  progressTrackLandscape: {
+    height: 22,
+  },
+  progressBaseLine: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 15,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(148,163,184,0.46)",
+  },
+  progressBaseLinePortrait: {
+    top: 12,
+    height: 3,
+  },
+  progressBaseLineLandscape: {
+    top: 9,
+    height: 3,
+  },
   progressFill: {
     position: "absolute",
     left: 0,
-    top: 9.5,
-    height: 5,
+    top: 15,
+    height: 4,
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.95)",
+    backgroundColor: "#FFFFFF",
+  },
+  progressFillPortrait: {
+    top: 12,
+    height: 3,
+  },
+  progressFillLandscape: {
+    top: 9,
+    height: 3,
   },
   progressKnob: {
     position: "absolute",
-    top: 4,
+    left: -9,
+    top: 8,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.9)",
+    shadowColor: "#000",
+    shadowOpacity: 0.24,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
+  },
+  progressKnobPortrait: {
+    left: -8,
+    top: 6,
     width: 16,
     height: 16,
-    marginLeft: -8,
     borderRadius: 8,
-    backgroundColor: "#fff",
+    borderWidth: 1,
+  },
+  progressKnobLandscape: {
+    left: -7,
+    top: 4,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1,
   },
   bottomControlsRow: {
+    position: "relative",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+    zIndex: 40,
+  },
+  bottomControlsRowPortrait: {
+    gap: 14,
+  },
+  bottomControlsRowLandscape: {
+    gap: 18,
   },
   optionChip: {
     minWidth: 62,
     height: 42,
     borderRadius: 21,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 4,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: "rgba(255,255,255,0.07)",
+  },
+  controlChipAnchor: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1,
+  },
+  controlChipAnchorActive: {
+    zIndex: 60,
+  },
+  optionMenuBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "transparent",
+    zIndex: 30,
+  },
+  mediaChipActive: {
+    borderColor: "rgba(255,255,255,0.28)",
+    backgroundColor: "rgba(255,255,255,0.13)",
+  },
+  mediaChipLandscape: {
+    minWidth: 54,
+    height: 30,
+    borderRadius: 15,
+    paddingHorizontal: 9,
+  },
+  mediaChipPortrait: {
+    minWidth: 64,
+    height: 36,
+    borderRadius: 18,
+    paddingHorizontal: 10,
   },
   optionText: {
     fontFamily: "Cairo_700Bold",
     fontSize: 12,
     color: "#fff",
   },
+  mediaChipTextLandscape: {
+    fontSize: 10,
+  },
+  mediaChipTextPortrait: {
+    fontSize: 11,
+  },
+  optionMenuPanel: {
+    position: "absolute",
+    bottom: 48,
+    left: "50%",
+    width: 118,
+    marginLeft: -59,
+    maxHeight: 148,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(15,23,42,0.96)",
+    padding: 7,
+    shadowColor: "#000",
+    shadowOpacity: 0.28,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
+    zIndex: 70,
+  },
+  optionMenuPanelPortrait: {
+    bottom: 44,
+    width: 112,
+    marginLeft: -56,
+    maxHeight: 132,
+  },
+  optionMenuPanelLandscape: {
+    bottom: 38,
+    width: 108,
+    marginLeft: -54,
+    maxHeight: 110,
+    borderRadius: 16,
+    padding: 6,
+  },
+  optionMenuTitle: {
+    marginBottom: 5,
+    fontFamily: "Cairo_700Bold",
+    fontSize: 10,
+    color: "rgba(226,232,240,0.72)",
+    textAlign: "center",
+  },
+  optionMenuList: {
+    maxHeight: 112,
+  },
+  optionMenuListLandscape: {
+    maxHeight: 78,
+  },
+  optionMenuItem: {
+    minHeight: 32,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    marginBottom: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  optionMenuItemActive: {
+    backgroundColor: "rgba(37,99,235,0.86)",
+  },
+  optionMenuItemText: {
+    flex: 1,
+    fontFamily: "Cairo_700Bold",
+    fontSize: 11,
+    color: "rgba(255,255,255,0.78)",
+    textAlign: "left",
+  },
+  optionMenuItemTextActive: {
+    color: "#fff",
+  },
   segmentPanelBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "transparent",
-    zIndex: 18,
+    zIndex: 82,
   },
   segmentPanel: {
     position: "absolute",
@@ -1425,24 +2566,48 @@ const styles = StyleSheet.create({
     maxHeight: 230,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
-    backgroundColor: "rgba(15,23,42,0.94)",
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(10,13,18,0.9)",
     overflow: "hidden",
-    zIndex: 19,
+    zIndex: 84,
+  },
+  segmentPanelSurface: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(10,13,18,0.9)",
+  },
+  segmentPanelContent: {
+    zIndex: 1,
+  },
+  segmentPanelPortrait: {
+    left: 18,
+    right: 18,
+    bottom: 16,
+    borderRadius: 28,
+  },
+  segmentPanelLandscape: {
+    right: undefined,
+    maxHeight: 188,
+    borderRadius: 26,
   },
   segmentPanelHeader: {
     minHeight: 48,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.1)",
     paddingHorizontal: 14,
-    flexDirection: "row-reverse",
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
+    direction: "ltr",
+    zIndex: 1,
   },
   segmentPanelTitle: {
+    flex: 1,
     fontFamily: "Cairo_700Bold",
     fontSize: 14,
     color: "#fff",
+    textAlign: "right",
+    writingDirection: "rtl",
   },
   segmentClose: {
     width: 30,
@@ -1453,16 +2618,23 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.08)",
   },
   segmentPanelList: {
-    padding: 10,
+    zIndex: 1,
+  },
+  segmentPanelListContent: {
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 10,
   },
   segmentRow: {
+    width: "100%",
     minHeight: 54,
     borderRadius: 16,
     paddingHorizontal: 10,
     marginBottom: 8,
-    flexDirection: "row-reverse",
+    flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    direction: "rtl",
     backgroundColor: "rgba(255,255,255,0.06)",
   },
   segmentRowIcon: {
@@ -1474,7 +2646,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   segmentRowBody: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 1,
     minWidth: 0,
     alignItems: "flex-end",
   },

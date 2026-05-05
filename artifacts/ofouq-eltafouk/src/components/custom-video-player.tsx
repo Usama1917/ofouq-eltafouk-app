@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ListVideo,
@@ -461,6 +461,8 @@ export function CustomVideoPlayer({
   const volumeWrapperRef = useRef<HTMLDivElement | null>(null);
   const volumeHideTimeoutRef = useRef<number | null>(null);
   const isVolumeDraggingRef = useRef(false);
+  const isSeekingRef = useRef(false);
+  const seekPreviewTimeRef = useRef<number | null>(null);
   const protectionHideTimeoutRef = useRef<number | null>(null);
   const protectionLockRef = useRef(false);
   const ytPlayerRef = useRef<YT.Player | null>(null);
@@ -505,8 +507,8 @@ export function CustomVideoPlayer({
   const [chapterThumbLoading, setChapterThumbLoading] = useState<Record<string, boolean>>({});
   const [chapterThumbBroken, setChapterThumbBroken] = useState<Record<string, boolean>>({});
   const watermarkLabel = useMemo(() => buildCleanWatermarkLabel(watermarkText, clockText), [clockText, watermarkText]);
-  const progressPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
   const previewSeconds = seekPreviewTime ?? currentTime;
+  const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (previewSeconds / duration) * 100)) : 0;
   const previewPercent = duration > 0 ? Math.min(100, Math.max(0, (previewSeconds / duration) * 100)) : 0;
   const customPosterUrl = posterUrl?.trim() || null;
   const youTubePosterUrl = youTubeId ? buildYouTubePosterUrl(youTubeId, youTubePosterQuality) : null;
@@ -654,7 +656,7 @@ export function CustomVideoPlayer({
       if (Number.isFinite(nextDuration)) {
         setDuration(nextDuration);
       }
-      if (Number.isFinite(nextCurrent)) {
+      if (Number.isFinite(nextCurrent) && !isSeekingRef.current) {
         setCurrentTime(nextCurrent);
       }
       return;
@@ -664,7 +666,9 @@ export function CustomVideoPlayer({
     if (!video) return;
 
     setDuration(Number.isFinite(video.duration) ? video.duration : 0);
-    setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0);
+    if (!isSeekingRef.current) {
+      setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0);
+    }
   }
 
   function startTicker() {
@@ -933,6 +937,34 @@ export function CustomVideoPlayer({
     if (!video) return;
     video.currentTime = safeTime;
     setCurrentTime(safeTime);
+  }
+
+  function setSeekPreview(nextTime: number) {
+    if (!Number.isFinite(nextTime)) return;
+    const hasKnownDuration = Number.isFinite(duration) && duration > 0;
+    const safeTime = hasKnownDuration ? Math.max(0, Math.min(nextTime, duration)) : Math.max(0, nextTime);
+    seekPreviewTimeRef.current = safeTime;
+    setSeekPreviewTime(safeTime);
+  }
+
+  function beginSeeking(nextTime?: number) {
+    isSeekingRef.current = true;
+    setIsSeeking(true);
+    setSeekPreview(Number.isFinite(nextTime) ? Number(nextTime) : currentTime);
+    setShowControls(true);
+  }
+
+  function finishSeeking(nextTime?: number) {
+    if (!isSeekingRef.current) return;
+    const target = Number.isFinite(nextTime) ? Number(nextTime) : seekPreviewTimeRef.current;
+
+    isSeekingRef.current = false;
+    seekPreviewTimeRef.current = null;
+    setIsSeeking(false);
+    setSeekPreviewTime(null);
+
+    if (target === null || target === undefined) return;
+    seekTo(target);
   }
 
   function jumpToSegment(
@@ -1215,6 +1247,10 @@ export function CustomVideoPlayer({
   }, [isVolumeDragging]);
 
   useEffect(() => {
+    isSeekingRef.current = isSeeking;
+  }, [isSeeking]);
+
+  useEffect(() => {
     if (!isVolumeDragging) return;
 
     const stopDragging = () => {
@@ -1243,18 +1279,21 @@ export function CustomVideoPlayer({
     if (!isSeeking) return;
 
     const stopSeeking = () => {
-      setIsSeeking(false);
-      setSeekPreviewTime(null);
+      finishSeeking();
     };
 
     window.addEventListener("pointerup", stopSeeking);
+    window.addEventListener("pointercancel", stopSeeking);
     window.addEventListener("mouseup", stopSeeking);
     window.addEventListener("touchend", stopSeeking);
+    window.addEventListener("touchcancel", stopSeeking);
 
     return () => {
       window.removeEventListener("pointerup", stopSeeking);
+      window.removeEventListener("pointercancel", stopSeeking);
       window.removeEventListener("mouseup", stopSeeking);
       window.removeEventListener("touchend", stopSeeking);
+      window.removeEventListener("touchcancel", stopSeeking);
     };
   }, [isSeeking]);
 
@@ -2221,38 +2260,55 @@ export function CustomVideoPlayer({
                       min={0}
                       max={Math.max(duration, 0.0001)}
                       step={0.1}
-                      value={Math.min(currentTime, duration || 0)}
+                      value={Math.min(previewSeconds, duration || 0)}
                       onChange={(event) => {
                         event.stopPropagation();
                         const value = Number.parseFloat(event.target.value);
-                        setSeekPreviewTime(value);
+                        if (isSeekingRef.current) {
+                          setSeekPreview(value);
+                          return;
+                        }
+                        seekPreviewTimeRef.current = null;
+                        setSeekPreviewTime(null);
                         seekTo(value);
                       }}
                       onClick={(event) => event.stopPropagation()}
                       onPointerDown={(event) => {
                         event.stopPropagation();
-                        setIsSeeking(true);
+                        beginSeeking(Number.parseFloat(event.currentTarget.value));
+                      }}
+                      onPointerUp={(event) => {
+                        event.stopPropagation();
+                        finishSeeking(Number.parseFloat(event.currentTarget.value));
                       }}
                       onMouseDown={(event) => {
                         event.stopPropagation();
-                        setIsSeeking(true);
+                        beginSeeking(Number.parseFloat(event.currentTarget.value));
+                      }}
+                      onMouseUp={(event) => {
+                        event.stopPropagation();
+                        finishSeeking(Number.parseFloat(event.currentTarget.value));
                       }}
                       onTouchStart={(event) => {
                         event.stopPropagation();
-                        setIsSeeking(true);
+                        beginSeeking(Number.parseFloat(event.currentTarget.value));
+                      }}
+                      onTouchEnd={(event) => {
+                        event.stopPropagation();
+                        finishSeeking();
                       }}
                       className="w-full ofq-progress-slider"
                       dir="ltr"
                       aria-label="شريط التقدم"
                       style={{
-                        background: `linear-gradient(to right, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.96) ${progressPercent}%, rgba(203,213,225,0.32) ${progressPercent}%, rgba(203,213,225,0.32) 100%)`,
-                      }}
+                        "--ofq-range-progress": `${progressPercent}%`,
+                      } as CSSProperties}
                     />
                   </div>
                 </div>
 
                 <span className="min-w-[94px] text-center text-xs font-semibold tracking-wide text-white/90">
-                  {formatTime(currentTime)} / {formatTime(duration)}
+                  {formatTime(previewSeconds)} / {formatTime(duration)}
                 </span>
 
                 <select
@@ -2366,8 +2422,8 @@ export function CustomVideoPlayer({
                       aria-label="مستوى الصوت"
                       dir="ltr"
                       style={{
-                        background: `linear-gradient(to right, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.96) ${volume}%, rgba(203,213,225,0.3) ${volume}%, rgba(203,213,225,0.3) 100%)`,
-                      }}
+                        "--ofq-range-progress": `${volume}%`,
+                      } as CSSProperties}
                     />
                   </div>
                 </div>
@@ -2592,35 +2648,50 @@ export function CustomVideoPlayer({
         }
         .ofq-progress-slider,
         .ofq-volume-slider {
+          --ofq-range-progress: 0%;
           -webkit-appearance: none;
           appearance: none;
-          height: 4px;
-          border-radius: 9999px;
+          height: 18px;
+          border-radius: 0;
           outline: none;
           border: 0;
-          background: rgba(203, 213, 225, 0.32);
-          transition: background 130ms linear;
+          background: transparent;
+          cursor: pointer;
+        }
+        .ofq-progress-slider::-webkit-slider-runnable-track,
+        .ofq-volume-slider::-webkit-slider-runnable-track {
+          height: 3px;
+          border: 0;
+          border-radius: 9999px;
+          background: linear-gradient(
+            to right,
+            rgba(255, 255, 255, 0.98) 0%,
+            rgba(255, 255, 255, 0.98) var(--ofq-range-progress),
+            rgba(156, 163, 175, 0.58) var(--ofq-range-progress),
+            rgba(156, 163, 175, 0.58) 100%
+          );
         }
         .ofq-progress-slider::-webkit-slider-thumb,
         .ofq-volume-slider::-webkit-slider-thumb {
           -webkit-appearance: none;
           appearance: none;
-          width: 12px;
-          height: 12px;
+          width: 16px;
+          height: 16px;
+          margin-top: -6.5px;
           border-radius: 9999px;
-          border: 1px solid rgba(255, 255, 255, 0.8);
-          background: rgba(255, 255, 255, 0.96);
+          border: 0;
+          background: #fff;
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.42);
           cursor: pointer;
           transition: transform 160ms ease;
         }
         .ofq-progress-slider::-moz-range-thumb,
         .ofq-volume-slider::-moz-range-thumb {
-          width: 12px;
-          height: 12px;
+          width: 16px;
+          height: 16px;
           border-radius: 9999px;
-          border: 1px solid rgba(255, 255, 255, 0.8);
-          background: rgba(255, 255, 255, 0.96);
+          border: 0;
+          background: #fff;
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.42);
           cursor: pointer;
           transition: transform 160ms ease;
@@ -2633,10 +2704,16 @@ export function CustomVideoPlayer({
         }
         .ofq-progress-slider::-moz-range-track,
         .ofq-volume-slider::-moz-range-track {
-          height: 4px;
+          height: 3px;
           border-radius: 9999px;
           border: 0;
-          background: rgba(203, 213, 225, 0.32);
+          background: rgba(156, 163, 175, 0.58);
+        }
+        .ofq-progress-slider::-moz-range-progress,
+        .ofq-volume-slider::-moz-range-progress {
+          height: 3px;
+          border-radius: 9999px;
+          background: rgba(255, 255, 255, 0.98);
         }
         .ofq-volume-slider-vertical {
           width: 112px;

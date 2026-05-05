@@ -32,6 +32,8 @@ async function start() {
       "videos",
       "subject_subscription_requests",
       "subject_subscriptions",
+      "notifications",
+      "lesson_watch_progress",
     ]);
     logger.info(
       { db: { source: databaseUrlSource, readyTimeoutMs: timeoutMs } },

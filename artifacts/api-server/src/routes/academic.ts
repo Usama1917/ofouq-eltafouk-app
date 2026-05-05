@@ -16,8 +16,10 @@ import {
   usersTable,
   subjectSubscriptionRequestsTable,
   subjectSubscriptionsTable,
+  notificationsTable,
+  lessonWatchProgressTable,
 } from "@workspace/db";
-import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, like } from "drizzle-orm";
 
 const router: IRouter = Router();
 const execFileAsync = promisify(execFile);
@@ -113,6 +115,327 @@ function normalizeSubscriptionCode(value: unknown) {
 function toNumber(value: unknown, fallback = 0) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toSeconds(value: unknown, fallback = 0) {
+  const parsed = Number.parseFloat(String(value ?? ""));
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : fallback;
+}
+
+function formatDurationLabel(seconds: number) {
+  const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hh = Math.floor(safe / 3600);
+  const mm = Math.floor((safe % 3600) / 60);
+  const ss = safe % 60;
+  if (hh > 0) return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+function getSegmentThumbnailSeed(video: unknown) {
+  const candidate = video as {
+    id?: number | null;
+    videoUrl?: string | null;
+    videoType?: string | null;
+    segments?: Array<{ id: number; startSeconds: number }> | null;
+  } | null;
+
+  if (!candidate?.id || !candidate.videoUrl || !Array.isArray(candidate.segments) || candidate.segments.length === 0) {
+    return null;
+  }
+
+  return {
+    videoId: candidate.id,
+    videoType: candidate.videoType === "upload" ? "upload" as const : "youtube" as const,
+    videoUrl: candidate.videoUrl,
+    segments: candidate.segments.map((segment) => ({
+      id: segment.id,
+      startSeconds: segment.startSeconds,
+    })),
+  };
+}
+
+function notificationData(data: Record<string, unknown>) {
+  return data;
+}
+
+async function createUserNotification(args: {
+  userId: number;
+  type: string;
+  title: string;
+  body: string;
+  tone?: "primary" | "success" | "warning" | "danger";
+  actionUrl?: string | null;
+  data?: Record<string, unknown>;
+  dedupeKey?: string | null;
+  availableAt?: Date;
+}) {
+  await db
+    .insert(notificationsTable)
+    .values({
+      userId: args.userId,
+      type: args.type,
+      title: args.title,
+      body: args.body,
+      tone: args.tone ?? "primary",
+      actionUrl: args.actionUrl ?? null,
+      data: notificationData(args.data ?? {}),
+      dedupeKey: args.dedupeKey ?? null,
+      availableAt: args.availableAt ?? new Date(),
+    })
+    .onConflictDoNothing();
+}
+
+async function upsertUserNotification(args: {
+  userId: number;
+  type: string;
+  title: string;
+  body: string;
+  tone?: "primary" | "success" | "warning" | "danger";
+  actionUrl?: string | null;
+  data?: Record<string, unknown>;
+  dedupeKey: string;
+  availableAt?: Date;
+}) {
+  const now = new Date();
+  await db
+    .insert(notificationsTable)
+    .values({
+      userId: args.userId,
+      type: args.type,
+      title: args.title,
+      body: args.body,
+      tone: args.tone ?? "primary",
+      actionUrl: args.actionUrl ?? null,
+      data: notificationData(args.data ?? {}),
+      dedupeKey: args.dedupeKey,
+      availableAt: args.availableAt ?? now,
+      createdAt: now,
+      readAt: null,
+    })
+    .onConflictDoUpdate({
+      target: [notificationsTable.userId, notificationsTable.dedupeKey],
+      set: {
+        title: args.title,
+        body: args.body,
+        tone: args.tone ?? "primary",
+        actionUrl: args.actionUrl ?? null,
+        data: notificationData(args.data ?? {}),
+        availableAt: args.availableAt ?? now,
+        readAt: null,
+        createdAt: now,
+      },
+    });
+}
+
+async function getSubjectNavigationContext(subjectId: number) {
+  const [context] = await db
+    .select({
+      subjectId: subjectsTable.id,
+      subjectName: subjectsTable.name,
+      yearId: academicYearsTable.id,
+      yearName: academicYearsTable.name,
+    })
+    .from(subjectsTable)
+    .innerJoin(academicYearsTable, eq(subjectsTable.yearId, academicYearsTable.id))
+    .where(eq(subjectsTable.id, subjectId))
+    .limit(1);
+
+  return context ?? null;
+}
+
+async function getLessonNavigationContext(lessonId: number) {
+  const [context] = await db
+    .select({
+      lessonId: lessonsTable.id,
+      lessonTitle: lessonsTable.title,
+      lessonIsPublished: lessonsTable.isPublished,
+      unitId: unitsTable.id,
+      unitName: unitsTable.name,
+      subjectId: subjectsTable.id,
+      subjectName: subjectsTable.name,
+      yearId: academicYearsTable.id,
+      yearName: academicYearsTable.name,
+      videoPublishStatus: videosTable.publishStatus,
+    })
+    .from(lessonsTable)
+    .innerJoin(unitsTable, eq(lessonsTable.unitId, unitsTable.id))
+    .innerJoin(subjectsTable, eq(unitsTable.subjectId, subjectsTable.id))
+    .innerJoin(academicYearsTable, eq(subjectsTable.yearId, academicYearsTable.id))
+    .leftJoin(videosTable, eq(lessonsTable.videoId, videosTable.id))
+    .where(eq(lessonsTable.id, lessonId))
+    .limit(1);
+
+  return context ?? null;
+}
+
+function subjectActionData(context: NonNullable<Awaited<ReturnType<typeof getSubjectNavigationContext>>>) {
+  return {
+    route: "units",
+    yearId: context.yearId,
+    yearName: context.yearName,
+    subjectId: context.subjectId,
+    subjectName: context.subjectName,
+  };
+}
+
+function subscribeActionData(context: NonNullable<Awaited<ReturnType<typeof getSubjectNavigationContext>>>, reviewNotes = "") {
+  return {
+    route: "subscribe",
+    yearId: context.yearId,
+    yearName: context.yearName,
+    subjectId: context.subjectId,
+    subjectName: context.subjectName,
+    reviewNotes,
+  };
+}
+
+function lessonActionData(
+  context: NonNullable<Awaited<ReturnType<typeof getLessonNavigationContext>>>,
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    route: "lesson",
+    yearId: context.yearId,
+    yearName: context.yearName,
+    subjectId: context.subjectId,
+    subjectName: context.subjectName,
+    unitId: context.unitId,
+    unitName: context.unitName,
+    lessonId: context.lessonId,
+    lessonTitle: context.lessonTitle,
+    ...extra,
+  };
+}
+
+async function notifySubscriptionRequestCreated(request: { id: number; studentId: number; subjectId: number }) {
+  const context = await getSubjectNavigationContext(request.subjectId);
+  if (!context) return;
+
+  await createUserNotification({
+    userId: request.studentId,
+    type: "subscription_pending",
+    title: `طلب اشتراكك في مادة ${context.subjectName} قيد المراجعة`,
+    body: "استلمنا صورة الكود وسيتم مراجعة طلبك في أقرب وقت.",
+    tone: "warning",
+    data: subscribeActionData(context),
+    dedupeKey: `subscription-request:${request.id}:pending`,
+  });
+}
+
+async function notifySubscriptionReviewed(request: {
+  id: number;
+  studentId: number;
+  subjectId: number;
+  status: string;
+  reviewNotes: string;
+}) {
+  const context = await getSubjectNavigationContext(request.subjectId);
+  if (!context) return;
+
+  if (request.status === "approved") {
+    await createUserNotification({
+      userId: request.studentId,
+      type: "subscription_approved",
+      title: `تم قبول اشتراكك في مادة ${context.subjectName}`,
+      body: `يمكنك الآن فتح وحدات ${context.subjectName} ومتابعة الدروس.`,
+      tone: "success",
+      data: subjectActionData(context),
+      dedupeKey: `subscription-request:${request.id}:approved`,
+    });
+    return;
+  }
+
+  if (request.status === "rejected") {
+    const reason = request.reviewNotes ? `سبب الرفض: ${request.reviewNotes}` : "راجع الطلب وحاول مرة أخرى بصورة كود أوضح.";
+    await createUserNotification({
+      userId: request.studentId,
+      type: "subscription_rejected",
+      title: `تم رفض طلب الاشتراك في مادة ${context.subjectName}`,
+      body: reason,
+      tone: "danger",
+      data: subscribeActionData(context, request.reviewNotes),
+      dedupeKey: `subscription-request:${request.id}:rejected`,
+    });
+  }
+}
+
+async function notifyPublishedLesson(lessonId: number) {
+  const context = await getLessonNavigationContext(lessonId);
+  if (!context || !context.lessonIsPublished || context.videoPublishStatus !== "published") return;
+
+  const subscribers = await db
+    .select({ studentId: subjectSubscriptionsTable.studentId })
+    .from(subjectSubscriptionsTable)
+    .innerJoin(usersTable, eq(subjectSubscriptionsTable.studentId, usersTable.id))
+    .where(
+      and(
+        eq(subjectSubscriptionsTable.subjectId, context.subjectId),
+        eq(subjectSubscriptionsTable.status, "active"),
+        eq(usersTable.status, "active"),
+      ),
+    );
+
+  if (subscribers.length === 0) return;
+
+  await db
+    .insert(notificationsTable)
+    .values(
+      subscribers.map((subscription) => ({
+        userId: subscription.studentId,
+        type: "new_lesson",
+        title: `درس جديد: "${context.lessonTitle}"`,
+        body: `تم إضافة الدرس في ${context.unitName} - مادة ${context.subjectName}.`,
+        tone: "primary",
+        data: notificationData(lessonActionData(context)),
+        dedupeKey: `new-lesson:${context.lessonId}:student:${subscription.studentId}`,
+      })),
+    )
+    .onConflictDoNothing();
+}
+
+function notificationDateKey(date = new Date()) {
+  return date.toISOString().slice(0, 10);
+}
+
+async function scheduleResumeLessonNotification(args: {
+  studentId: number;
+  context: NonNullable<Awaited<ReturnType<typeof getLessonNavigationContext>>>;
+  currentSeconds: number;
+  durationSeconds: number;
+}) {
+  const now = new Date();
+  const lessonDedupePrefix = `resume-lesson:${args.studentId}:${args.context.lessonId}:`;
+
+  await db
+    .delete(notificationsTable)
+    .where(
+      and(
+        eq(notificationsTable.userId, args.studentId),
+        eq(notificationsTable.type, "resume_lesson"),
+        like(notificationsTable.dedupeKey, `${lessonDedupePrefix}%`),
+        isNull(notificationsTable.readAt),
+        gt(notificationsTable.availableAt, now),
+      ),
+    );
+
+  const durationSeconds = Math.max(0, args.durationSeconds);
+  const currentSeconds = Math.max(0, Math.min(args.currentSeconds, durationSeconds > 0 ? durationSeconds : args.currentSeconds));
+  const progressRatio = durationSeconds > 0 ? currentSeconds / durationSeconds : 0;
+  const isCompleted = durationSeconds > 0 && progressRatio >= 0.9;
+  const shouldRemind = currentSeconds >= 60 && durationSeconds > 0 && progressRatio < 0.85 && !isCompleted;
+
+  if (!shouldRemind) return;
+
+  await upsertUserNotification({
+    userId: args.studentId,
+    type: "resume_lesson",
+    title: `استكمل مشاهدة "${args.context.lessonTitle}"`,
+    body: `وقفت عند ${formatDurationLabel(currentSeconds)} في "${args.context.lessonTitle}".`,
+    tone: "warning",
+    data: lessonActionData(args.context, { seekSeconds: currentSeconds }),
+    dedupeKey: `${lessonDedupePrefix}${notificationDateKey(now)}`,
+    availableAt: new Date(now.getTime() + 2 * 60 * 60 * 1000),
+  });
 }
 
 function getYouTubeId(url: string): string | null {
@@ -755,6 +1078,14 @@ router.post("/academic/subscription-requests", async (req, res) => {
       })
       .returning();
 
+    await notifySubscriptionRequestCreated({
+      id: created.id,
+      studentId: created.studentId,
+      subjectId: created.subjectId,
+    }).catch((err) => {
+      req.log.warn({ err, requestId: created.id }, "Failed to create pending subscription notification");
+    });
+
     res.status(201).json({
       request: created,
       message:
@@ -1021,6 +1352,15 @@ router.patch("/admin/subscription-requests/:id/status", async (req, res) => {
     });
 
     if (!updatedRequest) return res.status(404).json({ error: "الطلب غير موجود" });
+    await notifySubscriptionReviewed({
+      id: updatedRequest.id,
+      studentId: updatedRequest.studentId,
+      subjectId: updatedRequest.subjectId,
+      status: updatedRequest.status,
+      reviewNotes: updatedRequest.reviewNotes,
+    }).catch((err) => {
+      req.log.warn({ err, requestId: updatedRequest.id }, "Failed to create reviewed subscription notification");
+    });
     res.json(updatedRequest);
   } catch (err) {
     req.log.error({ err }, "Review subscription request error");
@@ -1263,6 +1603,68 @@ router.get("/academic/lessons/:lessonId", async (req, res) => {
     res.json(lesson);
   } catch (err) {
     req.log.error({ err }, "Failed to get lesson");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
+  try {
+    const student = await requireStudent(req, res);
+    if (!student) return;
+
+    const lessonId = parsePositiveInt(req.params.lessonId);
+    if (!lessonId) return res.status(400).json({ error: "معرف الدرس غير صالح" });
+
+    const lesson = await getLessonWithVideo(lessonId, true);
+    if (!lesson) return res.status(404).json({ error: "Lesson not found" });
+    if (!(await requireStudentSubjectAccess(req, res, lesson.subjectId))) return;
+
+    const context = await getLessonNavigationContext(lessonId);
+    if (!context) return res.status(404).json({ error: "Lesson not found" });
+
+    const fallbackDuration = toSeconds(lesson.video?.duration, 0);
+    const durationSeconds = toSeconds(req.body?.durationSeconds, fallbackDuration);
+    const currentSeconds = Math.min(toSeconds(req.body?.currentSeconds, 0), durationSeconds > 0 ? durationSeconds : Number.MAX_SAFE_INTEGER);
+    const completed = durationSeconds > 0 && currentSeconds / durationSeconds >= 0.9;
+    const now = new Date();
+
+    await db
+      .insert(lessonWatchProgressTable)
+      .values({
+        studentId: student.id,
+        lessonId,
+        currentSeconds,
+        durationSeconds,
+        completed,
+        lastWatchedAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [lessonWatchProgressTable.studentId, lessonWatchProgressTable.lessonId],
+        set: {
+          currentSeconds,
+          durationSeconds,
+          completed,
+          lastWatchedAt: now,
+          updatedAt: now,
+        },
+      });
+
+    await scheduleResumeLessonNotification({
+      studentId: student.id,
+      context,
+      currentSeconds,
+      durationSeconds,
+    });
+
+    res.json({
+      success: true,
+      currentSeconds,
+      durationSeconds,
+      completed,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to save lesson progress");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -1741,7 +2143,7 @@ router.get("/admin/academic/units/:unitId/lessons", async (req, res) => {
 
     const videoIds = lessons
       .map((lesson) => lesson.video?.id)
-      .filter((id): id is number => Number.isFinite(id) && id > 0);
+      .filter((id): id is number => typeof id === "number" && Number.isFinite(id) && id > 0);
 
     if (videoIds.length === 0) {
       return res.json(lessons);
@@ -1876,19 +2278,15 @@ router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
     });
 
     const lesson = await getLessonWithVideo(created.id, false);
-    if (lesson?.video?.id && lesson.video.videoUrl && Array.isArray(lesson.video.segments) && lesson.video.segments.length > 0) {
-      void primeVideoSegmentThumbnails({
-        videoId: lesson.video.id,
-        videoType: lesson.video.videoType,
-        videoUrl: lesson.video.videoUrl,
-        segments: lesson.video.segments.map((segment) => ({
-          id: segment.id,
-          startSeconds: segment.startSeconds,
-        })),
-      }).catch((err) => {
-        req.log.warn({ err, lessonId: lesson.id }, "Segment thumbnail pre-generation failed");
+    const segmentSeed = getSegmentThumbnailSeed(lesson?.video);
+    if (segmentSeed) {
+      void primeVideoSegmentThumbnails(segmentSeed).catch((err) => {
+        req.log.warn({ err, lessonId: created.id }, "Segment thumbnail pre-generation failed");
       });
     }
+    await notifyPublishedLesson(created.id).catch((err) => {
+      req.log.warn({ err, lessonId: created.id }, "Failed to create new lesson notifications");
+    });
     res.status(201).json(lesson);
   } catch (err) {
     req.log.error({ err }, "Failed to create lesson");
@@ -1911,6 +2309,7 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
         id: lessonsTable.id,
         unitId: lessonsTable.unitId,
         videoId: lessonsTable.videoId,
+        isPublished: lessonsTable.isPublished,
       })
       .from(lessonsTable)
       .where(eq(lessonsTable.id, lessonId))
@@ -2028,17 +2427,15 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
     });
 
     if (!updated) return res.status(404).json({ error: "الدرس غير موجود" });
-    if (updated.video?.id && updated.video.videoUrl && Array.isArray(updated.video.segments) && updated.video.segments.length > 0) {
-      void primeVideoSegmentThumbnails({
-        videoId: updated.video.id,
-        videoType: updated.video.videoType,
-        videoUrl: updated.video.videoUrl,
-        segments: updated.video.segments.map((segment) => ({
-          id: segment.id,
-          startSeconds: segment.startSeconds,
-        })),
-      }).catch((err) => {
+    const segmentSeed = getSegmentThumbnailSeed(updated.video);
+    if (segmentSeed) {
+      void primeVideoSegmentThumbnails(segmentSeed).catch((err) => {
         req.log.warn({ err, lessonId }, "Segment thumbnail pre-generation failed after lesson update");
+      });
+    }
+    if (!existing.isPublished && updated.isPublished) {
+      await notifyPublishedLesson(lessonId).catch((err) => {
+        req.log.warn({ err, lessonId }, "Failed to create new lesson notifications after publish");
       });
     }
     res.json(updated);
