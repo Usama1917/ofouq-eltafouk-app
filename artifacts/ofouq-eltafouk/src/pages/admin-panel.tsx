@@ -98,6 +98,10 @@ const DEFAULT_MATERIAL_OPTIONS = ["علوم", "رياضيات", "لغة عربي
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const apiPath = (path: string) => `${BASE}${path}`;
 
+function countUnreadSupportChats(conversations: SupportConversationItem[]) {
+  return conversations.filter((conversation) => Number(conversation.unreadCount) > 0).length;
+}
+
 // ── Preview Modal ──────────────────────────────────────────────────────────
 function PreviewModal({ title, content, onConfirm, onCancel }: {
   title: string; content: React.ReactNode; onConfirm: () => void; onCancel: () => void;
@@ -1445,7 +1449,13 @@ function SubscriptionRequestsTab({ token }: { token: string | null }) {
   );
 }
 
-function SupportMessagesTab({ token }: { token: string | null }) {
+function SupportMessagesTab({
+  token,
+  onUnreadChatCountChange,
+}: {
+  token: string | null;
+  onUnreadChatCountChange?: (count: number) => void;
+}) {
   const [conversations, setConversations] = useState<SupportConversationItem[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [messages, setMessages] = useState<SupportMessageItem[]>([]);
@@ -1494,15 +1504,22 @@ function SupportMessagesTab({ token }: { token: string | null }) {
         throw new Error((data as any)?.error || "تعذر تحميل محادثات الدعم");
       }
       const items = Array.isArray(data) ? data : [];
-      setConversations(items);
 
       const nextSelectedId = preferredSelectedId && items.some((item) => item.id === preferredSelectedId)
         ? preferredSelectedId
         : items[0]?.id ?? null;
       setSelectedId(nextSelectedId);
+
+      let nextItems = items;
       if (nextSelectedId) {
         await loadMessages(nextSelectedId);
+        nextItems = items.map((item) => (
+          item.id === nextSelectedId ? { ...item, unreadCount: 0 } : item
+        ));
       }
+
+      setConversations(nextItems);
+      onUnreadChatCountChange?.(countUnreadSupportChats(nextItems));
     } catch (err: any) {
       setError(err?.message || "تعذر تحميل محادثات الدعم");
       setConversations([]);
@@ -1717,6 +1734,42 @@ export default function AdminPanel() {
   const { user, token, logout } = useAuth();
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [supportUnreadChatCount, setSupportUnreadChatCount] = useState(0);
+  const isAdminUser = Boolean(user && (user.role === "admin" || user.role === "owner"));
+
+  useEffect(() => {
+    if (!token || !isAdminUser) {
+      setSupportUnreadChatCount(0);
+      return;
+    }
+
+    let active = true;
+
+    const loadUnreadSupportChats = async () => {
+      try {
+        const res = await fetch(apiPath("/api/admin/support/conversations"), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => []);
+        if (!res.ok || !Array.isArray(data)) return;
+        if (active) {
+          setSupportUnreadChatCount(countUnreadSupportChats(data));
+        }
+      } catch {
+        // keep the last known count
+      }
+    };
+
+    void loadUnreadSupportChats();
+    const timer = window.setInterval(() => {
+      void loadUnreadSupportChats();
+    }, 12000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [token, isAdminUser]);
 
   if (!user || (user.role !== "admin" && user.role !== "owner")) {
     setLocation("/admin-login");
@@ -1728,7 +1781,7 @@ export default function AdminPanel() {
     users: <UsersTab />,
     academic: <AcademicTab />,
     subscriptionRequests: <SubscriptionRequestsTab token={token} />,
-    supportMessages: <SupportMessagesTab token={token} />,
+    supportMessages: <SupportMessagesTab token={token} onUnreadChatCountChange={setSupportUnreadChatCount} />,
     materials: <MaterialsTab />,
     books: <BooksTab />,
     posts: <PostsTab />,
@@ -1755,7 +1808,16 @@ export default function AdminPanel() {
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all ${tab === t.id ? "bg-primary text-white shadow-md shadow-primary/25" : "text-muted-foreground hover:bg-white/60 hover:text-foreground"}`}>
               <t.icon className="w-4.5 h-4.5 flex-shrink-0" />
-              {t.label}
+              <span className="truncate">{t.label}</span>
+              {t.id === "supportMessages" && supportUnreadChatCount > 0 ? (
+                <span
+                  className={`mr-auto min-w-5 h-5 px-1.5 rounded-full text-[11px] font-black flex items-center justify-center ${
+                    tab === t.id ? "bg-white text-primary" : "bg-primary text-white"
+                  }`}
+                >
+                  {supportUnreadChatCount.toLocaleString("ar-EG")}
+                </span>
+              ) : null}
             </button>
           ))}
         </nav>
