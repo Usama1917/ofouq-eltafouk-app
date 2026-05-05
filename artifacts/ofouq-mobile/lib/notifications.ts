@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/api";
 export type NotificationTone = "primary" | "success" | "warning" | "danger";
 
 export type NotificationActionData = {
-  route?: "units" | "subscribe" | "lesson";
+  route?: "units" | "subscribe" | "lesson" | "supportChat";
   yearId?: number | string;
   yearName?: string;
   subjectId?: number | string;
@@ -14,6 +14,8 @@ export type NotificationActionData = {
   unitName?: string;
   lessonId?: number | string;
   lessonTitle?: string;
+  conversationId?: number | string;
+  messageId?: number | string;
   seekSeconds?: number | string;
   reviewNotes?: string;
 };
@@ -64,6 +66,11 @@ function cleanParam(value: unknown) {
 
 export function openNotificationTarget(notification: AppNotification) {
   const data = notification.data ?? {};
+
+  if (data.route === "supportChat") {
+    router.push("/(tabs)/settings/support-chat" as any);
+    return;
+  }
 
   if (data.route === "units") {
     router.push({

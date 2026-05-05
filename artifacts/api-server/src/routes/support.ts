@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import {
   db,
+  notificationsTable,
   supportConversationsTable,
   supportMessagesTable,
   usersTable,
@@ -86,6 +87,33 @@ async function getOrCreateConversation(userId: number) {
 
 function normalizeMessageBody(value: unknown) {
   return String(value ?? "").trim().slice(0, 2000);
+}
+
+function notificationPreview(value: string) {
+  const trimmed = value.trim();
+  return trimmed.length > 120 ? `${trimmed.slice(0, 117)}...` : trimmed;
+}
+
+async function createSupportReplyNotification(args: {
+  userId: number;
+  conversationId: number;
+  messageId: number;
+  body: string;
+}) {
+  await db.insert(notificationsTable).values({
+    userId: args.userId,
+    type: "support_reply",
+    title: "رد جديد من دعم التطبيق",
+    body: notificationPreview(args.body) || "لديك رد جديد من فريق الدعم.",
+    tone: "primary",
+    actionUrl: "/(tabs)/settings/support-chat",
+    data: {
+      route: "supportChat",
+      conversationId: args.conversationId,
+      messageId: args.messageId,
+    },
+    dedupeKey: `support-reply:${args.messageId}`,
+  });
 }
 
 async function listConversationMessages(conversationId: number) {
@@ -308,7 +336,10 @@ router.post("/admin/support/conversations/:id/messages", async (req, res) => {
     }
 
     const [conversation] = await db
-      .select({ id: supportConversationsTable.id })
+      .select({
+        id: supportConversationsTable.id,
+        userId: supportConversationsTable.userId,
+      })
       .from(supportConversationsTable)
       .where(eq(supportConversationsTable.id, conversationId))
       .limit(1);
@@ -333,6 +364,15 @@ router.post("/admin/support/conversations/:id/messages", async (req, res) => {
       .update(supportConversationsTable)
       .set({ status: "open", lastMessageAt: now, updatedAt: now })
       .where(eq(supportConversationsTable.id, conversationId));
+
+    await createSupportReplyNotification({
+      userId: conversation.userId,
+      conversationId,
+      messageId: message.id,
+      body,
+    }).catch((err) => {
+      req.log.warn({ err, conversationId, messageId: message.id }, "Failed to create support reply notification");
+    });
 
     res.status(201).json(message);
   } catch (err) {

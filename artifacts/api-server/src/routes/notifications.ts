@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, notificationsTable, usersTable } from "@workspace/db";
-import { and, count, desc, eq, isNull, lte } from "drizzle-orm";
+import { and, count, desc, eq, isNull, lte, sql } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -39,7 +39,6 @@ async function requireAuthenticatedUser(req: any, res: any) {
 }
 
 async function getUnreadCount(userId: number) {
-  const now = new Date();
   const [summary] = await db
     .select({ unreadCount: count() })
     .from(notificationsTable)
@@ -47,7 +46,7 @@ async function getUnreadCount(userId: number) {
       and(
         eq(notificationsTable.userId, userId),
         isNull(notificationsTable.readAt),
-        lte(notificationsTable.availableAt, now),
+        lte(notificationsTable.availableAt, sql`now()`),
       ),
     );
 
@@ -71,7 +70,6 @@ router.get("/notifications", async (req, res): Promise<void> => {
     const user = await requireAuthenticatedUser(req, res);
     if (!user) return;
 
-    const now = new Date();
     const limit = Math.min(100, Math.max(1, parsePositiveInt(String(req.query.limit ?? "50")) ?? 50));
     const items = await db
       .select({
@@ -87,7 +85,7 @@ router.get("/notifications", async (req, res): Promise<void> => {
         createdAt: notificationsTable.createdAt,
       })
       .from(notificationsTable)
-      .where(and(eq(notificationsTable.userId, user.id), lte(notificationsTable.availableAt, now)))
+      .where(and(eq(notificationsTable.userId, user.id), lte(notificationsTable.availableAt, sql`now()`)))
       .orderBy(desc(notificationsTable.createdAt), desc(notificationsTable.id))
       .limit(limit);
 
@@ -142,7 +140,7 @@ router.post("/notifications/read-all", async (req, res): Promise<void> => {
         and(
           eq(notificationsTable.userId, user.id),
           isNull(notificationsTable.readAt),
-          lte(notificationsTable.availableAt, now),
+          lte(notificationsTable.availableAt, sql`now()`),
         ),
       );
 
