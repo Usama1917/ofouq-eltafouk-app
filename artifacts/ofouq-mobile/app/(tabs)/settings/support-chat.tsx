@@ -495,6 +495,7 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   quickTitle: {
+    width: "100%",
     fontFamily: "Cairo_700Bold",
     fontSize: 12,
     paddingHorizontal: 18,
