@@ -6,6 +6,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -75,6 +76,7 @@ export default function SupportChatScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const quickQuestions = language === "ar" ? QUICK_QUESTIONS_AR : QUICK_QUESTIONS_EN;
 
   const queryKey = ["support", "me", token] as const;
@@ -100,6 +102,18 @@ export default function SupportChatScreen() {
     }, 80);
     return () => clearTimeout(timeout);
   }, [messages.length]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
+    const hideSubscription = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   async function sendSupportMessage(rawBody: string) {
     if (!token) {
@@ -316,7 +330,7 @@ export default function SupportChatScreen() {
               style={[
                 styles.composer,
                 {
-                  paddingBottom: insets.bottom + TAB_BAR_CLEARANCE,
+                  paddingBottom: insets.bottom + (isKeyboardVisible ? 10 : TAB_BAR_CLEARANCE),
                   backgroundColor: colors.background,
                   borderTopColor: colors.border,
                   flexDirection: rowDirection,
