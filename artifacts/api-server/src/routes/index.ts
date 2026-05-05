@@ -12,6 +12,7 @@ import moderatorRouter from "./moderator";
 import authRouter from "./auth";
 import academicRouter from "./academic";
 import notificationsRouter from "./notifications";
+import supportRouter from "./support";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(moderatorRouter);
 router.use(authRouter);
 router.use(academicRouter);
 router.use(notificationsRouter);
+router.use(supportRouter);
 
 export default router;

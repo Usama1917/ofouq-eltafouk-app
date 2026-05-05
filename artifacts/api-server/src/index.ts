@@ -34,6 +34,8 @@ async function start() {
       "subject_subscriptions",
       "notifications",
       "lesson_watch_progress",
+      "support_conversations",
+      "support_messages",
     ]);
     logger.info(
       { db: { source: databaseUrlSource, readyTimeoutMs: timeoutMs } },

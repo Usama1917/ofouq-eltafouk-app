@@ -4,7 +4,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React from "react";
 import {
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -33,10 +32,6 @@ export default function SettingsScreen() {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const avatarUri = resolveMediaUrl(user?.avatarUrl);
-
-  function handleContactPress() {
-    void Linking.openURL("tel:17057");
-  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -123,7 +118,7 @@ export default function SettingsScreen() {
 
         <View style={[styles.contactCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Pressable
-            onPress={handleContactPress}
+            onPress={() => router.push("/(tabs)/settings/contact" as any)}
             accessibilityRole="button"
             style={({ pressed }) => [
               styles.contactRow,

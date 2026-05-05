@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, 
   Flag, Megaphone, Plus, Edit, Trash2, Eye, Check, X, ArrowUp, ArrowDown,
-  TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap, ImagePlus, TicketPercent, Truck
+  TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap, ImagePlus, TicketPercent, Truck, Send
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
@@ -17,8 +17,35 @@ import {
 import { Logo } from "@/components/logo";
 import { AcademicTab } from "./admin-academic";
 
-type Tab = "dashboard" | "users" | "books" | "posts" | "reports" | "banners" | "academic" | "subscriptionRequests" | "materials";
+type Tab = "dashboard" | "users" | "books" | "posts" | "reports" | "banners" | "academic" | "subscriptionRequests" | "supportMessages" | "materials";
 type Material = { id: number; name: string; classification?: string; sortOrder?: number; createdAt?: string };
+type SupportConversationItem = {
+  id: number;
+  status: string;
+  lastMessageAt: string;
+  user: {
+    id: number;
+    name: string;
+    email: string;
+    role: string;
+    avatarUrl?: string | null;
+  };
+  lastMessage?: {
+    id: number;
+    body: string;
+    senderRole: string;
+    createdAt: string;
+  } | null;
+  unreadCount: number;
+};
+type SupportMessageItem = {
+  id: number;
+  conversationId: number;
+  senderId?: number | null;
+  senderRole: string;
+  body: string;
+  createdAt: string;
+};
 type SubscriptionRequestItem = {
   id: number;
   code: string;
@@ -60,6 +87,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "users", label: "المستخدمون", icon: Users },
   { id: "academic", label: "المحتوى الأكاديمي", icon: GraduationCap },
   { id: "subscriptionRequests", label: "طلبات الاشتراك", icon: TicketPercent },
+  { id: "supportMessages", label: "رسائل المستخدمين", icon: MessageSquare },
   { id: "books", label: "الكتب", icon: BookOpen },
   { id: "posts", label: "المنشورات", icon: MessageSquare },
   { id: "reports", label: "التقارير", icon: Flag },
@@ -1417,6 +1445,273 @@ function SubscriptionRequestsTab({ token }: { token: string | null }) {
   );
 }
 
+function SupportMessagesTab({ token }: { token: string | null }) {
+  const [conversations, setConversations] = useState<SupportConversationItem[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [messages, setMessages] = useState<SupportMessageItem[]>([]);
+  const [reply, setReply] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+
+  const selectedConversation = conversations.find((item) => item.id === selectedId) ?? null;
+
+  const authHeaders = () => ({
+    Authorization: `Bearer ${token}`,
+  });
+
+  const loadMessages = async (conversationId: number) => {
+    if (!token) return;
+    try {
+      setMessagesLoading(true);
+      const res = await fetch(apiPath(`/api/admin/support/conversations/${conversationId}/messages`), {
+        headers: authHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as any)?.error || "تعذر تحميل الرسائل");
+      }
+      setMessages(Array.isArray((data as any).messages) ? (data as any).messages : []);
+    } catch (err: any) {
+      setError(err?.message || "تعذر تحميل الرسائل");
+      setMessages([]);
+    } finally {
+      setMessagesLoading(false);
+    }
+  };
+
+  const loadConversations = async (preferredSelectedId = selectedId) => {
+    if (!token) return;
+    try {
+      setLoading(true);
+      setError("");
+      const res = await fetch(apiPath("/api/admin/support/conversations"), {
+        headers: authHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as any)?.error || "تعذر تحميل محادثات الدعم");
+      }
+      const items = Array.isArray(data) ? data : [];
+      setConversations(items);
+
+      const nextSelectedId = preferredSelectedId && items.some((item) => item.id === preferredSelectedId)
+        ? preferredSelectedId
+        : items[0]?.id ?? null;
+      setSelectedId(nextSelectedId);
+      if (nextSelectedId) {
+        await loadMessages(nextSelectedId);
+      }
+    } catch (err: any) {
+      setError(err?.message || "تعذر تحميل محادثات الدعم");
+      setConversations([]);
+      setMessages([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadConversations();
+    const timer = window.setInterval(() => {
+      void loadConversations();
+    }, 9000);
+    return () => window.clearInterval(timer);
+  }, [token, selectedId]);
+
+  const handleSelectConversation = async (conversationId: number) => {
+    setSelectedId(conversationId);
+    await loadConversations(conversationId);
+  };
+
+  const handleSendReply = async () => {
+    if (!token || !selectedId) return;
+    const body = reply.trim();
+    if (!body) return;
+
+    try {
+      setSending(true);
+      const res = await fetch(apiPath(`/api/admin/support/conversations/${selectedId}/messages`), {
+        method: "POST",
+        headers: {
+          ...authHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ body }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as any)?.error || "تعذر إرسال الرد");
+      }
+      setReply("");
+      await loadMessages(selectedId);
+      await loadConversations();
+    } catch (err: any) {
+      alert(err?.message || "تعذر إرسال الرد");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (!token) {
+    return (
+      <div className="glass-card p-6 text-center text-muted-foreground">
+        يجب تسجيل الدخول كمشرف لعرض رسائل المستخدمين.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-display font-bold">رسائل المستخدمين</h2>
+          <p className="text-sm text-muted-foreground mt-1">تابع محادثات دعم التطبيق ورد على المستخدمين من هنا.</p>
+        </div>
+        <button
+          onClick={() => void loadConversations()}
+          disabled={loading}
+          className="px-4 py-2 rounded-xl border border-border text-sm font-semibold hover:bg-muted transition-all disabled:opacity-60"
+        >
+          {loading ? "جاري التحديث..." : "تحديث"}
+        </button>
+      </div>
+
+      {error ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm font-medium">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-4">
+        <div className="glass-card p-3 min-h-[580px]">
+          <div className="px-2 pb-3 flex items-center justify-between">
+            <p className="text-sm font-bold text-foreground">المحادثات</p>
+            <span className="text-xs text-muted-foreground">{conversations.length}</span>
+          </div>
+          <div className="space-y-2 max-h-[520px] overflow-y-auto hide-scrollbar">
+            {conversations.map((conversation) => {
+              const active = conversation.id === selectedId;
+              const lastText = conversation.lastMessage?.body ?? "لا توجد رسائل بعد";
+              return (
+                <button
+                  key={conversation.id}
+                  onClick={() => void handleSelectConversation(conversation.id)}
+                  className={`w-full text-right rounded-2xl p-3 transition-all border ${
+                    active
+                      ? "bg-primary/10 border-primary/20"
+                      : "bg-white/45 border-white/50 hover:bg-white/70"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-bold shrink-0">
+                      {conversation.user.name.charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-bold text-sm text-foreground truncate">{conversation.user.name}</p>
+                        {conversation.unreadCount > 0 ? (
+                          <span className="min-w-5 h-5 px-1.5 rounded-full bg-rose-500 text-white text-[11px] font-bold flex items-center justify-center">
+                            {conversation.unreadCount}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground truncate mt-0.5">{conversation.user.email}</p>
+                      <p className="text-xs text-muted-foreground truncate mt-2">{lastText}</p>
+                      <p className="text-[11px] text-muted-foreground mt-2">
+                        {new Date(conversation.lastMessageAt).toLocaleString("ar-EG")}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+
+            {!loading && conversations.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                لا توجد محادثات دعم حتى الآن.
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="glass-card min-h-[580px] flex flex-col overflow-hidden">
+          {selectedConversation ? (
+            <>
+              <div className="p-4 border-b border-white/40 flex items-center justify-between gap-3 bg-white/30">
+                <div>
+                  <p className="font-bold text-foreground">{selectedConversation.user.name}</p>
+                  <p className="text-xs text-muted-foreground">{selectedConversation.user.email}</p>
+                </div>
+                <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
+                  {selectedConversation.status === "open" ? "مفتوحة" : selectedConversation.status}
+                </span>
+              </div>
+
+              <div className="flex-1 p-4 space-y-3 overflow-y-auto bg-white/15">
+                {messagesLoading ? (
+                  <div className="text-center text-sm text-muted-foreground py-8">جاري تحميل الرسائل...</div>
+                ) : null}
+                {messages.map((message) => {
+                  const fromUser = message.senderRole === "user";
+                  return (
+                    <div key={message.id} className="w-full">
+                      <div
+                        className={`max-w-[76%] rounded-2xl px-4 py-3 border ${
+                          fromUser
+                            ? "ml-auto bg-white/85 border-white/70 rounded-br-md"
+                            : "mr-auto bg-primary text-white border-primary rounded-bl-md"
+                        }`}
+                      >
+                        <p className={`text-sm leading-6 ${fromUser ? "text-foreground" : "text-white"}`}>
+                          {message.body}
+                        </p>
+                        <p className={`text-[10px] mt-2 ${fromUser ? "text-muted-foreground" : "text-white/70"}`}>
+                          {new Date(message.createdAt).toLocaleString("ar-EG")}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+                {!messagesLoading && messages.length === 0 ? (
+                  <div className="text-center text-sm text-muted-foreground py-8">
+                    لا توجد رسائل في هذه المحادثة.
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="p-4 border-t border-white/40 bg-white/40">
+                <div className="flex items-end gap-3">
+                  <textarea
+                    value={reply}
+                    onChange={(event) => setReply(event.target.value)}
+                    placeholder="اكتب ردك هنا..."
+                    rows={2}
+                    className="flex-1 resize-none rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm outline-none focus:border-primary/40 focus:ring-4 focus:ring-primary/10"
+                  />
+                  <button
+                    onClick={() => void handleSendReply()}
+                    disabled={sending || reply.trim().length === 0}
+                    className="h-12 px-5 rounded-2xl bg-primary text-white font-bold text-sm flex items-center gap-2 disabled:opacity-60"
+                  >
+                    <Send className="w-4 h-4" />
+                    {sending ? "إرسال..." : "إرسال"}
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-center p-8 text-muted-foreground">
+              اختر محادثة لعرض الرسائل والرد عليها.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Admin Panel ──────────────────────────────────────────────────────
 export default function AdminPanel() {
   const { user, token, logout } = useAuth();
@@ -1433,6 +1728,7 @@ export default function AdminPanel() {
     users: <UsersTab />,
     academic: <AcademicTab />,
     subscriptionRequests: <SubscriptionRequestsTab token={token} />,
+    supportMessages: <SupportMessagesTab token={token} />,
     materials: <MaterialsTab />,
     books: <BooksTab />,
     posts: <PostsTab />,

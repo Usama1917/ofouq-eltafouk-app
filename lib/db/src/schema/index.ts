@@ -13,3 +13,4 @@ export * from "./academic";
 export * from "./materials";
 export * from "./subscriptions";
 export * from "./notifications";
+export * from "./support";
