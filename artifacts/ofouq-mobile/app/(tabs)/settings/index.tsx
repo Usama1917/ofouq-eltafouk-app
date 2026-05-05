@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -131,7 +131,7 @@ export default function SettingsScreen() {
           >
             <View style={[styles.contactLeading, { flexDirection: rowDirection, direction }]}>
               <View style={styles.contactIcon}>
-                <Feather name="phone-call" size={20} color={COLORS.primary} />
+                <MaterialCommunityIcons name="phone-message-outline" size={24} color={COLORS.primary} />
               </View>
               <View style={[styles.contactTextBlock, { alignItems: alignStart }]}>
                 <Text style={[styles.contactTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
