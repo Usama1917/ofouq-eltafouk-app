@@ -1,5 +1,6 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams, useNavigation, usePathname } from "expo-router";
 import React, { useEffect, useRef } from "react";
@@ -19,6 +20,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
+import { normalizeAcademicUnitLabel } from "@/lib/academicUnitLabels";
 import { toEnglishDigits } from "@/lib/format";
 
 type AccessStatus = "none" | "pending" | "approved" | "rejected";
@@ -28,6 +30,7 @@ interface Subject {
   name: string;
   icon?: string | null;
   description?: string | null;
+  unitLabel?: string | null;
   accessStatus?: AccessStatus;
   isLocked?: boolean;
   canRequestSubscription?: boolean;
@@ -62,7 +65,7 @@ function SubjectCard({
   routeBase: ReturnType<typeof getAcademicRouteBase>;
   openSubscribe: (subject?: Subject) => void;
 }) {
-  const { colors, strings, isRTL, textAlign, direction, rowDirection } = usePreferences();
+  const { colors, resolvedScheme, strings, isRTL, textAlign, direction, rowDirection } = usePreferences();
   const { token } = useAuth();
   const scale = useRef(new Animated.Value(1)).current;
   const subjectIcon = item.icon || "📚";
@@ -71,6 +74,15 @@ function SubjectCard({
     : item.accessStatus ?? (item.isLocked ? "none" : "approved");
   const isLocked = !token || item.isLocked || status === "pending" || status === "rejected" || status === "none";
   const badge = accessColors(status);
+  const isDark = resolvedScheme === "dark";
+  const subjectCardBackground = isLocked && !isDark ? "rgba(255,251,235,0.82)" : colors.card;
+  const subjectCardBorder = isLocked ? (isDark ? "rgba(252,211,77,0.34)" : "#FCD34D66") : colors.border;
+  const subjectIconBackground = isDark
+    ? isLocked ? colors.surfaceSecondary : COLORS.darkIconFrame.background
+    : isLocked ? "#F1F5F9" : COLORS.primary + "10";
+  const subjectIconBorder = isDark
+    ? isLocked ? colors.border : COLORS.darkIconFrame.border
+    : isLocked ? "#E2E8F0" : COLORS.primary + "18";
 
   function accessLabel() {
     if (status === "approved") return strings.academic.subscribed;
@@ -96,7 +108,8 @@ function SubjectCard({
 
     router.push(
       (`${academicRoute(routeBase, "units")}?yearId=${yearId}&yearName=${encode(yearName)}` +
-        `&subjectId=${item.id}&subjectName=${encode(item.name)}&subjectIcon=${encode(subjectIcon)}`) as any,
+        `&subjectId=${item.id}&subjectName=${encode(item.name)}&subjectIcon=${encode(subjectIcon)}` +
+        `&unitLabel=${encode(normalizeAcademicUnitLabel(item.unitLabel))}`) as any,
     );
   }
 
@@ -111,8 +124,8 @@ function SubjectCard({
         style={[
           styles.subjectCard,
           {
-            backgroundColor: isLocked ? "rgba(255,251,235,0.82)" : colors.card,
-            borderColor: isLocked ? "#FCD34D66" : colors.border,
+            backgroundColor: subjectCardBackground,
+            borderColor: subjectCardBorder,
             flexDirection: rowDirection,
             direction,
             transform: [{ scale }],
@@ -120,7 +133,15 @@ function SubjectCard({
         ]}
       >
         <View style={[styles.subjectLeading, { flexDirection: rowDirection, direction }]}>
-          <View style={[styles.subjectIconBox, { backgroundColor: isLocked ? "#F1F5F9" : COLORS.primary + "10" }]}>
+          <View
+            style={[
+              styles.subjectIconBox,
+              {
+                backgroundColor: subjectIconBackground,
+                borderColor: subjectIconBorder,
+              },
+            ]}
+          >
             <Text style={styles.subjectEmoji}>{subjectIcon}</Text>
           </View>
 
@@ -180,6 +201,7 @@ export default function SubjectsScreen() {
   const { yearId, yearName } = useLocalSearchParams<{ yearId: string; yearName: string }>();
   const title = String(yearName ?? strings.academic.subjects);
   const displayTitle = toEnglishDigits(title);
+  const headerOverlayHeight = insets.top + 134;
 
   useEffect(() => {
     navigation.setOptions({ title: displayTitle });
@@ -232,11 +254,68 @@ export default function SubjectsScreen() {
       <LinearGradient
         colors={
           resolvedScheme === "dark"
-            ? ["#0A0F1E", "#111827", "#0F172A"]
+            ? ["#000000", "#000000", "#000000"]
             : ["#EEF5FF", "#F8FBFF", "#F5F2FF"]
         }
         style={StyleSheet.absoluteFill}
       />
+
+      <View style={[styles.topBar, { height: headerOverlayHeight, paddingTop: insets.top + 12 }]}>
+        <BlurView
+          intensity={resolvedScheme === "dark" ? 34 : 58}
+          tint={resolvedScheme === "dark" ? "dark" : "light"}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: resolvedScheme === "dark"
+                ? "rgba(0,0,0,0.86)"
+                : "rgba(248,251,255,0.68)",
+            },
+          ]}
+        />
+        <View style={[styles.topBarContent, { paddingHorizontal: 18 }]}>
+          <View style={styles.backCornerRow}>
+            <Pressable
+              onPress={backToYears}
+              hitSlop={8}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.backButton,
+                {
+                  backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <Feather name="arrow-left" size={18} color={colors.textSecondary} />
+              <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>
+                {strings.academic.years}
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={[styles.titleRow, { flexDirection: rowDirection, direction }]}>
+            <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+              <Feather name="book-open" size={23} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+            </View>
+            <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+              <Text
+                style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}
+                numberOfLines={1}
+              >
+                {displayTitle}
+              </Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                {strings.academic.chooseSubject}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
 
       <FlatList
         data={subjects}
@@ -244,51 +323,12 @@ export default function SubjectsScreen() {
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="never"
         contentContainerStyle={{
-          paddingTop: insets.top + 10,
+          paddingTop: headerOverlayHeight + 18,
           paddingHorizontal: 18,
           paddingBottom: insets.bottom + 118,
           gap: 13,
           flexGrow: 1,
         }}
-        ListHeaderComponent={
-          <View style={styles.header}>
-            <View style={styles.backCornerRow}>
-              <Pressable
-                onPress={backToYears}
-                hitSlop={8}
-                accessibilityRole="button"
-                style={({ pressed }) => [
-                  styles.backButton,
-                  {
-                    opacity: pressed ? 0.62 : 1,
-                  },
-                ]}
-              >
-                <Feather name="arrow-left" size={15} color={colors.textSecondary} />
-                <Text style={[styles.backText, { color: colors.textSecondary, writingDirection: direction }]}>
-                  {strings.academic.years}
-                </Text>
-              </Pressable>
-            </View>
-
-            <View style={[styles.titleRow, { flexDirection: rowDirection, direction }]}>
-              <View style={styles.titleIcon}>
-                <Feather name="book-open" size={23} color={COLORS.primary} />
-              </View>
-              <View style={[styles.titleBlock, { alignItems: alignStart }]}>
-                <Text
-                  style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}
-                  numberOfLines={1}
-                >
-                  {displayTitle}
-                </Text>
-                <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                  {strings.academic.chooseSubject}
-                </Text>
-              </View>
-            </View>
-          </View>
-        }
         renderItem={({ item }) => (
           <SubjectCard
             item={item}
@@ -333,17 +373,38 @@ export default function SubjectsScreen() {
           styles.subscribeFloatingButton,
           {
             bottom: insets.bottom + 104,
+            backgroundColor: resolvedScheme === "dark"
+              ? pressed ? "rgba(37,99,235,0.22)" : colors.card
+              : "rgba(248,251,255,0.96)",
+            borderColor: resolvedScheme === "dark" ? COLORS.darkIconFrame.border : COLORS.primary + "45",
             flexDirection: isRTL ? "row-reverse" : "row",
             direction,
             opacity: pressed ? 0.86 : 1,
+            shadowColor: resolvedScheme === "dark" ? COLORS.primary : "#1D4ED8",
+            shadowOpacity: resolvedScheme === "dark" ? 0.32 : 0.18,
             transform: [{ scale: pressed ? 0.98 : 1 }],
           },
         ]}
       >
-        <View style={styles.subscribePlusCircle}>
+        <View
+          style={[
+            styles.subscribePlusCircle,
+            resolvedScheme === "dark" && {
+              backgroundColor: COLORS.darkIconFrame.foreground,
+            },
+          ]}
+        >
           <Feather name="plus" size={30} color="#fff" strokeWidth={3.4} />
         </View>
-        <Text style={[styles.subscribeTopText, { writingDirection: direction }]}>
+        <Text
+          style={[
+            styles.subscribeTopText,
+            {
+              color: resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary,
+              writingDirection: direction,
+            },
+          ]}
+        >
           {strings.academic.subscribeNewSubject}
         </Text>
       </Pressable>
@@ -353,6 +414,21 @@ export default function SubjectsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  topBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    overflow: "hidden",
+  },
+  topBarContent: {
+    zIndex: 1,
+    width: "100%",
+    flex: 1,
+    gap: 6,
+    paddingBottom: 10,
+  },
   header: { gap: 12, paddingBottom: 4 },
   backCornerRow: {
     width: "100%",
@@ -360,18 +436,24 @@ const styles = StyleSheet.create({
     direction: "ltr",
   },
   backButton: {
-    minHeight: 32,
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    minHeight: 40,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 13,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 7,
     direction: "ltr",
+    shadowColor: "#1E3A8A",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 2,
   },
   backText: {
-    fontFamily: "Cairo_600SemiBold",
-    fontSize: 12,
+    fontWeight: "700",
+    fontSize: 13,
+    lineHeight: 22,
   },
   titleRow: {
     flexDirection: "row-reverse",
@@ -384,18 +466,20 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary + "18",
     backgroundColor: COLORS.primary + "12",
   },
   titleBlock: { flex: 1, alignItems: "flex-end" },
   title: {
     flexShrink: 1,
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 25,
     lineHeight: 36,
     textAlign: "right",
   },
   subtitle: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 14,
     textAlign: "right",
   },
@@ -406,8 +490,6 @@ const styles = StyleSheet.create({
     minHeight: 62,
     borderRadius: 999,
     borderWidth: 1.5,
-    borderColor: COLORS.primary + "45",
-    backgroundColor: "rgba(248,251,255,0.96)",
     paddingLeft: 16,
     paddingRight: 10,
     paddingVertical: 9,
@@ -429,7 +511,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   subscribeTopText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 14,
     lineHeight: 22,
     color: COLORS.primary,
@@ -459,6 +541,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 19,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -477,13 +560,13 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   subjectTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 16,
     textAlign: "right",
     maxWidth: "100%",
   },
   subjectDesc: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 12,
     lineHeight: 20,
     textAlign: "right",
@@ -495,18 +578,18 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   statusText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 10,
   },
   reviewNote: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 11,
     color: "#BE123C",
     marginTop: 4,
     textAlign: "right",
   },
   lockAction: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 12,
     color: COLORS.primary,
     marginTop: 6,
@@ -521,12 +604,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   stateTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 16,
     textAlign: "center",
   },
   stateText: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
     lineHeight: 22,
     textAlign: "center",
@@ -539,7 +622,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   retryText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     color: "#fff",
   },

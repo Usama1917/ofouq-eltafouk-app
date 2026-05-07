@@ -10,7 +10,7 @@ export default function AcademicLayout() {
         headerShown: false,
         headerStyle: { backgroundColor: colors.surface },
         headerTintColor: colors.text,
-        headerTitleStyle: { fontFamily: "Cairo_700Bold", fontSize: 18 },
+        headerTitleStyle: { fontWeight: "700", fontSize: 18 },
         headerBackTitle: strings.common.back,
         contentStyle: { backgroundColor: colors.background },
         headerTitleAlign: "center",

@@ -1,5 +1,6 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -175,6 +176,7 @@ export default function HomeScreen() {
   const slideAnim = useRef(new Animated.Value(18)).current;
   const topBarDirection = isRTL ? reverseRowDirection : rowDirection;
   const avatarUri = resolveMediaUrl(user?.avatarUrl);
+  const headerOverlayHeight = insets.top + 86;
   const { data: notificationSummary } = useQuery({
     queryKey: [...notificationsQueryKey, "summary", token],
     queryFn: () => fetchNotificationSummary(token),
@@ -208,17 +210,85 @@ export default function HomeScreen() {
       <LinearGradient
         colors={
           resolvedScheme === "dark"
-            ? ["#0A0F1E", "#111827", "#0F172A"]
+            ? ["#000000", "#000000", "#000000"]
             : ["#EEF5FF", "#F7FAFF", "#F3F0FF"]
         }
         style={StyleSheet.absoluteFill}
       />
 
+      <View style={[styles.topBar, { height: headerOverlayHeight, paddingTop: insets.top + 18 }]}>
+        <BlurView
+          intensity={resolvedScheme === "dark" ? 34 : 58}
+          tint={resolvedScheme === "dark" ? "dark" : "light"}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: resolvedScheme === "dark"
+                ? "rgba(0,0,0,0.86)"
+                : "rgba(248,251,255,0.68)",
+            },
+          ]}
+        />
+        <View style={[styles.topBarContent, { flexDirection: topBarDirection, direction }]}>
+          <Pressable
+            onPress={() => router.push("/(tabs)/notifications")}
+            style={({ pressed }) => [
+              styles.notificationButton,
+              {
+                backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
+                borderColor: colors.border,
+                opacity: pressed ? 0.82 : 1,
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={strings.tabs.notifications}
+          >
+            <Feather name="bell" size={21} color={COLORS.primary} />
+            {unreadNotificationsCount > 0 ? (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>{unreadNotificationsLabel}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+          <Pressable
+            onPress={() => router.push(user ? "/(tabs)/settings/account" : "/login")}
+            style={({ pressed }) => [
+              styles.accountPill,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                flexDirection: rowDirection,
+                direction,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            <View style={styles.accountAvatar}>
+              {avatarUri ? (
+                <Image source={{ uri: avatarUri }} style={styles.accountAvatarImage} contentFit="cover" />
+              ) : (
+                <Text style={styles.accountInitial}>{user?.name?.charAt(0) ?? strings.settings.accountInitial}</Text>
+              )}
+            </View>
+            <Text
+              style={[styles.accountText, { color: colors.text, textAlign, writingDirection: direction }]}
+              numberOfLines={2}
+            >
+              {user ? toEnglishDigits(compactDisplayName(user.name)) : strings.home.loginShort}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="never"
         contentContainerStyle={{
-          paddingTop: insets.top + 18,
+          paddingTop: headerOverlayHeight + 18,
           paddingBottom: insets.bottom + 118,
         }}
       >
@@ -228,56 +298,6 @@ export default function HomeScreen() {
             { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
           ]}
         >
-          <View style={[styles.topBar, { flexDirection: topBarDirection, direction }]}>
-            <Pressable
-              onPress={() => router.push("/(tabs)/notifications")}
-              style={({ pressed }) => [
-                styles.notificationButton,
-                {
-                  backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
-                  borderColor: colors.border,
-                  opacity: pressed ? 0.82 : 1,
-                },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={strings.tabs.notifications}
-            >
-              <Feather name="bell" size={21} color={COLORS.primary} />
-              {unreadNotificationsCount > 0 ? (
-                <View style={styles.notificationBadge}>
-                  <Text style={styles.notificationBadgeText}>{unreadNotificationsLabel}</Text>
-                </View>
-              ) : null}
-            </Pressable>
-            <Pressable
-              onPress={() => router.push(user ? "/(tabs)/settings/account" : "/login")}
-              style={({ pressed }) => [
-                styles.accountPill,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: colors.border,
-                  flexDirection: rowDirection,
-                  direction,
-                  opacity: pressed ? 0.8 : 1,
-                },
-              ]}
-            >
-              <View style={styles.accountAvatar}>
-                {avatarUri ? (
-                  <Image source={{ uri: avatarUri }} style={styles.accountAvatarImage} contentFit="cover" />
-                ) : (
-                  <Text style={styles.accountInitial}>{user?.name?.charAt(0) ?? strings.settings.accountInitial}</Text>
-                )}
-              </View>
-              <Text
-                style={[styles.accountText, { color: colors.text, textAlign, writingDirection: direction }]}
-                numberOfLines={2}
-              >
-                {user ? toEnglishDigits(compactDisplayName(user.name)) : strings.home.loginShort}
-              </Text>
-            </Pressable>
-          </View>
-
           <View style={[styles.hero, { backgroundColor: colors.card, borderColor: colors.border, direction }]}>
             <LinearGradient
               colors={["rgba(29,78,216,0.12)", "rgba(14,165,233,0.05)", "rgba(255,255,255,0)"]}
@@ -321,8 +341,8 @@ export default function HomeScreen() {
                   { backgroundColor: colors.surface, borderColor: colors.border, flexDirection: rowDirection, direction },
                 ]}
               >
-                <View style={styles.statIcon}>
-                  <Feather name="video" size={21} color={COLORS.primary} />
+                <View style={[styles.statIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+                  <Feather name="video" size={21} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
                 </View>
                 <View style={[styles.statTextBlock, { alignItems: alignStart, direction }]}>
                   <Text style={[styles.statValue, { color: colors.text, textAlign, writingDirection: direction }]}>
@@ -351,7 +371,9 @@ export default function HomeScreen() {
                 styles.softButton,
                 {
                   borderColor: COLORS.primary + "35",
-                  backgroundColor: pressed ? COLORS.primary + "14" : "rgba(255,255,255,0.58)",
+                  backgroundColor: resolvedScheme === "dark"
+                    ? pressed ? "#EEF4FF" : "#FFFFFF"
+                    : pressed ? COLORS.primary + "14" : "rgba(255,255,255,0.58)",
                   flexDirection: rowDirection,
                   direction,
                 },
@@ -408,9 +430,21 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { paddingHorizontal: 18, gap: 18 },
   topBar: {
-    flexDirection: "row-reverse",
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    overflow: "hidden",
+  },
+  topBarContent: {
+    zIndex: 1,
+    width: "100%",
+    flex: 1,
+    paddingHorizontal: 18,
     alignItems: "center",
     justifyContent: "space-between",
+    paddingBottom: 14,
   },
   notificationButton: {
     width: 46,
@@ -443,7 +477,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     top: 2,
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 12,
     lineHeight: 16,
     includeFontPadding: false,
@@ -465,7 +499,7 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
   },
   accountText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     maxWidth: 122,
     textAlign: "right",
@@ -484,7 +518,7 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   accountInitial: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 16,
     color: "#fff",
   },
@@ -512,12 +546,12 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   heroBadgeText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 12,
     color: COLORS.primary,
   },
   heroTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 31,
     lineHeight: 54,
     paddingTop: 5,
@@ -528,7 +562,7 @@ const styles = StyleSheet.create({
   },
   heroTitleAccent: { color: COLORS.primary },
   heroSubtitle: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 15,
     lineHeight: 26,
     textAlign: "right",
@@ -557,7 +591,7 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
   },
   primaryCtaText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     color: "#fff",
     fontSize: 15,
   },
@@ -577,16 +611,18 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary + "18",
     backgroundColor: COLORS.primary + "12",
   },
   statLabel: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 12,
     lineHeight: 20,
     textAlign: "right",
   },
   statValue: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 34,
     lineHeight: 48,
     marginBottom: -8,
@@ -602,12 +638,12 @@ const styles = StyleSheet.create({
   },
   sectionTitleBlock: { flex: 1, alignItems: "flex-end" },
   sectionTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 22,
     textAlign: "right",
   },
   sectionSubtitle: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
     lineHeight: 21,
     textAlign: "right",
@@ -622,13 +658,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   softButtonText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 12,
     color: COLORS.primary,
   },
   loadingCard: { paddingVertical: 26, alignItems: "center", gap: 10 },
   loadingText: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
   },
   pathsList: { gap: 14 },
@@ -661,13 +697,13 @@ const styles = StyleSheet.create({
   },
   pathBody: { flexShrink: 1, maxWidth: "72%", alignItems: "flex-end" },
   pathTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 16,
     lineHeight: 25,
     textAlign: "right",
   },
   pathDesc: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 12,
     lineHeight: 20,
     textAlign: "right",
@@ -682,7 +718,7 @@ const styles = StyleSheet.create({
     bottom: 16,
   },
   pathActionText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 12,
     color: COLORS.primary,
   },
@@ -702,12 +738,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary + "10",
   },
   emptyTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 16,
     textAlign: "center",
   },
   emptyText: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
     textAlign: "center",
     lineHeight: 22,
@@ -720,7 +756,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   retryText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     color: "#fff",
   },

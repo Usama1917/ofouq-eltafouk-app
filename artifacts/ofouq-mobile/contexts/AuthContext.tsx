@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
+import { unregisterCurrentPushToken } from "@/lib/pushNotifications";
 
 export type UserRole = "student" | "teacher" | "parent" | "admin" | "moderator" | "owner";
 
@@ -97,13 +98,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    const currentToken = token;
     setUser(null);
     setToken(null);
     await Promise.all([
+      unregisterCurrentPushToken(currentToken).catch(() => undefined),
       AsyncStorage.removeItem(AUTH_USER_KEY),
       AsyncStorage.removeItem(AUTH_TOKEN_KEY),
     ]);
-  }, []);
+  }, [token]);
 
   const updateUser = useCallback((updatedUser: User) => {
     setUser(updatedUser);

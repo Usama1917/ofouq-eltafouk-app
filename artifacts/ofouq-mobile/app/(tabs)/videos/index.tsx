@@ -1,5 +1,6 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useRef } from "react";
@@ -121,6 +122,7 @@ function YearCard({ item, index }: { item: AcademicYear; index: number }) {
 export default function VideosScreen() {
   const { colors, resolvedScheme, strings, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
   const insets = useSafeAreaInsets();
+  const headerOverlayHeight = insets.top + 104;
   const {
     data: years = [],
     isLoading,
@@ -138,11 +140,53 @@ export default function VideosScreen() {
       <LinearGradient
         colors={
           resolvedScheme === "dark"
-            ? ["#0A0F1E", "#111827", "#0F172A"]
+            ? ["#000000", "#000000", "#000000"]
             : ["#EEF5FF", "#F8FBFF", "#F5F2FF"]
         }
         style={StyleSheet.absoluteFill}
       />
+
+      <View
+        style={[
+          styles.topBar,
+          {
+            height: headerOverlayHeight,
+            paddingTop: insets.top + 34,
+            flexDirection: rowDirection,
+            direction,
+          },
+        ]}
+      >
+        <BlurView
+          intensity={resolvedScheme === "dark" ? 34 : 58}
+          tint={resolvedScheme === "dark" ? "dark" : "light"}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: resolvedScheme === "dark"
+                ? "rgba(0,0,0,0.86)"
+                : "rgba(248,251,255,0.68)",
+            },
+          ]}
+        />
+        <View style={[styles.topBarContent, { paddingHorizontal: 18, flexDirection: rowDirection, direction }]}>
+          <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+            <Ionicons name="school-outline" size={26} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+          </View>
+          <View style={[styles.titleTextBlock, { alignItems: alignStart }]}>
+            <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
+              {strings.videos.title}
+            </Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+              {strings.videos.subtitle}
+            </Text>
+          </View>
+        </View>
+      </View>
 
       <FlatList
         data={years}
@@ -150,29 +194,12 @@ export default function VideosScreen() {
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="never"
         contentContainerStyle={{
-          paddingTop: insets.top + 22,
+          paddingTop: headerOverlayHeight + 18,
           paddingHorizontal: 18,
           paddingBottom: insets.bottom + 118,
           gap: 14,
           flexGrow: 1,
         }}
-        ListHeaderComponent={
-          <View style={styles.header}>
-            <View style={[styles.titleRow, { flexDirection: rowDirection, direction }]}>
-              <View style={styles.titleIcon}>
-                <Ionicons name="school-outline" size={26} color={COLORS.primary} />
-              </View>
-              <View style={[styles.titleTextBlock, { alignItems: alignStart }]}>
-                <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
-                  {strings.videos.title}
-                </Text>
-                <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                  {strings.videos.subtitle}
-                </Text>
-              </View>
-            </View>
-          </View>
-        }
         renderItem={({ item, index }) => <YearCard item={item} index={index} />}
         ListEmptyComponent={
           <View style={[styles.stateCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -220,6 +247,22 @@ export default function VideosScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  topBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    overflow: "hidden",
+  },
+  topBarContent: {
+    zIndex: 1,
+    width: "100%",
+    flex: 1,
+    alignItems: "center",
+    gap: 13,
+    paddingBottom: 14,
+  },
   header: { paddingBottom: 8 },
   titleRow: {
     flexDirection: "row-reverse",
@@ -232,17 +275,19 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary + "18",
     backgroundColor: COLORS.primary + "12",
   },
   titleTextBlock: { flex: 1, alignItems: "flex-end" },
   title: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 27,
     lineHeight: 38,
     textAlign: "right",
   },
   subtitle: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 14,
     lineHeight: 23,
     textAlign: "right",
@@ -273,13 +318,13 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   yearTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 17,
     lineHeight: 26,
     textAlign: "right",
   },
   yearDesc: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 12,
     lineHeight: 20,
     textAlign: "right",
@@ -302,12 +347,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary + "10",
   },
   stateTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 16,
     textAlign: "center",
   },
   stateText: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
     lineHeight: 22,
     textAlign: "center",
@@ -320,7 +365,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   retryText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     color: "#fff",
   },

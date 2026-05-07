@@ -48,6 +48,7 @@ type AcademicVideoPlayerProps = {
   segments?: AcademicVideoSegment[] | null;
   watermarkText?: string;
   initialSeekSeconds?: number | null;
+  autoPlayOnLoad?: boolean;
   onProgressUpdate?: (progress: {
     currentTime: number;
     duration: number;
@@ -355,6 +356,7 @@ export function AcademicVideoPlayer({
   segments,
   watermarkText,
   initialSeekSeconds,
+  autoPlayOnLoad = false,
   onProgressUpdate,
 }: AcademicVideoPlayerProps) {
   const { colors } = usePreferences();
@@ -372,6 +374,7 @@ export function AcademicVideoPlayer({
   const pendingSeekRef = useRef<PendingSeek | null>(null);
   const initialSeekSecondsRef = useRef<number | null>(null);
   const initialSeekAppliedRef = useRef(false);
+  const autoPlayInitialSeekAppliedRef = useRef(false);
   const onProgressUpdateRef = useRef(onProgressUpdate);
   const progressSnapshotRef = useRef({
     currentTime: 0,
@@ -615,11 +618,23 @@ export function AcademicVideoPlayer({
   useEffect(() => {
     const safeInitialSeek = Math.max(0, Math.floor(Number(initialSeekSeconds) || 0));
     initialSeekSecondsRef.current = safeInitialSeek > 0 ? safeInitialSeek : null;
-    if (safeInitialSeek <= 0 || initialSeekAppliedRef.current) return;
+    initialSeekAppliedRef.current = false;
+    autoPlayInitialSeekAppliedRef.current = false;
+
+    if (safeInitialSeek <= 0) return;
 
     initialSeekAppliedRef.current = true;
-    setCurrentTime(safeInitialSeek);
-  }, [initialSeekSeconds]);
+    commitTimelinePosition(safeInitialSeek);
+  }, [initialSeekSeconds, resolvedVideoUrl]);
+
+  useEffect(() => {
+    const target = Math.max(0, Math.floor(Number(initialSeekSeconds) || 0));
+    if (!autoPlayOnLoad || target <= 0 || autoPlayInitialSeekAppliedRef.current) return;
+
+    autoPlayInitialSeekAppliedRef.current = true;
+    initialSeekSecondsRef.current = null;
+    openFullscreen({ autoPlay: true, seekToSeconds: target });
+  }, [autoPlayOnLoad, initialSeekSeconds, resolvedVideoUrl]);
 
   useEffect(() => {
     const interval = setInterval(emitProgressUpdate, 15000);
@@ -1791,12 +1806,12 @@ const styles = StyleSheet.create({
     direction: "rtl",
   },
   segmentHeaderTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 14,
     color: "#0F172A",
   },
   segmentHeaderMeta: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 11,
     color: "#64748B",
   },
@@ -1844,7 +1859,7 @@ const styles = StyleSheet.create({
     direction: "rtl",
   },
   segmentChipTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 12,
     color: "#fff",
     textAlign: "right",
@@ -1852,7 +1867,7 @@ const styles = StyleSheet.create({
   },
   segmentChipMeta: {
     marginTop: 2,
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 10,
     color: "rgba(255,255,255,0.68)",
     textAlign: "right",
@@ -1891,7 +1906,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
   },
   videoFallbackText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     color: "#fff",
   },
@@ -1914,7 +1929,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(37,99,235,0.95)",
   },
   cleanVideoTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 17,
     lineHeight: 27,
     color: "rgba(255,255,255,0.92)",
@@ -1923,7 +1938,7 @@ const styles = StyleSheet.create({
   },
   cleanVideoSubtitle: {
     marginTop: 4,
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 11,
     color: "rgba(226,232,240,0.7)",
     textAlign: "center",
@@ -1989,7 +2004,7 @@ const styles = StyleSheet.create({
     left: 16,
   },
   watermarkText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 10,
     color: "rgba(255,255,255,0.88)",
   },
@@ -2003,7 +2018,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   seekToastText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     color: "#fff",
   },
@@ -2016,7 +2031,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.72)",
   },
   errorText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     color: "#fff",
     textAlign: "center",
@@ -2157,7 +2172,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   controlLessonTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 14,
     color: "#fff",
     textAlign: "right",
@@ -2165,7 +2180,7 @@ const styles = StyleSheet.create({
   },
   controlLessonSubtitle: {
     marginTop: -2,
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 11,
     color: "rgba(255,255,255,0.62)",
     textAlign: "right",
@@ -2252,7 +2267,7 @@ const styles = StyleSheet.create({
   },
   seekTenText: {
     position: "absolute",
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 10,
     color: "#fff",
     includeFontPadding: false,
@@ -2325,7 +2340,7 @@ const styles = StyleSheet.create({
     minHeight: 14,
   },
   timeText: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 12,
     color: "rgba(255,255,255,0.84)",
     textAlign: "left",
@@ -2474,7 +2489,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   optionText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 12,
     color: "#fff",
   },
@@ -2519,7 +2534,7 @@ const styles = StyleSheet.create({
   },
   optionMenuTitle: {
     marginBottom: 5,
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 10,
     color: "rgba(226,232,240,0.72)",
     textAlign: "center",
@@ -2545,7 +2560,7 @@ const styles = StyleSheet.create({
   },
   optionMenuItemText: {
     flex: 1,
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 11,
     color: "rgba(255,255,255,0.78)",
     textAlign: "left",
@@ -2603,7 +2618,7 @@ const styles = StyleSheet.create({
   },
   segmentPanelTitle: {
     flex: 1,
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 14,
     color: "#fff",
     textAlign: "right",
@@ -2652,13 +2667,13 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   segmentRowTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 12,
     color: "#fff",
     textAlign: "right",
   },
   segmentRowMeta: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 10,
     color: "rgba(255,255,255,0.62)",
     textAlign: "right",

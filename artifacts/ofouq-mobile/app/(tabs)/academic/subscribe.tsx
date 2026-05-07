@@ -1,5 +1,6 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import { BlurView } from "expo-blur";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams, useNavigation, usePathname } from "expo-router";
@@ -124,6 +125,7 @@ export default function SubscribeScreen() {
     selectedSubject?.accessStatus ?? (selectedSubject?.isLocked ? "none" : "approved");
   const statusStyle = accessColors(selectedStatus);
   const rtlAlign = isRTL ? "flex-end" : "flex-start";
+  const headerOverlayHeight = insets.top + 134;
   const subscriptionPath =
     `${academicRoute(routeBase, "subjects")}?yearId=${yearId}&yearName=${encode(String(yearName))}`;
   const canSubmit = Boolean(
@@ -241,48 +243,74 @@ export default function SubscribeScreen() {
       <LinearGradient
         colors={
           resolvedScheme === "dark"
-            ? ["#0A0F1E", "#111827", "#0F172A"]
+            ? ["#000000", "#000000", "#000000"]
             : ["#EEF5FF", "#F8FBFF", "#F5F2FF"]
         }
         style={StyleSheet.absoluteFill}
       />
 
+      <View style={[styles.topBar, { height: headerOverlayHeight, paddingTop: insets.top + 12 }]}>
+        <BlurView
+          intensity={resolvedScheme === "dark" ? 34 : 58}
+          tint={resolvedScheme === "dark" ? "dark" : "light"}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: resolvedScheme === "dark"
+                ? "rgba(0,0,0,0.86)"
+                : "rgba(248,251,255,0.68)",
+            },
+          ]}
+        />
+        <View style={[styles.topBarContent, { paddingHorizontal: 18 }]}>
+          <View style={styles.backCornerRow}>
+            <Pressable
+              onPress={goBackToSubjects}
+              hitSlop={8}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.backButton,
+                {
+                  backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <Feather name="arrow-left" size={18} color={colors.textSecondary} />
+              <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>المواد</Text>
+            </Pressable>
+          </View>
+
+          <View style={[styles.titleRow, { flexDirection: rowDirection, direction }]}>
+            <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+              <Ionicons name="key-outline" size={24} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+            </View>
+            <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+              <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={2}>
+                {toEnglishDigits(yearName ? `اشتراك مادة - ${yearName}` : "طلب اشتراك")}
+              </Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                أدخل كود الاشتراك وارفع صورته لإرسال الطلب.
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
-          paddingTop: insets.top + 18,
+          paddingTop: headerOverlayHeight + 18,
           paddingHorizontal: 18,
           paddingBottom: insets.bottom + 118,
           gap: 16,
         }}
       >
-        <View style={styles.backCornerRow}>
-          <Pressable
-            onPress={goBackToSubjects}
-            hitSlop={8}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.backButton, { opacity: pressed ? 0.62 : 1 }]}
-          >
-            <Feather name="arrow-left" size={16} color={colors.textSecondary} />
-            <Text style={[styles.backText, { color: colors.textSecondary, writingDirection: direction }]}>المواد</Text>
-          </Pressable>
-        </View>
-
-        <View style={[styles.titleRow, { flexDirection: rowDirection, direction }]}>
-          <View style={styles.titleIcon}>
-            <Ionicons name="key-outline" size={24} color={COLORS.primary} />
-          </View>
-          <View style={styles.titleBlock}>
-            <Text style={[styles.title, { color: colors.text, writingDirection: direction }]}>
-              {toEnglishDigits(yearName ? `اشتراك مادة - ${yearName}` : "طلب اشتراك")}
-            </Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary, writingDirection: direction }]}>
-              أدخل كود الاشتراك وارفع صورته لإرسال الطلب.
-            </Text>
-          </View>
-        </View>
-
         <View style={[styles.formCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
             المادة
@@ -447,6 +475,21 @@ export default function SubscribeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  topBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    overflow: "hidden",
+  },
+  topBarContent: {
+    zIndex: 1,
+    width: "100%",
+    flex: 1,
+    gap: 2,
+    paddingBottom: 4,
+  },
   backCornerRow: {
     width: "100%",
     alignSelf: "stretch",
@@ -455,18 +498,24 @@ const styles = StyleSheet.create({
   },
   backButton: {
     alignSelf: "flex-start",
+    minHeight: 40,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 13,
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    minHeight: 32,
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
     direction: "ltr",
+    shadowColor: "#1E3A8A",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 2,
   },
   backText: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "700",
     fontSize: 13,
+    lineHeight: 22,
   },
   titleRow: {
     flexDirection: "row-reverse",
@@ -480,25 +529,26 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary + "18",
     backgroundColor: COLORS.primary + "12",
   },
   titleBlock: {
     flex: 1,
-    alignItems: "center",
     justifyContent: "center",
   },
   title: {
     flexShrink: 1,
-    fontFamily: "Cairo_700Bold",
-    fontSize: 23,
-    lineHeight: 35,
-    textAlign: "center",
+    fontWeight: "700",
+    fontSize: 19,
+    lineHeight: 29,
+    textAlign: "right",
   },
   subtitle: {
-    fontFamily: "Cairo_400Regular",
-    fontSize: 13,
-    lineHeight: 22,
-    textAlign: "center",
+    fontWeight: "400",
+    fontSize: 12,
+    lineHeight: 20,
+    textAlign: "right",
   },
   formCard: {
     borderRadius: 26,
@@ -513,13 +563,13 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     alignSelf: "flex-end",
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 12,
     textAlign: "right",
     writingDirection: "rtl",
   },
   fieldHint: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 11,
   },
   loadingRow: {
@@ -529,7 +579,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   loadingText: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 12,
   },
   subjectChoices: {
@@ -547,7 +597,7 @@ const styles = StyleSheet.create({
   subjectChoiceIcon: { fontSize: 21 },
   subjectChoiceText: {
     flex: 1,
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     textAlign: "right",
   },
@@ -558,7 +608,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   statusLineText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 11,
   },
   input: {
@@ -566,7 +616,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 14,
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 14,
   },
   imagePicker: {
@@ -580,7 +630,7 @@ const styles = StyleSheet.create({
     gap: 9,
   },
   imagePickerText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     color: COLORS.primary,
   },
@@ -600,14 +650,14 @@ const styles = StyleSheet.create({
     borderColor: "#FECDD3",
   },
   successText: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 12,
     lineHeight: 21,
     color: "#047857",
     textAlign: "right",
   },
   errorText: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 12,
     lineHeight: 21,
     color: "#BE123C",
@@ -626,7 +676,7 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   submitText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 14,
     color: "#fff",
   },
@@ -639,14 +689,14 @@ const styles = StyleSheet.create({
   },
   requestsTitle: {
     alignSelf: "flex-end",
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 16,
     textAlign: "right",
     writingDirection: "rtl",
   },
   emptyRequests: {
     alignSelf: "flex-end",
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
     textAlign: "right",
     writingDirection: "rtl",
@@ -672,13 +722,13 @@ const styles = StyleSheet.create({
     direction: "rtl",
   },
   requestSubject: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     textAlign: "right",
     writingDirection: "rtl",
   },
   requestMeta: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 11,
     textAlign: "right",
     writingDirection: "rtl",
@@ -694,7 +744,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   requestBadgeText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 10,
   },
 });

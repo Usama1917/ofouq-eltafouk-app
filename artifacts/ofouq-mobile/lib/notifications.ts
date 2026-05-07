@@ -1,22 +1,29 @@
 import { router } from "expo-router";
+import { Linking } from "react-native";
 
 import { apiFetch } from "@/lib/api";
 
 export type NotificationTone = "primary" | "success" | "warning" | "danger";
 
 export type NotificationActionData = {
-  route?: "units" | "subscribe" | "lesson" | "supportChat";
+  type?: string;
+  route?: "units" | "subscribe" | "lesson" | "supportChat" | "external";
+  url?: string;
   yearId?: number | string;
   yearName?: string;
   subjectId?: number | string;
   subjectName?: string;
+  unitLabel?: string;
   unitId?: number | string;
   unitName?: string;
   lessonId?: number | string;
   lessonTitle?: string;
+  videoTitle?: string;
   conversationId?: number | string;
   messageId?: number | string;
   seekSeconds?: number | string;
+  resumeFromNotification?: number | string;
+  notificationId?: number | string;
   reviewNotes?: string;
 };
 
@@ -59,6 +66,20 @@ export function markNotificationRead(id: number, token: string | null) {
   });
 }
 
+export function deleteNotification(id: number, token: string | null) {
+  return apiFetch<{ success: boolean; id: number; unreadCount: number }>(`/api/notifications/${id}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export function clearReadNotifications(token: string | null) {
+  return apiFetch<{ success: boolean; deletedCount: number; unreadCount: number }>("/api/notifications/read", {
+    method: "DELETE",
+    token,
+  });
+}
+
 function cleanParam(value: unknown) {
   if (value === undefined || value === null) return "";
   return String(value);
@@ -66,6 +87,16 @@ function cleanParam(value: unknown) {
 
 export function openNotificationTarget(notification: AppNotification) {
   const data = notification.data ?? {};
+
+  if (data.route === "external" && data.url) {
+    void Linking.openURL(cleanParam(data.url));
+    return;
+  }
+
+  if (!data.route && notification.actionUrl && /^https?:\/\//i.test(notification.actionUrl)) {
+    void Linking.openURL(notification.actionUrl);
+    return;
+  }
 
   if (data.route === "supportChat") {
     router.push("/(tabs)/settings/support-chat" as any);
@@ -80,6 +111,7 @@ export function openNotificationTarget(notification: AppNotification) {
         yearName: cleanParam(data.yearName),
         subjectId: cleanParam(data.subjectId),
         subjectName: cleanParam(data.subjectName),
+        unitLabel: cleanParam(data.unitLabel),
       },
     });
     return;
@@ -106,11 +138,14 @@ export function openNotificationTarget(notification: AppNotification) {
         yearName: cleanParam(data.yearName),
         subjectId: cleanParam(data.subjectId),
         subjectName: cleanParam(data.subjectName),
+        unitLabel: cleanParam(data.unitLabel),
         unitId: cleanParam(data.unitId),
         unitName: cleanParam(data.unitName),
         lessonId: cleanParam(data.lessonId),
         lessonTitle: cleanParam(data.lessonTitle),
         seekSeconds: cleanParam(data.seekSeconds),
+        resumeFromNotification: notification.type === "resume_lesson" ? "1" : "",
+        notificationId: cleanParam(notification.id),
       },
     });
   }

@@ -20,6 +20,7 @@ import {
   lessonWatchProgressTable,
 } from "@workspace/db";
 import { and, asc, count, desc, eq, gt, inArray, isNull, like } from "drizzle-orm";
+import { sendPushNotificationToUser } from "../lib/push-notifications";
 
 const router: IRouter = Router();
 const execFileAsync = promisify(execFile);
@@ -117,6 +118,13 @@ function toNumber(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+const academicUnitLabels = new Set(["unit", "chapter", "section"]);
+
+function normalizeAcademicUnitLabel(value: unknown) {
+  const label = toText(value, "unit");
+  return academicUnitLabels.has(label) ? label : "unit";
+}
+
 function toSeconds(value: unknown, fallback = 0) {
   const parsed = Number.parseFloat(String(value ?? ""));
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : fallback;
@@ -169,7 +177,8 @@ async function createUserNotification(args: {
   dedupeKey?: string | null;
   availableAt?: Date;
 }) {
-  await db
+  const availableAt = args.availableAt ?? new Date();
+  const [notification] = await db
     .insert(notificationsTable)
     .values({
       userId: args.userId,
@@ -180,9 +189,23 @@ async function createUserNotification(args: {
       actionUrl: args.actionUrl ?? null,
       data: notificationData(args.data ?? {}),
       dedupeKey: args.dedupeKey ?? null,
-      availableAt: args.availableAt ?? new Date(),
+      availableAt,
     })
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ id: notificationsTable.id });
+
+  if (notification && availableAt <= new Date()) {
+    await sendPushNotificationToUser({
+      userId: args.userId,
+      title: args.title,
+      body: args.body,
+      data: {
+        ...(args.data ?? {}),
+        type: args.type,
+        notificationId: notification.id,
+      },
+    }).catch(() => undefined);
+  }
 }
 
 async function upsertUserNotification(args: {
@@ -232,6 +255,7 @@ async function getSubjectNavigationContext(subjectId: number) {
     .select({
       subjectId: subjectsTable.id,
       subjectName: subjectsTable.name,
+      unitLabel: subjectsTable.unitLabel,
       yearId: academicYearsTable.id,
       yearName: academicYearsTable.name,
     })
@@ -249,10 +273,12 @@ async function getLessonNavigationContext(lessonId: number) {
       lessonId: lessonsTable.id,
       lessonTitle: lessonsTable.title,
       lessonIsPublished: lessonsTable.isPublished,
+      videoTitle: videosTable.title,
       unitId: unitsTable.id,
       unitName: unitsTable.name,
       subjectId: subjectsTable.id,
       subjectName: subjectsTable.name,
+      unitLabel: subjectsTable.unitLabel,
       yearId: academicYearsTable.id,
       yearName: academicYearsTable.name,
       videoPublishStatus: videosTable.publishStatus,
@@ -275,6 +301,7 @@ function subjectActionData(context: NonNullable<Awaited<ReturnType<typeof getSub
     yearName: context.yearName,
     subjectId: context.subjectId,
     subjectName: context.subjectName,
+    unitLabel: context.unitLabel,
   };
 }
 
@@ -285,6 +312,7 @@ function subscribeActionData(context: NonNullable<Awaited<ReturnType<typeof getS
     yearName: context.yearName,
     subjectId: context.subjectId,
     subjectName: context.subjectName,
+    unitLabel: context.unitLabel,
     reviewNotes,
   };
 }
@@ -299,10 +327,12 @@ function lessonActionData(
     yearName: context.yearName,
     subjectId: context.subjectId,
     subjectName: context.subjectName,
+    unitLabel: context.unitLabel,
     unitId: context.unitId,
     unitName: context.unitName,
     lessonId: context.lessonId,
     lessonTitle: context.lessonTitle,
+    videoTitle: context.videoTitle,
     ...extra,
   };
 }
@@ -377,7 +407,7 @@ async function notifyPublishedLesson(lessonId: number) {
 
   if (subscribers.length === 0) return;
 
-  await db
+  const createdNotifications = await db
     .insert(notificationsTable)
     .values(
       subscribers.map((subscription) => ({
@@ -390,7 +420,23 @@ async function notifyPublishedLesson(lessonId: number) {
         dedupeKey: `new-lesson:${context.lessonId}:student:${subscription.studentId}`,
       })),
     )
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ id: notificationsTable.id, userId: notificationsTable.userId });
+
+  await Promise.allSettled(
+    createdNotifications.map((notification) =>
+      sendPushNotificationToUser({
+        userId: notification.userId,
+        title: `درس جديد: "${context.lessonTitle}"`,
+        body: `تم إضافة الدرس في ${context.unitName} - مادة ${context.subjectName}.`,
+        data: {
+          ...lessonActionData(context),
+          type: "new_lesson",
+          notificationId: notification.id,
+        },
+      }),
+    ),
+  );
 }
 
 function notificationDateKey(date = new Date()) {
@@ -426,11 +472,13 @@ async function scheduleResumeLessonNotification(args: {
 
   if (!shouldRemind) return;
 
+  const resumeTitle = String(args.context.videoTitle || args.context.lessonTitle || "").trim();
+
   await upsertUserNotification({
     userId: args.studentId,
     type: "resume_lesson",
     title: `استكمل مشاهدة "${args.context.lessonTitle}"`,
-    body: `وقفت عند ${formatDurationLabel(currentSeconds)} في "${args.context.lessonTitle}".`,
+    body: `وقفت عند ${formatDurationLabel(currentSeconds)} في "${resumeTitle}".`,
     tone: "warning",
     data: lessonActionData(args.context, { seekSeconds: currentSeconds }),
     dedupeKey: `${lessonDedupePrefix}${notificationDateKey(now)}`,
@@ -1165,6 +1213,274 @@ router.get("/academic/subscriptions/me", async (req, res) => {
     res.json(subscriptions);
   } catch (err) {
     req.log.error({ err }, "List student subscriptions error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/academic/watch-history/me", async (req, res) => {
+  try {
+    const student = await requireStudent(req, res);
+    if (!student) return;
+
+    const subscriptions = await db
+      .select({
+        id: subjectSubscriptionsTable.id,
+        status: subjectSubscriptionsTable.status,
+        source: subjectSubscriptionsTable.source,
+        createdAt: subjectSubscriptionsTable.createdAt,
+        updatedAt: subjectSubscriptionsTable.updatedAt,
+        year: {
+          id: academicYearsTable.id,
+          name: academicYearsTable.name,
+        },
+        subject: {
+          id: subjectsTable.id,
+          name: subjectsTable.name,
+          icon: subjectsTable.icon,
+          description: subjectsTable.description,
+          unitLabel: subjectsTable.unitLabel,
+        },
+      })
+      .from(subjectSubscriptionsTable)
+      .innerJoin(academicYearsTable, eq(subjectSubscriptionsTable.yearId, academicYearsTable.id))
+      .innerJoin(subjectsTable, eq(subjectSubscriptionsTable.subjectId, subjectsTable.id))
+      .where(and(eq(subjectSubscriptionsTable.studentId, student.id), eq(subjectSubscriptionsTable.status, "active")))
+      .orderBy(desc(subjectSubscriptionsTable.updatedAt), desc(subjectSubscriptionsTable.id));
+
+    if (subscriptions.length === 0) {
+      res.json({
+        subjects: [],
+        totals: {
+          subscriptionCount: 0,
+          lessonCount: 0,
+          watchedLessons: 0,
+          completedLessons: 0,
+          totalSeconds: 0,
+          watchedSeconds: 0,
+          progressRatio: 0,
+        },
+      });
+      return;
+    }
+
+    const subjectIds = subscriptions.map((subscription) => subscription.subject.id);
+    const lessonRows = await db
+      .select({
+        subjectId: subjectsTable.id,
+        unitId: unitsTable.id,
+        unitName: unitsTable.name,
+        unitOrderIndex: unitsTable.orderIndex,
+        lessonId: lessonsTable.id,
+        lessonTitle: lessonsTable.title,
+        lessonDescription: lessonsTable.description,
+        lessonOrderIndex: lessonsTable.orderIndex,
+        videoId: videosTable.id,
+        videoTitle: videosTable.title,
+        thumbnailUrl: videosTable.thumbnailUrl,
+        posterUrl: videosTable.posterUrl,
+        videoDurationSeconds: videosTable.duration,
+        instructor: videosTable.instructor,
+        currentSeconds: lessonWatchProgressTable.currentSeconds,
+        progressDurationSeconds: lessonWatchProgressTable.durationSeconds,
+        completed: lessonWatchProgressTable.completed,
+        lastWatchedAt: lessonWatchProgressTable.lastWatchedAt,
+      })
+      .from(lessonsTable)
+      .innerJoin(unitsTable, and(eq(lessonsTable.unitId, unitsTable.id), eq(unitsTable.isPublished, true)))
+      .innerJoin(subjectsTable, and(eq(unitsTable.subjectId, subjectsTable.id), eq(subjectsTable.isPublished, true)))
+      .innerJoin(academicYearsTable, and(eq(subjectsTable.yearId, academicYearsTable.id), eq(academicYearsTable.isPublished, true)))
+      .leftJoin(
+        videosTable,
+        and(eq(lessonsTable.videoId, videosTable.id), eq(videosTable.publishStatus, "published")),
+      )
+      .leftJoin(
+        lessonWatchProgressTable,
+        and(eq(lessonWatchProgressTable.lessonId, lessonsTable.id), eq(lessonWatchProgressTable.studentId, student.id)),
+      )
+      .where(and(inArray(unitsTable.subjectId, subjectIds), eq(lessonsTable.isPublished, true)))
+      .orderBy(asc(subjectsTable.orderIndex), asc(unitsTable.orderIndex), asc(lessonsTable.orderIndex), asc(lessonsTable.id));
+
+    type WatchLesson = {
+      id: number;
+      title: string;
+      description: string;
+      unitId: number;
+      unitName: string;
+      videoId: number | null;
+      videoTitle: string | null;
+      thumbnailUrl: string | null;
+      posterUrl: string | null;
+      instructor: string | null;
+      durationSeconds: number;
+      currentSeconds: number;
+      progressRatio: number;
+      completed: boolean;
+      lastWatchedAt: Date | null;
+    };
+    type WatchUnit = {
+      id: number;
+      name: string;
+      orderIndex: number;
+      lessonCount: number;
+      watchedLessons: number;
+      completedLessons: number;
+      totalSeconds: number;
+      watchedSeconds: number;
+      progressRatio: number;
+      lessons: WatchLesson[];
+    };
+    type WatchSubject = {
+      subscriptionId: number;
+      status: string;
+      source: string;
+      createdAt: Date;
+      updatedAt: Date;
+      year: { id: number; name: string };
+      subject: { id: number; name: string; icon: string; description: string; unitLabel: string };
+      lessonCount: number;
+      watchedLessons: number;
+      completedLessons: number;
+      totalSeconds: number;
+      watchedSeconds: number;
+      progressRatio: number;
+      lastWatchedAt: Date | null;
+      units: Map<number, WatchUnit>;
+      recentLessons: WatchLesson[];
+    };
+
+    const subjectMap = new Map<number, WatchSubject>();
+    for (const subscription of subscriptions) {
+      subjectMap.set(subscription.subject.id, {
+        subscriptionId: subscription.id,
+        status: subscription.status,
+        source: subscription.source,
+        createdAt: subscription.createdAt,
+        updatedAt: subscription.updatedAt,
+        year: subscription.year,
+        subject: subscription.subject,
+        lessonCount: 0,
+        watchedLessons: 0,
+        completedLessons: 0,
+        totalSeconds: 0,
+        watchedSeconds: 0,
+        progressRatio: 0,
+        lastWatchedAt: null,
+        units: new Map<number, WatchUnit>(),
+        recentLessons: [],
+      });
+    }
+
+    for (const row of lessonRows) {
+      const subject = subjectMap.get(row.subjectId);
+      if (!subject) continue;
+
+      const durationSeconds = Math.max(
+        toSeconds(row.videoDurationSeconds, 0),
+        toSeconds(row.progressDurationSeconds, 0),
+      );
+      const currentSeconds = Math.min(
+        toSeconds(row.currentSeconds, 0),
+        durationSeconds > 0 ? durationSeconds : Number.MAX_SAFE_INTEGER,
+      );
+      const progressRatio = durationSeconds > 0 ? Math.min(1, currentSeconds / durationSeconds) : 0;
+      const completed = Boolean(row.completed) || progressRatio >= 0.9;
+      const wasWatched = currentSeconds > 0 || Boolean(row.lastWatchedAt);
+      const lesson: WatchLesson = {
+        id: row.lessonId,
+        title: row.lessonTitle,
+        description: row.lessonDescription,
+        unitId: row.unitId,
+        unitName: row.unitName,
+        videoId: row.videoId,
+        videoTitle: row.videoTitle,
+        thumbnailUrl: row.thumbnailUrl,
+        posterUrl: row.posterUrl,
+        instructor: row.instructor,
+        durationSeconds,
+        currentSeconds,
+        progressRatio,
+        completed,
+        lastWatchedAt: row.lastWatchedAt,
+      };
+
+      let unit = subject.units.get(row.unitId);
+      if (!unit) {
+        unit = {
+          id: row.unitId,
+          name: row.unitName,
+          orderIndex: row.unitOrderIndex,
+          lessonCount: 0,
+          watchedLessons: 0,
+          completedLessons: 0,
+          totalSeconds: 0,
+          watchedSeconds: 0,
+          progressRatio: 0,
+          lessons: [],
+        };
+        subject.units.set(row.unitId, unit);
+      }
+
+      unit.lessonCount += 1;
+      unit.totalSeconds += durationSeconds;
+      unit.watchedSeconds += currentSeconds;
+      if (wasWatched) unit.watchedLessons += 1;
+      if (completed) unit.completedLessons += 1;
+      unit.lessons.push(lesson);
+
+      subject.lessonCount += 1;
+      subject.totalSeconds += durationSeconds;
+      subject.watchedSeconds += currentSeconds;
+      if (wasWatched) {
+        subject.watchedLessons += 1;
+        subject.recentLessons.push(lesson);
+      }
+      if (completed) subject.completedLessons += 1;
+      if (row.lastWatchedAt && (!subject.lastWatchedAt || row.lastWatchedAt > subject.lastWatchedAt)) {
+        subject.lastWatchedAt = row.lastWatchedAt;
+      }
+    }
+
+    const subjects = Array.from(subjectMap.values()).map((subject) => {
+      const units = Array.from(subject.units.values()).map((unit) => ({
+        ...unit,
+        progressRatio: unit.totalSeconds > 0 ? Math.min(1, unit.watchedSeconds / unit.totalSeconds) : 0,
+      }));
+      const recentLessons = subject.recentLessons
+        .sort((a, b) => new Date(b.lastWatchedAt ?? 0).getTime() - new Date(a.lastWatchedAt ?? 0).getTime())
+        .slice(0, 6);
+
+      return {
+        ...subject,
+        progressRatio: subject.totalSeconds > 0 ? Math.min(1, subject.watchedSeconds / subject.totalSeconds) : 0,
+        units,
+        recentLessons,
+      };
+    });
+
+    const totals = subjects.reduce(
+      (acc, subject) => {
+        acc.lessonCount += subject.lessonCount;
+        acc.watchedLessons += subject.watchedLessons;
+        acc.completedLessons += subject.completedLessons;
+        acc.totalSeconds += subject.totalSeconds;
+        acc.watchedSeconds += subject.watchedSeconds;
+        return acc;
+      },
+      {
+        subscriptionCount: subjects.length,
+        lessonCount: 0,
+        watchedLessons: 0,
+        completedLessons: 0,
+        totalSeconds: 0,
+        watchedSeconds: 0,
+        progressRatio: 0,
+      },
+    );
+    totals.progressRatio = totals.totalSeconds > 0 ? Math.min(1, totals.watchedSeconds / totals.totalSeconds) : 0;
+
+    res.json({ subjects, totals });
+  } catch (err) {
+    req.log.error({ err }, "Load student watch history error");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -1924,6 +2240,7 @@ router.post("/admin/academic/years/:yearId/subjects", async (req, res) => {
         name,
         icon: toText(req.body?.icon, "📚") || "📚",
         description: toText(req.body?.description),
+        unitLabel: normalizeAcademicUnitLabel(req.body?.unitLabel),
         orderIndex: toNumber(req.body?.orderIndex, 0),
         isPublished: toBool(req.body?.isPublished, false),
       })
@@ -1947,6 +2264,7 @@ router.put("/admin/academic/subjects/:id", async (req, res) => {
     if (req.body?.name !== undefined) updateData.name = toText(req.body.name);
     if (req.body?.icon !== undefined) updateData.icon = toText(req.body.icon, "📚") || "📚";
     if (req.body?.description !== undefined) updateData.description = toText(req.body.description);
+    if (req.body?.unitLabel !== undefined) updateData.unitLabel = normalizeAcademicUnitLabel(req.body.unitLabel);
     if (req.body?.orderIndex !== undefined) updateData.orderIndex = toNumber(req.body.orderIndex, 0);
     if (req.body?.isPublished !== undefined) updateData.isPublished = toBool(req.body.isPublished, false);
 

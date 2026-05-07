@@ -81,6 +81,12 @@ function formatJoinedDate(joinedAt: string | undefined, locale: string, prefix: 
   return formatted ? `${prefix} ${formatted}` : null;
 }
 
+function compactDisplayName(name: string | undefined | null) {
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 2) return parts.join(" ");
+  return `${parts[0]} ${parts[parts.length - 1]}`;
+}
+
 function resolveTextDirection(value: string, fallback: "rtl" | "ltr") {
   return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(value) ? "rtl" : fallback === "rtl" ? "ltr" : fallback;
 }
@@ -195,6 +201,10 @@ export default function ProfileScreen() {
     [strings.locale, strings.profile.joinedIn, user?.joinedAt],
   );
   const avatarUri = resolveMediaUrl(user?.avatarUrl);
+  const profileDisplayName = compactDisplayName(user?.name);
+  const profileInfoAlign = "center";
+  const profileInfoTextAlign = "center";
+  const profileBadgesDirection = isRTL ? "row-reverse" : "row";
 
   async function handleAvatarPick() {
     if (!token) {
@@ -350,7 +360,7 @@ export default function ProfileScreen() {
       <LinearGradient
         colors={
           resolvedScheme === "dark"
-            ? ["#0A0F1E", "#111827", "#0F172A"]
+            ? ["#000000", "#000000", "#000000"]
             : ["#EEF5FF", "#F8FBFF", "#F5F2FF"]
         }
         style={StyleSheet.absoluteFill}
@@ -423,22 +433,48 @@ export default function ProfileScreen() {
               </LinearGradient>
             </Pressable>
 
-            <View style={[styles.identityBlock, { alignItems: alignStart }]}>
+            <View style={[styles.identityBlock, { alignItems: profileInfoAlign, direction }]}>
               <Text
-                style={[styles.userName, { color: colors.text, textAlign, writingDirection: direction }]}
+                style={[
+                  styles.userName,
+                  {
+                    alignSelf: profileInfoAlign,
+                    color: colors.text,
+                    textAlign: profileInfoTextAlign,
+                    writingDirection: direction,
+                  },
+                ]}
                 numberOfLines={2}
                 adjustsFontSizeToFit
                 minimumFontScale={0.78}
               >
-                {toEnglishDigits(user.name)}
+                {toEnglishDigits(profileDisplayName)}
               </Text>
               <Text
-                style={[styles.userEmail, { color: colors.textSecondary, textAlign, writingDirection: direction }]}
+                style={[
+                  styles.userEmail,
+                  {
+                    alignSelf: profileInfoAlign,
+                    color: colors.textSecondary,
+                    textAlign: profileInfoTextAlign,
+                    writingDirection: "ltr",
+                  },
+                ]}
                 numberOfLines={1}
               >
                 {toEnglishDigits(user.email)}
               </Text>
-              <View style={[styles.badgesRow, { flexDirection: rowDirection, justifyContent: alignStart, direction }]}>
+              <View
+                style={[
+                  styles.badgesRow,
+                  {
+                    alignSelf: profileInfoAlign,
+                    flexDirection: profileBadgesDirection,
+                    justifyContent: "flex-start",
+                    direction: isRTL ? "ltr" : direction,
+                  },
+                ]}
+              >
                 <View style={[styles.roleBadge, { backgroundColor: roleGradient[0] }]}>
                   <Text style={[styles.roleBadgeText, { writingDirection: direction }]}>{roleLabel}</Text>
                 </View>
@@ -615,7 +651,7 @@ export default function ProfileScreen() {
             style={[
               styles.governorateSheet,
               {
-                backgroundColor: resolvedScheme === "dark" ? "rgba(17,24,39,0.96)" : "rgba(248,250,252,0.96)",
+                backgroundColor: resolvedScheme === "dark" ? "rgba(28,28,30,0.98)" : "rgba(248,250,252,0.96)",
                 borderColor: colors.border,
                 paddingBottom: insets.bottom + 16,
               },
@@ -729,11 +765,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary + "10",
   },
   guestTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 24,
   },
   guestText: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 14,
     lineHeight: 23,
     textAlign: "center",
@@ -748,7 +784,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   loginButtonText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 14,
     color: "#fff",
   },
@@ -771,7 +807,7 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
   },
   pageBackText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     lineHeight: 22,
   },
@@ -796,7 +832,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   logoutText: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 13,
   },
   profileHeaderRow: {
@@ -839,35 +875,42 @@ const styles = StyleSheet.create({
     borderColor: "#fff",
   },
   avatarText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     color: "#fff",
     fontSize: 38,
   },
   identityBlock: {
     flex: 1,
+    alignSelf: "stretch",
     minWidth: 0,
-    alignItems: "flex-end",
+    alignItems: "center",
     gap: 2,
   },
   userName: {
-    fontFamily: "Cairo_700Bold",
+    alignSelf: "center",
+    width: "100%",
+    fontWeight: "700",
     fontSize: 26,
     lineHeight: 42,
     minHeight: 44,
     paddingTop: 3,
     paddingBottom: 1,
-    textAlign: "right",
+    textAlign: "center",
     flexShrink: 1,
     maxWidth: "100%",
   },
   userEmail: {
-    fontFamily: "Cairo_400Regular",
+    alignSelf: "center",
+    width: "100%",
+    fontWeight: "400",
     fontSize: 14,
-    textAlign: "right",
+    textAlign: "center",
     flexShrink: 1,
     maxWidth: "100%",
   },
   badgesRow: {
+    alignSelf: "stretch",
+    width: "100%",
     flexDirection: "row-reverse",
     alignItems: "center",
     gap: 8,
@@ -881,7 +924,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   roleBadgeText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 12,
     color: "#fff",
   },
@@ -891,7 +934,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   joinedText: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 11,
   },
   infoCard: {
@@ -912,7 +955,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   cardTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 18,
     textAlign: "right",
   },
@@ -924,7 +967,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   editText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     color: COLORS.primary,
   },
@@ -935,7 +978,7 @@ const styles = StyleSheet.create({
   },
   cancelButton: { minHeight: 40, justifyContent: "center", paddingHorizontal: 6 },
   cancelText: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 13,
   },
   saveButton: {
@@ -948,7 +991,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   saveText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     color: "#fff",
     fontSize: 12,
   },
@@ -963,7 +1006,7 @@ const styles = StyleSheet.create({
   },
   infoTextBlock: { flex: 1, alignItems: "stretch", minWidth: 0 },
   infoLabel: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 12,
     width: "100%",
     textAlign: "right",
@@ -973,7 +1016,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   infoValue: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 14,
     lineHeight: 24,
     paddingTop: 2,
@@ -991,14 +1034,14 @@ const styles = StyleSheet.create({
     paddingTop: 2,
   },
   infoRtlValueToken: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 14,
     lineHeight: 24,
   },
   formGrid: { gap: 12 },
   inputGroup: { gap: 6 },
   inputLabel: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 12,
     textAlign: "right",
   },
@@ -1007,7 +1050,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 14,
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 14,
   },
   selectInput: {
@@ -1018,7 +1061,7 @@ const styles = StyleSheet.create({
   },
   selectValue: {
     flex: 1,
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 14,
   },
   selectIcon: {
@@ -1062,7 +1105,7 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   governorateSheetTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 16,
     lineHeight: 26,
     textAlign: "center",
@@ -1081,7 +1124,7 @@ const styles = StyleSheet.create({
     right: 0,
   },
   governorateNavButtonText: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 15,
   },
   governorateList: {
@@ -1110,7 +1153,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 48,
     right: 16,
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 14,
   },
   governorateOptionCheck: {
@@ -1149,12 +1192,12 @@ const styles = StyleSheet.create({
   },
   actionTextBlock: { flex: 1, alignItems: "flex-end" },
   actionTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 14,
     textAlign: "right",
   },
   actionSubtitle: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 12,
     textAlign: "right",
   },

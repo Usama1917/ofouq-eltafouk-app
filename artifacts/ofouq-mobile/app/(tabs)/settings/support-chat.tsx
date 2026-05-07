@@ -1,8 +1,9 @@
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,6 +15,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type TextStyle,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,6 +25,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { toEnglishDigits } from "@/lib/format";
+import { notificationsQueryKey } from "@/lib/notifications";
 
 type SupportMessage = {
   id: number;
@@ -57,6 +60,30 @@ const QUICK_QUESTIONS_EN = [
 ];
 
 const TAB_BAR_CLEARANCE = Platform.OS === "ios" ? 86 : 74;
+const RTL_STRONG_CHAR_RE = /[\u0590-\u08FF\uFB1D-\uFDFD\uFE70-\uFEFC]/;
+const LTR_STRONG_CHAR_RE = /[A-Za-z]/;
+
+function getTextFlow(value: string, fallbackDirection: "rtl" | "ltr") {
+  for (const char of value) {
+    if (RTL_STRONG_CHAR_RE.test(char)) {
+      return {
+        textAlign: "right" as TextStyle["textAlign"],
+        writingDirection: "rtl" as TextStyle["writingDirection"],
+      };
+    }
+    if (LTR_STRONG_CHAR_RE.test(char)) {
+      return {
+        textAlign: "left" as TextStyle["textAlign"],
+        writingDirection: "ltr" as TextStyle["writingDirection"],
+      };
+    }
+  }
+
+  return {
+    textAlign: fallbackDirection === "rtl" ? "right" : "left" as TextStyle["textAlign"],
+    writingDirection: fallbackDirection as TextStyle["writingDirection"],
+  };
+}
 
 export default function SupportChatScreen() {
   const {
@@ -74,10 +101,14 @@ export default function SupportChatScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const scrollRef = useRef<ScrollView>(null);
+  const sendingRef = useRef(false);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [quickQuestionsDismissed, setQuickQuestionsDismissed] = useState(false);
   const quickQuestions = language === "ar" ? QUICK_QUESTIONS_AR : QUICK_QUESTIONS_EN;
+  const headerOverlayHeight = insets.top + 104;
+  const inputTextFlow = getTextFlow(message, direction);
 
   const queryKey = ["support", "me", token] as const;
   const {
@@ -95,6 +126,13 @@ export default function SupportChatScreen() {
   });
 
   const messages = data?.messages ?? [];
+  const showQuickQuestions = !quickQuestionsDismissed;
+
+  useFocusEffect(
+    useCallback(() => {
+      setQuickQuestionsDismissed(false);
+    }, []),
+  );
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -102,6 +140,12 @@ export default function SupportChatScreen() {
     }, 80);
     return () => clearTimeout(timeout);
   }, [messages.length]);
+
+  useEffect(() => {
+    if (data) {
+      void queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+    }
+  }, [data, queryClient]);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -115,15 +159,16 @@ export default function SupportChatScreen() {
     };
   }, []);
 
-  async function sendSupportMessage(rawBody: string) {
+  async function sendSupportMessage(rawBody: string, options: { dismissQuickQuestions?: boolean } = {}) {
     if (!token) {
       router.push("/login");
       return;
     }
 
     const body = rawBody.trim();
-    if (!body || sending) return;
+    if (!body || sendingRef.current) return;
 
+    sendingRef.current = true;
     setSending(true);
     setMessage("");
     try {
@@ -132,6 +177,9 @@ export default function SupportChatScreen() {
         token,
         body: JSON.stringify({ body }),
       });
+      if (options.dismissQuickQuestions) {
+        setQuickQuestionsDismissed(true);
+      }
       await queryClient.invalidateQueries({ queryKey });
       await refetch();
     } catch (err) {
@@ -141,6 +189,7 @@ export default function SupportChatScreen() {
         err instanceof Error ? err.message : strings.common.unexpectedError,
       );
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
@@ -154,7 +203,7 @@ export default function SupportChatScreen() {
       <LinearGradient
         colors={
           resolvedScheme === "dark"
-            ? ["#0A0F1E", "#111827", "#0F172A"]
+            ? ["#000000", "#000000", "#000000"]
             : ["#EEF5FF", "#F8FBFF", "#F5F2FF"]
         }
         style={StyleSheet.absoluteFill}
@@ -185,23 +234,41 @@ export default function SupportChatScreen() {
           style={[
             styles.header,
             {
-              paddingTop: insets.top + 74,
-              paddingHorizontal: 18,
+              height: headerOverlayHeight,
+              paddingTop: insets.top + 34,
               flexDirection: rowDirection,
               direction,
             },
           ]}
         >
-          <View style={styles.headerIcon}>
-            <Feather name="headphones" size={24} color={COLORS.primary} />
-          </View>
-          <View style={[styles.headerTextBlock, { alignItems: alignStart }]}>
-            <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
-              {strings.settings.supportChatTitle}
-            </Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-              {strings.settings.supportChatSubtitle}
-            </Text>
+          <BlurView
+            intensity={resolvedScheme === "dark" ? 34 : 58}
+            tint={resolvedScheme === "dark" ? "dark" : "light"}
+            style={StyleSheet.absoluteFill}
+          />
+          <View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: resolvedScheme === "dark"
+                  ? "rgba(0,0,0,0.86)"
+                  : "rgba(248,251,255,0.68)",
+              },
+            ]}
+          />
+          <View style={[styles.headerContent, { paddingHorizontal: 18, flexDirection: rowDirection, direction }]}>
+            <View style={styles.headerIcon}>
+              <Feather name="headphones" size={24} color={COLORS.primary} />
+            </View>
+            <View style={[styles.headerTextBlock, { alignItems: alignStart }]}>
+              <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
+                {strings.settings.supportChatTitle}
+              </Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                {strings.settings.supportChatSubtitle}
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -244,7 +311,7 @@ export default function SupportChatScreen() {
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={{
                 paddingHorizontal: 18,
-                paddingTop: 12,
+                paddingTop: headerOverlayHeight + 12,
                 paddingBottom: 18,
                 gap: 10,
               }}
@@ -263,6 +330,8 @@ export default function SupportChatScreen() {
 
               {messages.map((item) => {
                 const isUserMessage = item.senderRole === "user";
+                const displayBody = toEnglishDigits(item.body);
+                const messageTextFlow = getTextFlow(displayBody, direction);
                 return (
                   <View
                     key={item.id}
@@ -287,12 +356,12 @@ export default function SupportChatScreen() {
                           styles.messageText,
                           {
                             color: isUserMessage ? "#fff" : colors.text,
-                            textAlign,
-                            writingDirection: direction,
+                            textAlign: messageTextFlow.textAlign,
+                            writingDirection: messageTextFlow.writingDirection,
                           },
                         ]}
                       >
-                        {toEnglishDigits(item.body)}
+                        {displayBody}
                       </Text>
                     </View>
                   </View>
@@ -300,31 +369,51 @@ export default function SupportChatScreen() {
               })}
             </ScrollView>
 
-            <View style={[styles.quickWrap, { borderTopColor: colors.border }]}>
-              <Text style={[styles.quickTitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                {strings.settings.supportQuickQuestions}
-              </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickList}>
-                {quickQuestions.map((question) => (
-                  <Pressable
-                    key={question}
-                    onPress={() => void sendSupportMessage(question)}
-                    disabled={sending}
-                    style={({ pressed }) => [
-                      styles.quickChip,
+            {showQuickQuestions ? (
+              <View style={[styles.quickWrap, { borderTopColor: colors.border }]}>
+                <View style={[styles.quickTitleRow, { direction: "ltr" }]}>
+                  <Text
+                    style={[
+                      styles.quickTitle,
                       {
-                        backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
-                        borderColor: colors.border,
+                        color: colors.textSecondary,
+                        marginLeft: isRTL ? "auto" : 0,
+                        marginRight: isRTL ? 0 : "auto",
+                        textAlign: isRTL ? "right" : "left",
+                        writingDirection: direction,
                       },
                     ]}
                   >
-                    <Text style={[styles.quickChipText, { color: colors.text, writingDirection: direction }]}>
-                      {toEnglishDigits(question)}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
+                    {strings.settings.supportQuickQuestions}
+                  </Text>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="always"
+                  contentContainerStyle={styles.quickList}
+                >
+                  {quickQuestions.map((question) => (
+                    <Pressable
+                      key={question}
+                      onPress={() => void sendSupportMessage(question, { dismissQuickQuestions: true })}
+                      disabled={sending}
+                      style={({ pressed }) => [
+                        styles.quickChip,
+                        {
+                          backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
+                          borderColor: colors.border,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.quickChipText, { color: colors.text, writingDirection: direction }]}>
+                        {toEnglishDigits(question)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
 
             <View
               style={[
@@ -350,8 +439,8 @@ export default function SupportChatScreen() {
                     color: colors.text,
                     backgroundColor: colors.card,
                     borderColor: colors.border,
-                    textAlign,
-                    writingDirection: direction,
+                    textAlign: inputTextFlow.textAlign,
+                    writingDirection: inputTextFlow.writingDirection,
                   },
                 ]}
               />
@@ -399,14 +488,25 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
   },
   pageBackText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     lineHeight: 22,
   },
   header: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    overflow: "hidden",
+  },
+  headerContent: {
+    zIndex: 1,
+    width: "100%",
+    flex: 1,
     alignItems: "center",
     gap: 13,
-    paddingBottom: 12,
+    paddingBottom: 14,
   },
   headerIcon: {
     width: 56,
@@ -414,17 +514,19 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary + "18",
     backgroundColor: COLORS.primary + "12",
   },
   headerTextBlock: { flex: 1, alignItems: "flex-end", justifyContent: "center" },
   title: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 25,
     lineHeight: 36,
     textAlign: "right",
   },
   subtitle: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
     lineHeight: 22,
     textAlign: "right",
@@ -451,12 +553,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   stateTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 16,
     textAlign: "center",
   },
   stateText: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
     lineHeight: 22,
     textAlign: "center",
@@ -470,7 +572,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   primaryButtonText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 14,
     color: "#fff",
   },
@@ -485,7 +587,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   messageText: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 14,
     lineHeight: 24,
   },
@@ -494,12 +596,14 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 8,
   },
-  quickTitle: {
+  quickTitleRow: {
     width: "100%",
-    fontFamily: "Cairo_700Bold",
-    fontSize: 12,
     paddingHorizontal: 18,
     marginBottom: 8,
+  },
+  quickTitle: {
+    fontWeight: "700",
+    fontSize: 12,
   },
   quickList: {
     paddingHorizontal: 18,
@@ -514,7 +618,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   quickChipText: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 12,
   },
   composer: {
@@ -533,7 +637,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 10,
     paddingBottom: 10,
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 14,
   },
   sendButton: {

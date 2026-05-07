@@ -68,6 +68,26 @@
   --radius: 1.25rem;
 }
 
+.dark {
+  --background: 0 0% 0%;
+  --foreground: 0 0% 98%;
+  --card: 240 3% 11%;
+  --card-foreground: 0 0% 98%;
+  --primary: 209 100% 52%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 4% 17%;
+  --secondary-foreground: 0 0% 96%;
+  --accent: 35 100% 52%;
+  --accent-foreground: 0 0% 0%;
+  --muted: 240 4% 17%;
+  --muted-foreground: 240 3% 66%;
+  --destructive: 0 78% 62%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 240 3% 23%;
+  --input: 240 4% 18%;
+  --ring: 209 100% 52%;
+}
+
 /* ─── Base ─────────────────────────────────────────────────── */
 @layer base {
   * { @apply border-border; }
@@ -249,4 +269,317 @@
 @keyframes mesh-drift {
   from { transform: translate(0, 0) scale(1); }
   to   { transform: translate(4%, 3%) scale(1.05); }
+}
+
+/* ─── Admin Theme ─────────────────────────────────────────── */
+.admin-dashboard {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(160deg,
+    hsl(215 60% 96%) 0%,
+    hsl(220 30% 97%) 42%,
+    hsl(260 30% 97%) 100%
+  );
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+.admin-dashboard.dark {
+  background: #000;
+}
+
+.admin-dashboard.dark .mesh-bg {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.admin-dashboard.dark .mesh-bg::before {
+  background: transparent;
+}
+
+.admin-dashboard.dark .mesh-bg::after {
+  background: transparent;
+}
+
+.admin-dashboard.dark .glass-panel {
+  background: rgba(0, 0, 0, 0.96);
+  border-color: rgba(58, 58, 60, 0.9);
+  box-shadow:
+    1px 0 0 rgba(255,255,255,0.04) inset,
+    -18px 0 42px rgba(0,0,0,0.34);
+}
+
+.admin-dashboard.dark .glass-card {
+  background: rgba(28, 28, 30, 0.96);
+  border-color: rgba(84, 84, 88, 0.56);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 18px 34px rgba(0,0,0,0.28);
+}
+
+.admin-dashboard.dark .glass-card:hover {
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.08) inset,
+    0 20px 38px rgba(0,0,0,0.32),
+    0 0 0 1px rgba(84, 84, 88, 0.64);
+  transform: none;
+}
+
+.admin-dashboard.dark .admin-stat-card {
+  --tw-gradient-from: rgb(28 28 30 / 0.98) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(44 44 46 / 0.88) var(--tw-gradient-to-position);
+}
+
+.admin-dashboard.dark [class*="bg-white/"] {
+  background-color: rgb(44 44 46 / 0.92);
+}
+
+.admin-dashboard.dark .bg-white {
+  background-color: rgb(28 28 30);
+}
+
+.admin-dashboard.dark nav .bg-white.text-primary {
+  background-color: rgb(255 255 255);
+  color: hsl(var(--primary));
+}
+
+.admin-sidebar-tab {
+  box-sizing: border-box;
+  border-color: transparent;
+  background-color: transparent;
+  transform: translateZ(0);
+  will-change: transform, color;
+}
+
+.admin-sidebar-tab:hover {
+  transform: translateZ(0);
+}
+
+.admin-sidebar-tab-active {
+  background-color: transparent;
+  border-color: transparent;
+  color: #fff;
+}
+
+.admin-sidebar-active-pill {
+  background-color: hsl(var(--primary));
+  box-shadow:
+    0 14px 24px hsl(var(--primary) / 0.22),
+    0 1px 0 rgb(255 255 255 / 0.16) inset;
+}
+
+.admin-sidebar-active-glint {
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.34), transparent);
+  mix-blend-mode: screen;
+}
+
+.admin-page-transition {
+  will-change: transform, opacity, filter;
+  transform-origin: top center;
+}
+
+.admin-dashboard:not(.dark) .admin-sidebar-tab:not(.admin-sidebar-tab-active) {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.86), rgb(241 245 249 / 0.74));
+  border-color: rgb(203 213 225 / 0.76);
+  color: rgb(100 116 139);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.9) inset,
+    0 8px 20px rgb(15 23 42 / 0.035);
+}
+
+.admin-dashboard:not(.dark) .admin-sidebar-tab:not(.admin-sidebar-tab-active):hover {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.96), rgb(226 232 240 / 0.86));
+  border-color: rgb(148 163 184 / 0.82);
+  color: rgb(15 23 42);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.95) inset,
+    0 12px 26px rgb(15 23 42 / 0.06);
+}
+
+.admin-dashboard.dark .admin-sidebar-tab:not(.admin-sidebar-tab-active) {
+  background-color: rgb(28 28 30 / 0.72);
+  border: 1px solid rgb(44 44 46 / 0.92);
+  color: rgb(174 174 178);
+}
+
+.admin-dashboard.dark .admin-sidebar-tab:not(.admin-sidebar-tab-active):hover {
+  background-color: rgb(44 44 46);
+  color: rgb(255 255 255);
+}
+
+.admin-dashboard.dark .admin-sidebar-active-pill {
+  background-color: #0a84ff;
+  box-shadow:
+    0 16px 28px rgb(10 132 255 / 0.28),
+    0 1px 0 rgb(255 255 255 / 0.14) inset;
+}
+
+.admin-theme-switch {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.82), rgb(241 245 249 / 0.72));
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.85) inset,
+    0 10px 26px rgb(15 23 42 / 0.07);
+}
+
+.admin-dashboard.dark .admin-theme-switch {
+  background:
+    linear-gradient(180deg, rgb(44 44 46 / 0.96), rgb(28 28 30 / 0.96));
+  border-color: rgb(58 58 60 / 0.96);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.08) inset,
+    0 12px 30px rgb(0 0 0 / 0.32);
+}
+
+.admin-dashboard.dark [class*="hover:bg-white"]:hover {
+  background-color: rgb(58 58 60 / 0.96);
+}
+
+.admin-dashboard.dark [class*="border-white/"] {
+  border-color: rgb(58 58 60 / 0.86);
+}
+
+.admin-dashboard.dark [class*="bg-slate-50"] {
+  background-color: rgb(28 28 30 / 0.98);
+}
+
+.admin-dashboard.dark [class*="bg-slate-100"] {
+  background-color: rgb(44 44 46 / 0.95);
+}
+
+.admin-dashboard.dark [class*="hover:bg-slate-200"]:hover {
+  background-color: rgb(58 58 60 / 0.95);
+}
+
+.admin-dashboard.dark [class*="border-slate-200"] {
+  border-color: rgb(58 58 60 / 0.86);
+}
+
+.admin-dashboard.dark [class*="text-slate-"] {
+  color: rgb(174 174 178);
+}
+
+.admin-dashboard.dark [class*="to-white"] {
+  --tw-gradient-to: rgb(28 28 30 / 0.98) var(--tw-gradient-to-position);
+}
+
+.admin-dashboard.dark table,
+.admin-dashboard.dark thead {
+  background-color: transparent;
+}
+
+.admin-dashboard.dark tr:hover {
+  background-color: rgb(44 44 46 / 0.62);
+}
+
+.admin-dashboard.dark input,
+.admin-dashboard.dark textarea,
+.admin-dashboard.dark select {
+  color: hsl(var(--foreground));
+  caret-color: hsl(var(--primary));
+  border-color: rgb(58 58 60 / 0.9);
+}
+
+.admin-dashboard.dark input::placeholder,
+.admin-dashboard.dark textarea::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+.admin-dashboard.dark .btn-primary,
+.admin-dashboard.dark .bg-primary {
+  background-color: #0a84ff;
+}
+
+.admin-dashboard.dark .text-primary {
+  color: #0a84ff;
+}
+
+.admin-dashboard.dark .border-primary,
+.admin-dashboard.dark [class*="border-primary/"] {
+  border-color: rgb(10 132 255 / 0.44);
+}
+
+.admin-dashboard.dark .automatic-report-modal {
+  background: rgb(12 18 30);
+  border-color: rgb(71 85 105 / 0.92);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.08) inset,
+    0 28px 70px rgb(0 0 0 / 0.55);
+}
+
+.admin-dashboard.dark .automatic-report-header {
+  background: linear-gradient(180deg, rgb(30 41 59), rgb(15 23 42));
+  border-color: rgb(71 85 105 / 0.9);
+}
+
+.admin-dashboard.dark .automatic-report-title {
+  color: rgb(248 250 252);
+}
+
+.admin-dashboard.dark .automatic-report-subtitle,
+.admin-dashboard.dark .automatic-report-loading {
+  color: rgb(203 213 225);
+}
+
+.admin-dashboard.dark .automatic-report-refresh {
+  background: rgb(24 24 27);
+  border-color: rgb(245 158 11 / 0.76);
+  color: rgb(251 191 36);
+}
+
+.admin-dashboard.dark .automatic-report-refresh:hover {
+  background: rgb(49 46 29);
+  color: rgb(253 230 138);
+}
+
+.admin-dashboard.dark .automatic-report-close {
+  background: rgb(24 24 27);
+  border: 1px solid rgb(82 82 91);
+  color: rgb(226 232 240);
+}
+
+.admin-dashboard.dark .automatic-report-close:hover {
+  background: rgb(39 39 42);
+  color: rgb(255 255 255);
+}
+
+.admin-dashboard.dark .automatic-report-body {
+  background: rgb(9 14 24);
+}
+
+.admin-dashboard.dark .automatic-report-empty {
+  background: rgb(15 23 42 / 0.82);
+  border-color: rgb(100 116 139 / 0.78);
+  color: rgb(226 232 240);
+}
+
+.admin-dashboard.dark .automatic-report-row {
+  background: rgb(15 23 42);
+  border-color: rgb(51 65 85);
+}
+
+.admin-dashboard.dark .automatic-report-row:hover {
+  background: rgb(30 41 59);
+  border-color: rgb(245 158 11 / 0.74);
+}
+
+.admin-dashboard.dark .automatic-report-avatar,
+.admin-dashboard.dark .automatic-report-time {
+  background: rgb(120 53 15);
+  color: rgb(255 237 213);
+}
+
+.admin-dashboard.dark .automatic-report-name,
+.admin-dashboard.dark .automatic-report-message {
+  color: rgb(248 250 252);
+}
+
+.admin-dashboard.dark .automatic-report-meta {
+  color: rgb(203 213 225);
+}
+
+.admin-dashboard.dark .automatic-report-link {
+  color: rgb(96 165 250);
 }

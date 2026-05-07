@@ -1,9 +1,3 @@
-import {
-  Cairo_400Regular,
-  Cairo_600SemiBold,
-  Cairo_700Bold,
-  useFonts,
-} from "@expo-google-fonts/cairo";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as ScreenOrientation from "expo-screen-orientation";
@@ -16,8 +10,9 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { PreferencesProvider, usePreferences } from "@/contexts/PreferencesContext";
+import { usePushNotifications } from "@/lib/pushNotifications";
 
 I18nManager.allowRTL(true);
 I18nManager.forceRTL(false);
@@ -48,24 +43,20 @@ function AppStatusBar() {
   );
 }
 
-export default function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts({
-    Cairo_400Regular,
-    Cairo_600SemiBold,
-    Cairo_700Bold,
-  });
+function PushNotificationsBootstrap() {
+  const { token, user } = useAuth();
+  usePushNotifications(token, user?.id ?? null);
+  return null;
+}
 
+export default function RootLayout() {
   useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, fontError]);
+    void SplashScreen.hideAsync();
+  }, []);
 
   useEffect(() => {
     void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
   }, []);
-
-  if (!fontsLoaded && !fontError) return null;
 
   return (
     <SafeAreaProvider>
@@ -76,6 +67,7 @@ export default function RootLayout() {
             <AuthProvider>
               <GestureHandlerRootView style={{ flex: 1 }}>
                 <KeyboardProvider>
+                  <PushNotificationsBootstrap />
                   <RootLayoutNav />
                 </KeyboardProvider>
               </GestureHandlerRootView>

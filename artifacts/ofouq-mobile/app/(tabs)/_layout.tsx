@@ -70,7 +70,7 @@ function ClassicTabLayout() {
             <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.surface }]} />
           ) : null,
         tabBarLabelStyle: {
-          fontFamily: "Cairo_400Regular",
+          fontWeight: "400",
           fontSize: 11,
           writingDirection: direction,
         },

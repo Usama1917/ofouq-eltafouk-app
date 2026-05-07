@@ -72,13 +72,13 @@ export default function AcademicTab() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { paddingHorizontal: 20, paddingBottom: 12, paddingTop: 8, borderBottomWidth: 1 },
-  headerTitle: { fontSize: 22, fontFamily: "Cairo_700Bold", textAlign: "right" },
-  headerSub: { fontSize: 13, fontFamily: "Cairo_400Regular", textAlign: "right", marginTop: 2 },
+  headerTitle: { fontSize: 22, fontWeight: "700", textAlign: "right" },
+  headerSub: { fontSize: 13, fontWeight: "400", textAlign: "right", marginTop: 2 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60, gap: 12 },
-  emptyText: { fontFamily: "Cairo_400Regular", fontSize: 15 },
+  emptyText: { fontWeight: "400", fontSize: 15 },
   card: { borderRadius: 16, borderWidth: 1, padding: 14, flexDirection: "row-reverse", alignItems: "center", gap: 12 },
   cardIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   cardText: { flex: 1, alignItems: "flex-end" },
-  cardTitle: { fontFamily: "Cairo_700Bold", fontSize: 16 },
-  cardDesc: { fontFamily: "Cairo_400Regular", fontSize: 12, marginTop: 2 },
+  cardTitle: { fontWeight: "700", fontSize: 16 },
+  cardDesc: { fontWeight: "400", fontSize: 12, marginTop: 2 },
 });

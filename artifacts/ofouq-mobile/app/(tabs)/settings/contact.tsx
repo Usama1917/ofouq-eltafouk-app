@@ -1,6 +1,8 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useQuery } from "@tanstack/react-query";
+import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import React from "react";
 import {
   Linking,
@@ -15,20 +17,28 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
+import { apiFetch } from "@/lib/api";
 import { toEnglishDigits } from "@/lib/format";
+
+type SupportUnreadCountResponse = {
+  unreadCount: number;
+};
 
 function ContactOption({
   icon,
   title,
-  subtitle,
   onPress,
+  badgeCount = 0,
 }: {
   icon: keyof typeof Feather.glyphMap;
   title: string;
-  subtitle: string;
   onPress: () => void;
+  badgeCount?: number;
 }) {
-  const { colors, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
+  const { colors, resolvedScheme, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
+  const isDark = resolvedScheme === "dark";
+  const safeBadgeCount = Number.isFinite(badgeCount) ? Math.max(0, Math.floor(badgeCount)) : 0;
+  const trailingDirection = isRTL ? "row" : "row-reverse";
 
   return (
     <Pressable
@@ -37,26 +47,41 @@ function ContactOption({
       style={({ pressed }) => [
         styles.optionRow,
         {
-          backgroundColor: pressed ? colors.surfaceSecondary : colors.surface,
+          backgroundColor: isDark
+            ? pressed ? "rgba(55,65,81,0.98)" : "rgba(38,38,40,0.98)"
+            : pressed ? colors.surfaceSecondary : colors.surface,
+          borderColor: isDark
+            ? pressed ? "rgba(96,165,250,0.34)" : "rgba(255,255,255,0.14)"
+            : colors.border,
           flexDirection: rowDirection,
           direction,
+          shadowColor: isDark ? "#000000" : "#1E3A8A",
+          shadowOpacity: isDark ? 0.28 : 0.06,
         },
       ]}
     >
       <View style={[styles.optionLeading, { flexDirection: rowDirection, direction }]}>
-        <View style={styles.optionIcon}>
-          <Feather name={icon} size={20} color={COLORS.primary} />
+        <View
+          style={[
+            styles.optionIcon,
+            isDark && {
+              backgroundColor: COLORS.darkIconFrame.background,
+              borderColor: COLORS.darkIconFrame.border,
+            },
+          ]}
+        >
+          <Feather name={icon} size={20} color={isDark ? COLORS.darkIconFrame.foreground : COLORS.primary} />
         </View>
         <View style={[styles.optionTextBlock, { alignItems: alignStart }]}>
           <Text style={[styles.optionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
             {title}
           </Text>
-          <Text style={[styles.optionSubtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-            {toEnglishDigits(subtitle)}
-          </Text>
         </View>
       </View>
-      <Feather name={isRTL ? "chevron-left" : "chevron-right"} size={19} color={colors.textTertiary} />
+      <View style={[styles.optionTrailing, { flexDirection: trailingDirection }]}>
+        {safeBadgeCount > 0 ? <View style={styles.supportUnreadBadge} /> : null}
+        <Feather name={isRTL ? "chevron-left" : "chevron-right"} size={19} color={colors.textTertiary} />
+      </View>
     </Pressable>
   );
 }
@@ -72,10 +97,33 @@ export default function ContactScreen() {
     rowDirection,
     alignStart,
   } = usePreferences();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const insets = useSafeAreaInsets();
+  const headerOverlayHeight = insets.top + 104;
+  const { data: supportUnreadSummary, refetch: refetchSupportUnreadCount } = useQuery<SupportUnreadCountResponse>({
+    queryKey: ["support", "me", "unread-count", token],
+    queryFn: () => apiFetch("/api/support/me/unread-count", { token }),
+    enabled: Boolean(user && token),
+    refetchInterval: 6000,
+  });
+  const supportUnreadCount = user ? supportUnreadSummary?.unreadCount ?? 0 : 0;
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (user && token) {
+        void refetchSupportUnreadCount();
+      }
+    }, [refetchSupportUnreadCount, token, user]),
+  );
 
   function openHotline() {
+    if (user && token) {
+      void apiFetch("/api/support/hotline-call", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ hotlineNumber: "17057" }),
+      }).catch(() => undefined);
+    }
     void Linking.openURL("tel:17057");
   }
 
@@ -94,7 +142,7 @@ export default function ContactScreen() {
       <LinearGradient
         colors={
           resolvedScheme === "dark"
-            ? ["#0A0F1E", "#111827", "#0F172A"]
+            ? ["#000000", "#000000", "#000000"]
             : ["#EEF5FF", "#F8FBFF", "#F5F2FF"]
         }
         style={StyleSheet.absoluteFill}
@@ -120,18 +168,43 @@ export default function ContactScreen() {
         </Pressable>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingTop: insets.top + 74,
-          paddingHorizontal: 18,
-          paddingBottom: insets.bottom + 118,
-          gap: 18,
-        }}
+      <View
+        style={[
+          styles.topBar,
+          {
+            height: headerOverlayHeight,
+            paddingTop: insets.top + 34,
+            flexDirection: rowDirection,
+            direction,
+          },
+        ]}
       >
-        <View style={[styles.titleRow, { flexDirection: rowDirection, direction }]}>
-          <View style={styles.titleIcon}>
-            <Feather name="phone-call" size={24} color={COLORS.primary} />
+        <BlurView
+          intensity={resolvedScheme === "dark" ? 34 : 58}
+          tint={resolvedScheme === "dark" ? "dark" : "light"}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: resolvedScheme === "dark"
+                ? "rgba(0,0,0,0.86)"
+                : "rgba(248,251,255,0.68)",
+            },
+          ]}
+        />
+        <View style={[styles.topBarContent, { paddingHorizontal: 18, flexDirection: rowDirection, direction }]}>
+          <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+            <MaterialCommunityIcons
+              name="message-text-outline"
+              size={25}
+              color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary}
+            />
+            <View style={styles.titlePhoneBadge}>
+              <Feather name="phone" size={12} color="#FFFFFF" strokeWidth={2.6} />
+            </View>
           </View>
           <View style={[styles.titleBlock, { alignItems: alignStart }]}>
             <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
@@ -142,25 +215,33 @@ export default function ContactScreen() {
             </Text>
           </View>
         </View>
+      </View>
 
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingTop: headerOverlayHeight + 18,
+          paddingHorizontal: 18,
+          paddingBottom: insets.bottom + 118,
+          gap: 18,
+        }}
+      >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <ContactOption
             icon="phone"
             title={strings.settings.contactHotline}
-            subtitle={strings.settings.contactHotlineSubtitle}
             onPress={openHotline}
           />
           <ContactOption
             icon="message-circle"
             title={strings.settings.contactWhatsApp}
-            subtitle={strings.settings.contactWhatsAppSubtitle}
             onPress={openWhatsApp}
           />
           <ContactOption
             icon="headphones"
             title={strings.settings.appSupport}
-            subtitle={strings.settings.appSupportSubtitle}
             onPress={openSupportChat}
+            badgeCount={supportUnreadCount}
           />
         </View>
       </ScrollView>
@@ -170,6 +251,22 @@ export default function ContactScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  topBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    overflow: "hidden",
+  },
+  topBarContent: {
+    zIndex: 1,
+    width: "100%",
+    flex: 1,
+    alignItems: "center",
+    gap: 13,
+    paddingBottom: 14,
+  },
   pageBackWrap: {
     position: "absolute",
     left: 18,
@@ -189,7 +286,7 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
   },
   pageBackText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     lineHeight: 22,
   },
@@ -203,19 +300,33 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 21,
+    position: "relative",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary + "18",
     backgroundColor: COLORS.primary + "12",
+  },
+  titlePhoneBadge: {
+    position: "absolute",
+    right: 6,
+    bottom: 6,
+    width: 19,
+    height: 19,
+    borderRadius: 9.5,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primary,
   },
   titleBlock: { flex: 1, alignItems: "flex-end", justifyContent: "center" },
   title: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 27,
     lineHeight: 38,
     textAlign: "right",
   },
   subtitle: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
     lineHeight: 22,
     textAlign: "right",
@@ -223,8 +334,8 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 26,
     borderWidth: 1,
-    padding: 10,
-    gap: 8,
+    padding: 8,
+    gap: 12,
     shadowColor: "#1E3A8A",
     shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.08,
@@ -233,11 +344,15 @@ const styles = StyleSheet.create({
   optionRow: {
     minHeight: 72,
     borderRadius: 18,
+    borderWidth: 1,
     padding: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 18,
+    elevation: 2,
   },
   optionLeading: {
     flex: 1,
@@ -251,19 +366,33 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary + "18",
     backgroundColor: COLORS.primary + "12",
   },
-  optionTextBlock: { flex: 1, alignItems: "flex-end" },
+  optionTextBlock: {
+    flex: 1,
+    minHeight: 46,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
   optionTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 14,
-    lineHeight: 24,
+    lineHeight: 25,
     textAlign: "right",
   },
-  optionSubtitle: {
-    fontFamily: "Cairo_400Regular",
-    fontSize: 12,
-    lineHeight: 21,
-    textAlign: "right",
+  optionTrailing: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  supportUnreadBadge: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.82)",
+    backgroundColor: COLORS.error,
   },
 });

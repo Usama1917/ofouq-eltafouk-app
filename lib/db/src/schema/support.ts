@@ -26,8 +26,25 @@ export const supportMessagesTable = pgTable("support_messages", {
   senderId: integer("sender_id").references(() => usersTable.id, { onDelete: "set null" }),
   senderRole: text("sender_role").notNull(),
   body: text("body").notNull(),
+  source: text("source").notNull().default("manual"),
+  automationKey: text("automation_key"),
   readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const supportAutomaticMessagesTable = pgTable("support_automatic_messages", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  conversationId: integer("conversation_id").references(() => supportConversationsTable.id, { onDelete: "set null" }),
+  messageId: integer("message_id").references(() => supportMessagesTable.id, { onDelete: "set null" }),
+  automationKey: text("automation_key").notNull(),
+  triggerLabel: text("trigger_label").notNull(),
+  body: text("body").notNull(),
+  status: text("status").notNull().default("scheduled"),
+  scheduledAt: timestamp("scheduled_at").notNull(),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export const insertSupportConversationSchema = createInsertSchema(supportConversationsTable).omit({
@@ -39,9 +56,16 @@ export const insertSupportMessageSchema = createInsertSchema(supportMessagesTabl
   id: true,
   createdAt: true,
 });
+export const insertSupportAutomaticMessageSchema = createInsertSchema(supportAutomaticMessagesTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
 
 export type SupportConversation = typeof supportConversationsTable.$inferSelect;
 export type SupportMessage = typeof supportMessagesTable.$inferSelect;
+export type SupportAutomaticMessage = typeof supportAutomaticMessagesTable.$inferSelect;
 
 export type InsertSupportConversation = z.infer<typeof insertSupportConversationSchema>;
 export type InsertSupportMessage = z.infer<typeof insertSupportMessageSchema>;
+export type InsertSupportAutomaticMessage = z.infer<typeof insertSupportAutomaticMessageSchema>;

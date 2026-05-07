@@ -42,6 +42,24 @@ export const lessonWatchProgressTable = pgTable(
   }),
 );
 
+export const pushNotificationTokensTable = pgTable(
+  "push_notification_tokens",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    platform: text("platform").notNull().default("unknown"),
+    deviceName: text("device_name"),
+    disabledAt: timestamp("disabled_at"),
+    lastRegisteredAt: timestamp("last_registered_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    tokenUnique: unique("push_notification_tokens_token_uniq").on(table.token),
+  }),
+);
+
 export const insertNotificationSchema = createInsertSchema(notificationsTable).omit({
   id: true,
   createdAt: true,
@@ -51,9 +69,16 @@ export const insertLessonWatchProgressSchema = createInsertSchema(lessonWatchPro
   lastWatchedAt: true,
   updatedAt: true,
 });
+export const insertPushNotificationTokenSchema = createInsertSchema(pushNotificationTokensTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
 
 export type Notification = typeof notificationsTable.$inferSelect;
 export type LessonWatchProgress = typeof lessonWatchProgressTable.$inferSelect;
+export type PushNotificationToken = typeof pushNotificationTokensTable.$inferSelect;
 
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type InsertLessonWatchProgress = z.infer<typeof insertLessonWatchProgressSchema>;
+export type InsertPushNotificationToken = z.infer<typeof insertPushNotificationTokenSchema>;

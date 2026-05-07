@@ -1,15 +1,19 @@
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import {
   ActivityIndicator,
+  Animated,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import type { TextStyle, ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -18,6 +22,8 @@ import { usePreferences } from "@/contexts/PreferencesContext";
 import { toEnglishDigits } from "@/lib/format";
 import {
   AppNotification,
+  clearReadNotifications as clearReadNotificationsRequest,
+  deleteNotification,
   fetchNotifications,
   markNotificationRead,
   notificationsQueryKey,
@@ -81,6 +87,171 @@ function formatNotificationTime(value: string, locale: string) {
   return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(new Date(value));
 }
 
+type NotificationCardProps = {
+  item: AppNotification;
+  tone: ReturnType<typeof getToneMeta>;
+  isUnread: boolean;
+  colors: typeof COLORS.light;
+  titleDirection: ViewStyle["flexDirection"];
+  direction: "rtl" | "ltr";
+  alignStart: ViewStyle["alignItems"];
+  textAlign: TextStyle["textAlign"];
+  locale: string;
+  resolvedScheme: string;
+  deleteLabel: string;
+  deleting: boolean;
+  onPress: (item: AppNotification) => void;
+  onDismiss: (item: AppNotification) => Promise<void>;
+};
+
+function NotificationCard({
+  item,
+  tone,
+  isUnread,
+  colors,
+  titleDirection,
+  direction,
+  alignStart,
+  textAlign,
+  locale,
+  resolvedScheme,
+  deleteLabel,
+  deleting,
+  onPress,
+  onDismiss,
+}: NotificationCardProps) {
+  const translateX = React.useRef(new Animated.Value(0)).current;
+  const [hidden, setHidden] = React.useState(false);
+
+  const resetPosition = React.useCallback(() => {
+    Animated.spring(translateX, {
+      toValue: 0,
+      useNativeDriver: true,
+      speed: 20,
+      bounciness: 0,
+    }).start();
+  }, [translateX]);
+
+  const dismissCard = React.useCallback(() => {
+    if (deleting) return;
+
+    Animated.timing(translateX, {
+      toValue: -420,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) return;
+
+      setHidden(true);
+      void onDismiss(item).catch(() => {
+        setHidden(false);
+        resetPosition();
+      });
+    });
+  }, [deleting, item, onDismiss, resetPosition, translateX]);
+
+  const panResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gesture) =>
+          !deleting && gesture.dx < -8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.25,
+        onPanResponderMove: (_, gesture) => {
+          translateX.setValue(Math.max(-116, Math.min(0, gesture.dx)));
+        },
+        onPanResponderRelease: (_, gesture) => {
+          if (gesture.dx <= -74 || gesture.vx <= -0.72) {
+            dismissCard();
+            return;
+          }
+          resetPosition();
+        },
+        onPanResponderTerminate: resetPosition,
+      }),
+    [deleting, dismissCard, resetPosition, translateX],
+  );
+
+  React.useEffect(() => {
+    if (!deleting) setHidden(false);
+  }, [deleting]);
+
+  const deleteActionOpacity = translateX.interpolate({
+    inputRange: [-116, -32, 0],
+    outputRange: [1, 0.36, 0],
+    extrapolate: "clamp",
+  });
+
+  if (hidden) return null;
+
+  return (
+    <View style={styles.swipeFrame}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.deleteAction,
+          {
+            backgroundColor: resolvedScheme === "dark" ? "rgba(239,68,68,0.18)" : "rgba(239,68,68,0.1)",
+            borderColor: resolvedScheme === "dark" ? "rgba(248,113,113,0.32)" : "rgba(239,68,68,0.18)",
+            opacity: deleteActionOpacity,
+          },
+        ]}
+      >
+        <Feather name="trash-2" size={19} color={COLORS.error} />
+        <Text style={styles.deleteText}>{deleteLabel}</Text>
+      </Animated.View>
+      <Animated.View style={{ transform: [{ translateX }] }} {...panResponder.panHandlers}>
+        <Pressable
+          disabled={deleting}
+          onPress={() => void onPress(item)}
+          style={({ pressed }) => [
+            styles.notificationCard,
+            {
+              backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
+              borderColor: isUnread ? COLORS.primary + "35" : colors.border,
+              direction,
+              opacity: deleting ? 0.65 : 1,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.notificationIcon,
+              direction === "rtl" ? styles.notificationIconRtl : styles.notificationIconLtr,
+              { backgroundColor: tone.background },
+            ]}
+          >
+            <Feather name={tone.icon} size={20} color={tone.color} />
+          </View>
+          <View style={[styles.notificationBody, { direction: "rtl" }]}>
+            <View style={[styles.notificationHeader, { alignItems: alignStart }]}>
+              <View style={[styles.notificationTitleRow, { flexDirection: titleDirection, direction }]}>
+                {isUnread ? <View style={styles.unreadDot} /> : null}
+                <Text style={[styles.notificationTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+                  {item.title}
+                </Text>
+              </View>
+              <Text style={[styles.notificationTime, { color: colors.textTertiary, textAlign, writingDirection: direction }]}>
+                {toEnglishDigits(formatNotificationTime(item.createdAt, locale))}
+              </Text>
+            </View>
+            <Text
+              style={[
+                styles.notificationText,
+                {
+                  color: colors.textSecondary,
+                  textAlign: "center",
+                  writingDirection: "rtl",
+                },
+              ]}
+            >
+              {item.body}
+            </Text>
+          </View>
+        </Pressable>
+      </Animated.View>
+    </View>
+  );
+}
+
 export default function NotificationsScreen() {
   const {
     colors,
@@ -89,6 +260,7 @@ export default function NotificationsScreen() {
     isRTL,
     textAlign,
     direction,
+    rowDirection,
     alignStart,
   } = usePreferences();
   const { token, user } = useAuth();
@@ -108,9 +280,20 @@ export default function NotificationsScreen() {
   });
 
   const notifications = data?.items ?? [];
+  const unreadNotifications = React.useMemo(
+    () => notifications.filter((item) => !item.readAt),
+    [notifications],
+  );
+  const readNotifications = React.useMemo(
+    () => notifications.filter((item) => Boolean(item.readAt)),
+    [notifications],
+  );
   const unreadCount = data?.unreadCount ?? 0;
   const hasNotifications = notifications.length > 0;
   const titleDirection = isRTL ? "row-reverse" : "row";
+  const headerOverlayHeight = insets.top + 104;
+  const [deletingIds, setDeletingIds] = React.useState<Set<number>>(() => new Set());
+  const [isClearingRead, setIsClearingRead] = React.useState(false);
 
   async function openNotification(item: AppNotification) {
     if (!token) return;
@@ -125,29 +308,110 @@ export default function NotificationsScreen() {
     openNotificationTarget(item);
   }
 
+  async function dismissNotification(item: AppNotification) {
+    if (!token) return;
+
+    setDeletingIds((current) => {
+      const next = new Set(current);
+      next.add(item.id);
+      return next;
+    });
+
+    try {
+      await deleteNotification(item.id, token);
+      await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+    } catch (err) {
+      await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+      throw err;
+    } finally {
+      setDeletingIds((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  }
+
+  async function clearReadNotifications() {
+    if (!token || isClearingRead || readNotifications.length === 0) return;
+
+    setIsClearingRead(true);
+    try {
+      await clearReadNotificationsRequest(token);
+      await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+    } finally {
+      setIsClearingRead(false);
+    }
+  }
+
+  function renderNotificationItems(items: AppNotification[]) {
+    return items.map((item) => {
+      const tone = getToneMeta(normalizeTone(item.tone));
+      const isUnread = !item.readAt;
+
+      return (
+        <NotificationCard
+          key={item.id}
+          item={item}
+          tone={tone}
+          isUnread={isUnread}
+          colors={colors}
+          titleDirection={titleDirection}
+          direction={direction}
+          alignStart={alignStart}
+          textAlign={textAlign}
+          locale={strings.locale}
+          resolvedScheme={resolvedScheme}
+          deleteLabel={strings.notifications.delete}
+          deleting={deletingIds.has(item.id)}
+          onPress={openNotification}
+          onDismiss={dismissNotification}
+        />
+      );
+    });
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <LinearGradient
         colors={
           resolvedScheme === "dark"
-            ? ["#0A0F1E", "#111827", "#0F172A"]
+            ? ["#000000", "#000000", "#000000"]
             : ["#EEF5FF", "#F8FBFF", "#F5F2FF"]
         }
         style={StyleSheet.absoluteFill}
       />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingTop: insets.top + 22,
-          paddingHorizontal: 18,
-          paddingBottom: insets.bottom + 118,
-          gap: 18,
-        }}
+      <View
+        style={[
+          styles.topBar,
+          {
+            height: headerOverlayHeight,
+            paddingTop: insets.top + 34,
+            flexDirection: rowDirection,
+            direction,
+          },
+        ]}
       >
-        <View style={[styles.titleRow, { flexDirection: titleDirection, direction }]}>
-          <View style={styles.titleIcon}>
-            <Feather name="bell" size={24} color={COLORS.primary} />
+        <BlurView
+          intensity={resolvedScheme === "dark" ? 34 : 58}
+          tint={resolvedScheme === "dark" ? "dark" : "light"}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: resolvedScheme === "dark"
+                ? "rgba(0,0,0,0.86)"
+                : "rgba(248,251,255,0.68)",
+            },
+          ]}
+        />
+        <View style={[styles.topBarContent, { paddingHorizontal: 18, flexDirection: rowDirection, direction }]}>
+          <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+            <Feather name="bell" size={24} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
           </View>
           <View style={[styles.titleBlock, { alignItems: alignStart }]}>
             <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
@@ -158,7 +422,17 @@ export default function NotificationsScreen() {
             </Text>
           </View>
         </View>
+      </View>
 
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingTop: headerOverlayHeight + 18,
+          paddingHorizontal: 18,
+          paddingBottom: insets.bottom + 118,
+          gap: 18,
+        }}
+      >
         <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.summaryIcon}>
             <Feather name="inbox" size={21} color={COLORS.primary} />
@@ -195,47 +469,46 @@ export default function NotificationsScreen() {
         ) : null}
 
         {hasNotifications ? (
-          <View style={styles.list}>
-            {notifications.map((item, index) => {
-              const tone = getToneMeta(normalizeTone(item.tone));
-              const isUnread = !item.readAt;
+          <View style={styles.sections}>
+            {unreadNotifications.length > 0 ? (
+              <View style={styles.notificationSection}>
+                <View style={styles.sectionHeader}>
+                  <Text style={[styles.sectionTitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                    {strings.notifications.unreadSection} ({toEnglishDigits(String(unreadNotifications.length))})
+                  </Text>
+                </View>
+                <View style={styles.sectionList}>{renderNotificationItems(unreadNotifications)}</View>
+              </View>
+            ) : null}
 
-              return (
-                <Pressable
-                  key={`${item.id}-${index}`}
-                  onPress={() => void openNotification(item)}
-                  style={({ pressed }) => [
-                    styles.notificationCard,
-                    {
-                      backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
-                      borderColor: isUnread ? COLORS.primary + "35" : colors.border,
-                      flexDirection: titleDirection,
-                      direction,
-                    },
-                  ]}
-                >
-                  <View style={[styles.notificationIcon, { backgroundColor: tone.background }]}>
-                    <Feather name={tone.icon} size={20} color={tone.color} />
-                  </View>
-                  <View style={[styles.notificationBody, { alignItems: alignStart }]}>
-                    <View style={[styles.notificationHeader, { alignItems: alignStart }]}>
-                      <View style={[styles.notificationTitleRow, { flexDirection: titleDirection, direction }]}>
-                        {isUnread ? <View style={styles.unreadDot} /> : null}
-                        <Text style={[styles.notificationTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
-                          {item.title}
-                        </Text>
-                      </View>
-                      <Text style={[styles.notificationTime, { color: colors.textTertiary, textAlign, writingDirection: direction }]}>
-                        {toEnglishDigits(formatNotificationTime(item.createdAt, strings.locale))}
-                      </Text>
-                    </View>
-                    <Text style={[styles.notificationText, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                      {item.body}
+            {readNotifications.length > 0 ? (
+              <View style={styles.notificationSection}>
+                <View style={[styles.sectionHeader, styles.readSectionHeader]}>
+                  <Pressable
+                    disabled={isClearingRead}
+                    onPress={() => void clearReadNotifications()}
+                    style={({ pressed }) => [
+                      styles.clearButton,
+                      {
+                        backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
+                        borderColor: resolvedScheme === "dark" ? "rgba(255,255,255,0.2)" : colors.border,
+                        opacity: isClearingRead ? 0.58 : 1,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.clearButtonText, { color: colors.text }]}>
+                      {strings.notifications.clear}
+                    </Text>
+                  </Pressable>
+                  <View style={styles.readSectionTitleSlot}>
+                    <Text style={[styles.sectionTitle, styles.readSectionTitle, { color: colors.textSecondary, writingDirection: direction }]}>
+                      {strings.notifications.readSection} ({toEnglishDigits(String(readNotifications.length))})
                     </Text>
                   </View>
-                </Pressable>
-              );
-            })}
+                </View>
+                <View style={styles.sectionList}>{renderNotificationItems(readNotifications)}</View>
+              </View>
+            ) : null}
           </View>
         ) : !isLoading && !isError ? (
           <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -257,6 +530,22 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  topBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    overflow: "hidden",
+  },
+  topBarContent: {
+    zIndex: 1,
+    width: "100%",
+    flex: 1,
+    alignItems: "center",
+    gap: 13,
+    paddingBottom: 14,
+  },
   titleRow: {
     alignItems: "center",
     minHeight: 68,
@@ -268,6 +557,8 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary + "18",
     backgroundColor: COLORS.primary + "12",
   },
   titleBlock: {
@@ -276,12 +567,12 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   title: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 29,
     lineHeight: 44,
   },
   subtitle: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
     lineHeight: 22,
   },
@@ -304,6 +595,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary + "18",
     backgroundColor: COLORS.primary + "12",
   },
   summaryText: {
@@ -311,12 +604,12 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   summaryNumber: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 24,
     lineHeight: 34,
   },
   summaryLabel: {
-    fontFamily: "Cairo_600SemiBold",
+    fontWeight: "600",
     fontSize: 13,
     lineHeight: 21,
   },
@@ -336,24 +629,91 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   retryText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 12,
     color: "#fff",
   },
   stateText: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
     lineHeight: 22,
   },
-  list: {
+  sections: {
+    gap: 20,
+  },
+  notificationSection: {
+    gap: 10,
+  },
+  sectionHeader: {
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: 12,
   },
+  readSectionHeader: {
+    direction: "rtl",
+  },
+  readSectionTitleSlot: {
+    flex: 1,
+    direction: "ltr",
+    alignItems: "flex-start",
+  },
+  sectionTitle: {
+    fontWeight: "700",
+    fontSize: 14,
+    lineHeight: 24,
+  },
+  readSectionTitle: {
+    textAlign: "left",
+  },
+  clearButton: {
+    minHeight: 34,
+    minWidth: 72,
+    borderRadius: 17,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  clearButtonText: {
+    fontWeight: "700",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  sectionList: {
+    gap: 12,
+  },
+  swipeFrame: {
+    position: "relative",
+    borderRadius: 24,
+  },
+  deleteAction: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: 104,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  deleteText: {
+    fontWeight: "700",
+    fontSize: 11,
+    lineHeight: 16,
+    color: COLORS.error,
+  },
   notificationCard: {
+    position: "relative",
     minHeight: 96,
     borderRadius: 24,
     borderWidth: 1,
     padding: 14,
     alignItems: "center",
+    justifyContent: "center",
     gap: 13,
     shadowColor: "#1E3A8A",
     shadowOffset: { width: 0, height: 12 },
@@ -361,23 +721,36 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
   },
   notificationIcon: {
+    position: "absolute",
+    top: 18,
     width: 46,
     height: 46,
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 2,
+  },
+  notificationIconRtl: {
+    right: 14,
+  },
+  notificationIconLtr: {
+    left: 14,
   },
   notificationBody: {
-    flex: 1,
+    width: "100%",
     minWidth: 0,
+    paddingHorizontal: 58,
+    alignItems: "center",
     gap: 5,
   },
   notificationHeader: {
     width: "100%",
+    alignItems: "center",
     gap: 1,
   },
   notificationTitleRow: {
     alignItems: "center",
+    justifyContent: "center",
     gap: 7,
   },
   unreadDot: {
@@ -387,19 +760,24 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   notificationTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 15,
     lineHeight: 24,
   },
   notificationTime: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 12,
     lineHeight: 18,
   },
   notificationText: {
-    fontFamily: "Cairo_400Regular",
+    width: "100%",
+    maxWidth: "100%",
+    alignSelf: "center",
+    fontWeight: "400",
     fontSize: 13,
     lineHeight: 22,
+    textAlign: "center",
+    writingDirection: "rtl",
   },
   emptyCard: {
     minHeight: 260,
@@ -416,15 +794,17 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary + "18",
     backgroundColor: COLORS.primary + "12",
   },
   emptyTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 18,
     lineHeight: 28,
   },
   emptyText: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
     lineHeight: 22,
   },

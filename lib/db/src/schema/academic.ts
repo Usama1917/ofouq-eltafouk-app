@@ -18,6 +18,7 @@ export const subjectsTable = pgTable("subjects", {
   name: text("name").notNull(),
   icon: text("icon").notNull().default("📚"),
   description: text("description").notNull().default(""),
+  unitLabel: text("unit_label").notNull().default("unit"),
   orderIndex: integer("order_index").notNull().default(0),
   isPublished: boolean("is_published").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),

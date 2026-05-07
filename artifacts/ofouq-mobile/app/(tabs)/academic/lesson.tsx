@@ -1,5 +1,6 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams, useNavigation, usePathname } from "expo-router";
@@ -20,6 +21,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
+import { normalizeAcademicUnitLabel } from "@/lib/academicUnitLabels";
 import { toEnglishDigits } from "@/lib/format";
 import { resolveMediaUrl } from "@/lib/media";
 
@@ -72,7 +74,10 @@ export default function LessonDetailScreen() {
     subjectName,
     unitId,
     unitName,
+    unitLabel,
     seekSeconds,
+    resumeFromNotification,
+    notificationId,
   } = useLocalSearchParams<{
     lessonId: string;
     lessonTitle: string;
@@ -82,7 +87,10 @@ export default function LessonDetailScreen() {
     subjectName?: string;
     unitId?: string;
     unitName?: string;
+    unitLabel?: string;
     seekSeconds?: string;
+    resumeFromNotification?: string;
+    notificationId?: string;
   }>();
 
   useEffect(() => {
@@ -105,13 +113,16 @@ export default function LessonDetailScreen() {
   const backToLessons =
     `${academicRoute(routeBase, "lessons")}?yearId=${yearId ?? ""}&yearName=${encode(String(yearName ?? ""))}` +
     `&subjectId=${subjectId ?? ""}&subjectName=${encode(String(subjectName ?? ""))}` +
-    `&unitId=${unitId ?? ""}&unitName=${encode(String(unitName ?? ""))}`;
+    `&unitId=${unitId ?? ""}&unitName=${encode(String(unitName ?? ""))}` +
+    `&unitLabel=${encode(normalizeAcademicUnitLabel(unitLabel))}`;
 
   const subscribePath =
     `${academicRoute(routeBase, "subscribe")}?yearId=${yearId ?? ""}&yearName=${encode(String(yearName ?? ""))}` +
     `&subjectId=${subjectId ?? ""}&subjectName=${encode(String(subjectName ?? ""))}`;
   const summaryThumbnailUrl = resolveMediaUrl(lesson?.video?.thumbnailUrl ?? lesson?.video?.posterUrl);
   const initialSeekSeconds = Math.max(0, Math.floor(Number(seekSeconds) || 0));
+  const shouldAutoResume = resumeFromNotification === "1" && initialSeekSeconds > 0;
+  const headerOverlayHeight = insets.top + 126;
 
   const reportLessonProgress = useCallback(
     (progress: { currentTime: number; duration: number }) => {
@@ -152,40 +163,70 @@ export default function LessonDetailScreen() {
       <LinearGradient
         colors={
           resolvedScheme === "dark"
-            ? ["#0A0F1E", "#111827", "#0F172A"]
+            ? ["#000000", "#000000", "#000000"]
             : ["#EEF5FF", "#F8FBFF", "#F5F2FF"]
         }
         style={StyleSheet.absoluteFill}
       />
 
+      <View style={[styles.topBar, { height: headerOverlayHeight, paddingTop: insets.top + 12 }]}>
+        <BlurView
+          intensity={resolvedScheme === "dark" ? 34 : 58}
+          tint={resolvedScheme === "dark" ? "dark" : "light"}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: resolvedScheme === "dark"
+                ? "rgba(0,0,0,0.86)"
+                : "rgba(248,251,255,0.68)",
+            },
+          ]}
+        />
+        <View style={[styles.topBarContent, { paddingHorizontal: HORIZONTAL_PADDING }]}>
+          <View style={styles.backCornerRow}>
+            <Pressable
+              onPress={backToLessonsList}
+              hitSlop={8}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.backButton,
+                {
+                  backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <Feather name="arrow-left" size={18} color={colors.textSecondary} />
+              <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>
+                {strings.academic.lessons}
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+            <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
+              {toEnglishDigits(lesson?.title ?? String(lessonTitle ?? strings.academic.lesson))}
+            </Text>
+            <Text style={[styles.lessonDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
+              {lesson?.description ? toEnglishDigits(lesson.description) : strings.academic.chooseLesson}
+            </Text>
+          </View>
+        </View>
+      </View>
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: insets.top + 10,
+          paddingTop: headerOverlayHeight + 18,
           paddingHorizontal: HORIZONTAL_PADDING,
           paddingBottom: insets.bottom + 118,
           gap: 16,
         }}
       >
-        <View style={styles.backCornerRow}>
-          <Pressable
-            onPress={backToLessonsList}
-            hitSlop={8}
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.backButton,
-              {
-                opacity: pressed ? 0.62 : 1,
-              },
-            ]}
-          >
-            <Feather name="arrow-left" size={15} color={colors.textSecondary} />
-            <Text style={[styles.backText, { color: colors.textSecondary, writingDirection: direction }]}>
-              {strings.academic.lessons}
-            </Text>
-          </Pressable>
-        </View>
-
         {isLoading ? (
           <View style={[styles.stateCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <ActivityIndicator color={COLORS.primary} />
@@ -219,17 +260,6 @@ export default function LessonDetailScreen() {
 
         {lesson ? (
           <>
-            <View style={[styles.titleBlock, { alignItems: alignStart }]}>
-              <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
-                {toEnglishDigits(lesson.title)}
-              </Text>
-              {lesson.description ? (
-                <Text style={[styles.lessonDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                  {toEnglishDigits(lesson.description)}
-                </Text>
-              ) : null}
-            </View>
-
             {lesson.video ? (
               <>
                 <View
@@ -264,6 +294,7 @@ export default function LessonDetailScreen() {
                 </View>
 
                 <AcademicVideoPlayer
+                  key={`${lesson.id}:${initialSeekSeconds}:${resumeFromNotification ?? ""}:${notificationId ?? ""}`}
                   videoUrl={lesson.video.videoUrl}
                   videoType={lesson.video.videoType}
                   title={toEnglishDigits(lesson.video.title)}
@@ -273,6 +304,7 @@ export default function LessonDetailScreen() {
                   segments={lesson.video.segments ?? []}
                   watermarkText={user ? `${toEnglishDigits(user.name)} - ${toEnglishDigits(user.email)}` : undefined}
                   initialSeekSeconds={initialSeekSeconds}
+                  autoPlayOnLoad={shouldAutoResume}
                   onProgressUpdate={reportLessonProgress}
                 />
               </>
@@ -291,34 +323,55 @@ export default function LessonDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  topBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    overflow: "hidden",
+  },
+  topBarContent: {
+    zIndex: 1,
+    width: "100%",
+    flex: 1,
+    gap: 6,
+    paddingBottom: 10,
+  },
   backCornerRow: {
     width: "100%",
     alignItems: "flex-start",
     direction: "ltr",
   },
   backButton: {
-    minHeight: 32,
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    minHeight: 40,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 13,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 7,
     direction: "ltr",
+    shadowColor: "#1E3A8A",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 2,
   },
   backText: {
-    fontFamily: "Cairo_600SemiBold",
-    fontSize: 12,
+    fontWeight: "700",
+    fontSize: 13,
+    lineHeight: 22,
   },
-  titleBlock: { alignItems: "flex-end", gap: 6 },
+  titleBlock: { flex: 1, alignItems: "flex-end", gap: 2 },
   lessonTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 25,
     lineHeight: 36,
     textAlign: "right",
   },
   lessonDesc: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 14,
     lineHeight: 24,
     textAlign: "right",
@@ -347,18 +400,18 @@ const styles = StyleSheet.create({
   },
   summaryText: { flex: 1, alignItems: "flex-end" },
   summaryTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 14,
     textAlign: "right",
   },
   summaryMeta: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 12,
     textAlign: "right",
     marginTop: 2,
   },
   watermarkHint: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 10,
     textAlign: "right",
     marginTop: 3,
@@ -379,12 +432,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   stateTitle: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 16,
     textAlign: "center",
   },
   stateText: {
-    fontFamily: "Cairo_400Regular",
+    fontWeight: "400",
     fontSize: 13,
     lineHeight: 22,
     textAlign: "center",
@@ -397,7 +450,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   primaryButtonText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 13,
     color: "#fff",
   },
@@ -406,7 +459,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   secondaryText: {
-    fontFamily: "Cairo_700Bold",
+    fontWeight: "700",
     fontSize: 12,
     color: COLORS.primary,
   },

@@ -12,6 +12,11 @@ export const COLORS = {
   success: "#10B981",
   error: "#EF4444",
   warning: "#F59E0B",
+  darkIconFrame: {
+    background: "rgba(37,99,235,0.24)",
+    border: "rgba(96,165,250,0.38)",
+    foreground: "#60A5FA",
+  },
 
   light: {
     background: "#F0F4FF",
@@ -29,17 +34,17 @@ export const COLORS = {
   },
 
   dark: {
-    background: "#0A0F1E",
-    surface: "#111827",
-    surfaceSecondary: "#1E2A45",
+    background: "#000000",
+    surface: "#1C1C1E",
+    surfaceSecondary: "#2C2C2E",
     text: "#F8FAFC",
     textSecondary: "#94A3B8",
     textTertiary: "#64748B",
-    border: "rgba(255,255,255,0.08)",
+    border: "rgba(255,255,255,0.14)",
     tint: "#60A5FA",
     tabIconDefault: "#475569",
     tabIconSelected: "#60A5FA",
-    card: "rgba(17,24,39,0.85)",
+    card: "rgba(28,28,30,0.98)",
     overlay: "rgba(0,0,0,0.6)",
   },
 };

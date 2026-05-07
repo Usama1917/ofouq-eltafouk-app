@@ -1,14 +1,22 @@
 import { Router, type IRouter } from "express";
 import {
   db,
+  supportAutomaticMessagesTable,
   notificationsTable,
   supportConversationsTable,
   supportMessagesTable,
   usersTable,
 } from "@workspace/db";
-import { and, asc, count, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, lte } from "drizzle-orm";
+import { sendPushNotificationToUser } from "../lib/push-notifications";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+const HOTLINE_NUMBER = "17057";
+const HOTLINE_FOLLOW_UP_AUTOMATION_KEY = "hotline_17057_follow_up";
+const HOTLINE_FOLLOW_UP_MESSAGE = "هل حصلت على ما تريد من ممثلي خدمة العملاء لـ 17057؟";
+const HOTLINE_FOLLOW_UP_DELAY_MS = 10 * 60 * 1000;
+const SUPPORT_AUTOMATION_POLL_INTERVAL_MS = 30 * 1000;
 
 function parsePositiveInt(value: string | undefined) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -100,20 +108,141 @@ async function createSupportReplyNotification(args: {
   messageId: number;
   body: string;
 }) {
-  await db.insert(notificationsTable).values({
+  const title = "رد جديد من دعم التطبيق";
+  const body = notificationPreview(args.body) || "لديك رد جديد من فريق الدعم.";
+  const data = {
+    route: "supportChat",
+    conversationId: args.conversationId,
+    messageId: args.messageId,
+  };
+
+  const [notification] = await db.insert(notificationsTable).values({
     userId: args.userId,
     type: "support_reply",
-    title: "رد جديد من دعم التطبيق",
-    body: notificationPreview(args.body) || "لديك رد جديد من فريق الدعم.",
+    title,
+    body,
     tone: "primary",
     actionUrl: "/(tabs)/settings/support-chat",
-    data: {
-      route: "supportChat",
-      conversationId: args.conversationId,
-      messageId: args.messageId,
-    },
+    data,
     dedupeKey: `support-reply:${args.messageId}`,
+  }).returning({ id: notificationsTable.id });
+
+  await sendPushNotificationToUser({
+    userId: args.userId,
+    title,
+    body,
+    data: {
+      ...data,
+      type: "support_reply",
+      notificationId: notification?.id,
+    },
   });
+}
+
+async function sendAutomaticSupportMessage(job: typeof supportAutomaticMessagesTable.$inferSelect) {
+  const now = new Date();
+  const [claimed] = await db
+    .update(supportAutomaticMessagesTable)
+    .set({ status: "processing", updatedAt: now })
+    .where(and(
+      eq(supportAutomaticMessagesTable.id, job.id),
+      eq(supportAutomaticMessagesTable.status, "scheduled"),
+    ))
+    .returning();
+
+  if (!claimed) return;
+
+  try {
+    const conversation = claimed.conversationId
+      ? { id: claimed.conversationId }
+      : await getOrCreateConversation(claimed.userId);
+
+    const [message] = await db
+      .insert(supportMessagesTable)
+      .values({
+        conversationId: conversation.id,
+        senderId: null,
+        senderRole: "admin",
+        body: claimed.body,
+        source: "automatic",
+        automationKey: claimed.automationKey,
+      })
+      .returning();
+
+    await db
+      .update(supportConversationsTable)
+      .set({ status: "open", lastMessageAt: now, updatedAt: now })
+      .where(eq(supportConversationsTable.id, conversation.id));
+
+    await db
+      .update(supportAutomaticMessagesTable)
+      .set({
+        status: "sent",
+        conversationId: conversation.id,
+        messageId: message.id,
+        sentAt: now,
+        updatedAt: now,
+      })
+      .where(eq(supportAutomaticMessagesTable.id, claimed.id));
+
+    await createSupportReplyNotification({
+      userId: claimed.userId,
+      conversationId: conversation.id,
+      messageId: message.id,
+      body: claimed.body,
+    });
+  } catch (err) {
+    await db
+      .update(supportAutomaticMessagesTable)
+      .set({ status: "failed", updatedAt: new Date() })
+      .where(eq(supportAutomaticMessagesTable.id, claimed.id))
+      .catch(() => undefined);
+    throw err;
+  }
+}
+
+let supportAutomationWorkerStarted = false;
+let supportAutomationWorkerBusy = false;
+
+async function processDueAutomaticSupportMessages() {
+  if (supportAutomationWorkerBusy) return;
+
+  supportAutomationWorkerBusy = true;
+  try {
+    const now = new Date();
+    const dueJobs = await db
+      .select()
+      .from(supportAutomaticMessagesTable)
+      .where(and(
+        eq(supportAutomaticMessagesTable.status, "scheduled"),
+        lte(supportAutomaticMessagesTable.scheduledAt, now),
+      ))
+      .orderBy(asc(supportAutomaticMessagesTable.scheduledAt), asc(supportAutomaticMessagesTable.id))
+      .limit(25);
+
+    for (const job of dueJobs) {
+      await sendAutomaticSupportMessage(job).catch((err) => {
+        logger.warn({ err, jobId: job.id }, "Failed to send automatic support message");
+      });
+    }
+  } catch (err) {
+    logger.warn({ err }, "Failed to process due automatic support messages");
+  } finally {
+    supportAutomationWorkerBusy = false;
+  }
+}
+
+function startSupportAutomationWorker() {
+  if (supportAutomationWorkerStarted) return;
+
+  supportAutomationWorkerStarted = true;
+  const run = () => {
+    void processDueAutomaticSupportMessages();
+  };
+  const startupTimer = setTimeout(run, 5000);
+  const interval = setInterval(run, SUPPORT_AUTOMATION_POLL_INTERVAL_MS);
+  startupTimer.unref?.();
+  interval.unref?.();
 }
 
 async function listConversationMessages(conversationId: number) {
@@ -124,6 +253,8 @@ async function listConversationMessages(conversationId: number) {
       senderId: supportMessagesTable.senderId,
       senderRole: supportMessagesTable.senderRole,
       body: supportMessagesTable.body,
+      source: supportMessagesTable.source,
+      automationKey: supportMessagesTable.automationKey,
       readAt: supportMessagesTable.readAt,
       createdAt: supportMessagesTable.createdAt,
     })
@@ -136,6 +267,18 @@ router.get("/support/me", async (req, res) => {
   try {
     const user = await requireAuthenticatedUser(req, res);
     if (!user) return;
+
+    const readAt = new Date();
+    await db
+      .update(notificationsTable)
+      .set({ readAt })
+      .where(
+        and(
+          eq(notificationsTable.userId, user.id),
+          eq(notificationsTable.type, "support_reply"),
+          isNull(notificationsTable.readAt),
+        ),
+      );
 
     const [conversation] = await db
       .select()
@@ -152,7 +295,7 @@ router.get("/support/me", async (req, res) => {
 
     await db
       .update(supportMessagesTable)
-      .set({ readAt: new Date() })
+      .set({ readAt })
       .where(
         and(
           eq(supportMessagesTable.conversationId, conversation.id),
@@ -164,6 +307,40 @@ router.get("/support/me", async (req, res) => {
     res.json({ conversation, messages });
   } catch (err) {
     req.log.error({ err }, "Failed to load support conversation");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/support/me/unread-count", async (req, res) => {
+  try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
+    const [conversation] = await db
+      .select({ id: supportConversationsTable.id })
+      .from(supportConversationsTable)
+      .where(eq(supportConversationsTable.userId, user.id))
+      .limit(1);
+
+    if (!conversation) {
+      res.json({ unreadCount: 0 });
+      return;
+    }
+
+    const [unread] = await db
+      .select({ unreadCount: count() })
+      .from(supportMessagesTable)
+      .where(
+        and(
+          eq(supportMessagesTable.conversationId, conversation.id),
+          eq(supportMessagesTable.senderRole, "admin"),
+          isNull(supportMessagesTable.readAt),
+        ),
+      );
+
+    res.json({ unreadCount: Number(unread?.unreadCount ?? 0) });
+  } catch (err) {
+    req.log.error({ err }, "Failed to load support unread count");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -204,6 +381,52 @@ router.post("/support/me/messages", async (req, res) => {
   }
 });
 
+router.post("/support/hotline-call", async (req, res) => {
+  try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
+    const hotlineNumber = String(req.body?.hotlineNumber ?? HOTLINE_NUMBER).trim() || HOTLINE_NUMBER;
+    const conversation = await getOrCreateConversation(user.id);
+    const [pendingJob] = await db
+      .select()
+      .from(supportAutomaticMessagesTable)
+      .where(and(
+        eq(supportAutomaticMessagesTable.userId, user.id),
+        eq(supportAutomaticMessagesTable.automationKey, HOTLINE_FOLLOW_UP_AUTOMATION_KEY),
+        eq(supportAutomaticMessagesTable.status, "scheduled"),
+      ))
+      .orderBy(desc(supportAutomaticMessagesTable.createdAt), desc(supportAutomaticMessagesTable.id))
+      .limit(1);
+
+    if (pendingJob) {
+      res.status(200).json(pendingJob);
+      return;
+    }
+
+    const now = new Date();
+    const scheduledAt = new Date(now.getTime() + HOTLINE_FOLLOW_UP_DELAY_MS);
+    const [job] = await db
+      .insert(supportAutomaticMessagesTable)
+      .values({
+        userId: user.id,
+        conversationId: conversation.id,
+        automationKey: HOTLINE_FOLLOW_UP_AUTOMATION_KEY,
+        triggerLabel: `مكالمة الخط الساخن ${hotlineNumber}`,
+        body: HOTLINE_FOLLOW_UP_MESSAGE,
+        status: "scheduled",
+        scheduledAt,
+        updatedAt: now,
+      })
+      .returning();
+
+    res.status(202).json(job);
+  } catch (err) {
+    req.log.error({ err }, "Failed to schedule hotline follow up");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/admin/support/conversations", async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
@@ -234,6 +457,8 @@ router.get("/admin/support/conversations", async (req, res) => {
             id: supportMessagesTable.id,
             body: supportMessagesTable.body,
             senderRole: supportMessagesTable.senderRole,
+            source: supportMessagesTable.source,
+            automationKey: supportMessagesTable.automationKey,
             createdAt: supportMessagesTable.createdAt,
           })
           .from(supportMessagesTable)
@@ -263,6 +488,44 @@ router.get("/admin/support/conversations", async (req, res) => {
     res.json(enriched);
   } catch (err) {
     req.log.error({ err }, "Failed to list support conversations");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/admin/support/automatic-messages", async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const reports = await db
+      .select({
+        id: supportAutomaticMessagesTable.id,
+        conversationId: supportAutomaticMessagesTable.conversationId,
+        messageId: supportAutomaticMessagesTable.messageId,
+        automationKey: supportAutomaticMessagesTable.automationKey,
+        triggerLabel: supportAutomaticMessagesTable.triggerLabel,
+        body: supportAutomaticMessagesTable.body,
+        status: supportAutomaticMessagesTable.status,
+        scheduledAt: supportAutomaticMessagesTable.scheduledAt,
+        sentAt: supportAutomaticMessagesTable.sentAt,
+        createdAt: supportAutomaticMessagesTable.createdAt,
+        user: {
+          id: usersTable.id,
+          name: usersTable.name,
+          email: usersTable.email,
+          role: usersTable.role,
+          phone: usersTable.phone,
+          avatarUrl: usersTable.avatarUrl,
+        },
+      })
+      .from(supportAutomaticMessagesTable)
+      .innerJoin(usersTable, eq(supportAutomaticMessagesTable.userId, usersTable.id))
+      .where(eq(supportAutomaticMessagesTable.status, "sent"))
+      .orderBy(desc(supportAutomaticMessagesTable.sentAt), desc(supportAutomaticMessagesTable.id))
+      .limit(200);
+
+    res.json(reports);
+  } catch (err) {
+    req.log.error({ err }, "Failed to list automatic support messages");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -380,5 +643,7 @@ router.post("/admin/support/conversations/:id/messages", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+startSupportAutomationWorker();
 
 export default router;

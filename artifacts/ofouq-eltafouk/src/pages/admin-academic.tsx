@@ -9,6 +9,7 @@ import {
   EyeOff,
   GraduationCap,
   Layers,
+  Pencil,
   PlayCircle,
   Plus,
   Trash2,
@@ -19,6 +20,7 @@ import {
 import { useAuth } from "@/contexts/auth-context";
 
 type Level = "years" | "subjects" | "units" | "lessons";
+type AcademicUnitLabel = "unit" | "chapter" | "section";
 
 type Breadcrumb = {
   level: Level;
@@ -26,6 +28,7 @@ type Breadcrumb = {
   yearId?: number;
   subjectId?: number;
   unitId?: number;
+  unitLabel?: AcademicUnitLabel;
 };
 
 interface AcademicYear {
@@ -42,6 +45,7 @@ interface Subject {
   name: string;
   icon: string;
   description: string;
+  unitLabel?: AcademicUnitLabel;
   orderIndex: number;
   isPublished: boolean;
 }
@@ -101,6 +105,52 @@ const SEGMENT_TYPE_OPTIONS: Array<{ value: VideoSegmentType; label: string }> = 
   { value: "topics", label: "مواضيع" },
   { value: "questions", label: "أسئلة" },
 ];
+
+const UNIT_LABEL_OPTIONS: Array<{
+  value: AcademicUnitLabel;
+  optionLabel: string;
+  singular: string;
+  plural: string;
+  createTitle: string;
+  namePlaceholder: string;
+  emptyMessage: string;
+}> = [
+  {
+    value: "unit",
+    optionLabel: "وحدة",
+    singular: "الوحدة",
+    plural: "الوحدات",
+    createTitle: "إضافة وحدة داخل المادة",
+    namePlaceholder: "اسم الوحدة",
+    emptyMessage: "لا توجد وحدات داخل هذه المادة.",
+  },
+  {
+    value: "chapter",
+    optionLabel: "فصل",
+    singular: "الفصل",
+    plural: "الفصول",
+    createTitle: "إضافة فصل داخل المادة",
+    namePlaceholder: "اسم الفصل",
+    emptyMessage: "لا توجد فصول داخل هذه المادة.",
+  },
+  {
+    value: "section",
+    optionLabel: "باب",
+    singular: "الباب",
+    plural: "الأبواب",
+    createTitle: "إضافة باب داخل المادة",
+    namePlaceholder: "اسم الباب",
+    emptyMessage: "لا توجد أبواب داخل هذه المادة.",
+  },
+];
+
+function normalizeUnitLabel(value: unknown): AcademicUnitLabel {
+  return UNIT_LABEL_OPTIONS.some((option) => option.value === value) ? value as AcademicUnitLabel : "unit";
+}
+
+function getUnitLabelCopy(value: unknown) {
+  return UNIT_LABEL_OPTIONS.find((option) => option.value === normalizeUnitLabel(value)) ?? UNIT_LABEL_OPTIONS[0];
+}
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const YEAR_ITEM_TONES = [
@@ -387,7 +437,7 @@ function ItemCard({
           </button>
         ) : null}
         <button onClick={onRename} className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center hover:bg-primary/20">
-          <Plus className="w-3.5 h-3.5" />
+          <Pencil className="w-3.5 h-3.5" />
         </button>
         <button onClick={onTogglePublish} className={`w-7 h-7 rounded-lg flex items-center justify-center ${isPublished ? "bg-emerald-100 text-emerald-600" : "bg-gray-100 text-gray-500"}`}>
           {isPublished ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
@@ -424,7 +474,14 @@ export function AcademicTab() {
   const [showAdd, setShowAdd] = useState(false);
 
   const [yearForm, setYearForm] = useState({ name: "", description: "" });
-  const [subjectForm, setSubjectForm] = useState({ name: "", icon: "📚", description: "" });
+  const [subjectForm, setSubjectForm] = useState({
+    name: "",
+    icon: "📚",
+    description: "",
+    unitLabel: "unit" as AcademicUnitLabel,
+  });
+  const [subjectFormMode, setSubjectFormMode] = useState<"create" | "edit">("create");
+  const [editingSubjectId, setEditingSubjectId] = useState<number | null>(null);
   const [unitForm, setUnitForm] = useState({ name: "", description: "" });
   const [lessonForm, setLessonForm] = useState({
     title: "",
@@ -452,6 +509,7 @@ export function AcademicTab() {
   const durationDetectionRequestRef = useRef(0);
 
   const current = crumbs[crumbs.length - 1];
+  const currentUnitCopy = getUnitLabelCopy(current.unitLabel);
 
   const yearsQ = useQuery<AcademicYear[]>({
     queryKey: ["admin", "academic", "years"],
@@ -517,6 +575,29 @@ export function AcademicTab() {
     });
 
     invalidateAcademic();
+  }
+
+  function resetSubjectForm() {
+    setSubjectForm({
+      name: "",
+      icon: "📚",
+      description: "",
+      unitLabel: "unit",
+    });
+    setSubjectFormMode("create");
+    setEditingSubjectId(null);
+  }
+
+  function openSubjectEditor(subject: Subject) {
+    setSubjectForm({
+      name: subject.name,
+      icon: subject.icon || "📚",
+      description: subject.description,
+      unitLabel: normalizeUnitLabel(subject.unitLabel),
+    });
+    setSubjectFormMode("edit");
+    setEditingSubjectId(subject.id);
+    setShowAdd(true);
   }
 
   function resetLessonForm() {
@@ -804,6 +885,9 @@ export function AcademicTab() {
           onClick={() => {
             setShowAdd((open) => {
               const next = !open;
+              if (next && current.level === "subjects") {
+                resetSubjectForm();
+              }
               if (next && current.level === "lessons") {
                 resetLessonForm();
               }
@@ -864,7 +948,9 @@ export function AcademicTab() {
 
             {current.level === "subjects" && current.yearId ? (
               <>
-                <h3 className="font-bold text-foreground">إضافة مادة داخل السنة</h3>
+                <h3 className="font-bold text-foreground">
+                  {subjectFormMode === "edit" ? "تعديل المادة" : "إضافة مادة داخل السنة"}
+                </h3>
                 <input
                   value={subjectForm.name}
                   onChange={(e) => setSubjectForm((p) => ({ ...p, name: e.target.value }))}
@@ -877,6 +963,28 @@ export function AcademicTab() {
                   placeholder="أيقونة"
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                 />
+                <div className="space-y-2">
+                  <p className="text-xs font-bold text-muted-foreground">اسم التقسيم داخل المادة</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {UNIT_LABEL_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setSubjectForm((p) => ({ ...p, unitLabel: option.value }))}
+                        className={`rounded-xl border px-3 py-2 text-sm font-bold transition ${
+                          subjectForm.unitLabel === option.value
+                            ? "border-primary bg-primary text-white shadow-lg shadow-primary/20"
+                            : "border-white/70 bg-white/70 text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {option.optionLabel}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    سيظهر هذا الاسم في شاشة المادة وأزرار الرجوع، مثل: {getUnitLabelCopy(subjectForm.unitLabel).plural}.
+                  </p>
+                </div>
                 <input
                   value={subjectForm.description}
                   onChange={(e) => setSubjectForm((p) => ({ ...p, description: e.target.value }))}
@@ -887,16 +995,30 @@ export function AcademicTab() {
                   onClick={async () => {
                     if (!subjectForm.name.trim()) return alert("اسم المادة مطلوب");
                     try {
-                      await apiFetch(token, `/admin/academic/years/${current.yearId}/subjects`, {
-                        method: "POST",
-                        body: JSON.stringify({
-                          name: subjectForm.name.trim(),
-                          icon: subjectForm.icon.trim() || "📚",
-                          description: subjectForm.description.trim(),
-                          isPublished: false,
-                        }),
-                      });
-                      setSubjectForm({ name: "", icon: "📚", description: "" });
+                      const payload = {
+                        name: subjectForm.name.trim(),
+                        icon: subjectForm.icon.trim() || "📚",
+                        description: subjectForm.description.trim(),
+                        unitLabel: subjectForm.unitLabel,
+                      };
+
+                      if (subjectFormMode === "edit") {
+                        if (!editingSubjectId) throw new Error("تعذر تحديد المادة المطلوب تعديلها");
+                        await apiFetch(token, `/admin/academic/subjects/${editingSubjectId}`, {
+                          method: "PUT",
+                          body: JSON.stringify(payload),
+                        });
+                      } else {
+                        await apiFetch(token, `/admin/academic/years/${current.yearId}/subjects`, {
+                          method: "POST",
+                          body: JSON.stringify({
+                            ...payload,
+                            isPublished: false,
+                          }),
+                        });
+                      }
+
+                      resetSubjectForm();
                       setShowAdd(false);
                       invalidateAcademic();
                     } catch (err) {
@@ -906,18 +1028,18 @@ export function AcademicTab() {
                   }}
                   className="btn-primary text-sm py-2 px-5"
                 >
-                  حفظ المادة
+                  {subjectFormMode === "edit" ? "حفظ تعديل المادة" : "حفظ المادة"}
                 </button>
               </>
             ) : null}
 
             {current.level === "units" && current.subjectId ? (
               <>
-                <h3 className="font-bold text-foreground">إضافة وحدة/فصل داخل المادة</h3>
+                <h3 className="font-bold text-foreground">{currentUnitCopy.createTitle}</h3>
                 <input
                   value={unitForm.name}
                   onChange={(e) => setUnitForm((p) => ({ ...p, name: e.target.value }))}
-                  placeholder="اسم الوحدة"
+                  placeholder={currentUnitCopy.namePlaceholder}
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                 />
                 <input
@@ -928,7 +1050,7 @@ export function AcademicTab() {
                 />
                 <button
                   onClick={async () => {
-                    if (!unitForm.name.trim()) return alert("اسم الوحدة مطلوب");
+                    if (!unitForm.name.trim()) return alert(`${currentUnitCopy.namePlaceholder} مطلوب`);
                     await apiFetch(token, `/admin/academic/subjects/${current.subjectId}/units`, {
                       method: "POST",
                       body: JSON.stringify({
@@ -943,7 +1065,7 @@ export function AcademicTab() {
                   }}
                   className="btn-primary text-sm py-2 px-5"
                 >
-                  حفظ الوحدة
+                  حفظ {currentUnitCopy.singular}
                 </button>
               </>
             ) : null}
@@ -1282,15 +1404,12 @@ export function AcademicTab() {
                 title={subject.name}
                 description={subject.description}
                 isPublished={subject.isPublished}
-                onRename={async () => {
-                  const name = prompt("اسم المادة", subject.name);
-                  if (name === null) return;
-                  await apiFetch(token, `/admin/academic/subjects/${subject.id}`, {
-                    method: "PUT",
-                    body: JSON.stringify({ name: name.trim() || subject.name }),
-                  });
-                  invalidateAcademic();
-                }}
+                badge={
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">
+                    {getUnitLabelCopy(subject.unitLabel).plural}
+                  </span>
+                }
+                onRename={() => openSubjectEditor(subject)}
                 onTogglePublish={async () => {
                   await apiFetch(token, `/admin/academic/subjects/${subject.id}`, {
                     method: "PUT",
@@ -1305,7 +1424,16 @@ export function AcademicTab() {
                 onMoveUp={index > 0 ? () => moveItem(subjects, index, "up", "/admin/academic/subjects/reorder") : undefined}
                 onMoveDown={index < subjects.length - 1 ? () => moveItem(subjects, index, "down", "/admin/academic/subjects/reorder") : undefined}
                 onOpen={() => {
-                  setCrumbs((prev) => [...prev, { level: "units", label: subject.name, yearId: current.yearId, subjectId: subject.id }]);
+                  setCrumbs((prev) => [
+                    ...prev,
+                    {
+                      level: "units",
+                      label: subject.name,
+                      yearId: current.yearId,
+                      subjectId: subject.id,
+                      unitLabel: normalizeUnitLabel(subject.unitLabel),
+                    },
+                  ]);
                   setShowAdd(false);
                 }}
               />
@@ -1315,7 +1443,7 @@ export function AcademicTab() {
 
         {current.level === "units" ? (
           units.length === 0 ? (
-            <div className="glass-card p-8 text-center text-muted-foreground">لا توجد وحدات داخل هذه المادة.</div>
+            <div className="glass-card p-8 text-center text-muted-foreground">{currentUnitCopy.emptyMessage}</div>
           ) : (
             units.map((unit, index) => (
               <ItemCard

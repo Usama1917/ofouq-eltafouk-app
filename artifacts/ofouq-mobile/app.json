@@ -42,6 +42,13 @@
           "initialOrientation": "PORTRAIT_UP"
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "default",
+          "color": "#0A84FF"
+        }
+      ],
       "expo-web-browser"
     ],
     "experiments": {
