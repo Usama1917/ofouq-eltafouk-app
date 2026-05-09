@@ -1912,6 +1912,10 @@ components:
         joinedAt:
           type: string
           format: date-time
+        lastActiveAt:
+          type: string
+          format: date-time
+          nullable: true
       required:
         - id
         - name

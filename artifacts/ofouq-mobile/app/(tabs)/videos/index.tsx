@@ -288,8 +288,8 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontWeight: "400",
-    fontSize: 14,
-    lineHeight: 23,
+    fontSize: 16,
+    lineHeight: 25,
     textAlign: "right",
   },
   yearCard: {
@@ -325,8 +325,8 @@ const styles = StyleSheet.create({
   },
   yearDesc: {
     fontWeight: "400",
-    fontSize: 12,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 22,
     textAlign: "right",
     marginTop: 4,
   },

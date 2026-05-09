@@ -3,8 +3,8 @@ import { motion, AnimatePresence, useReducedMotion, type Variants } from "framer
 import { 
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, 
   Flag, Megaphone, Plus, Edit, Trash2, Eye, Check, X, ArrowUp, ArrowDown,
-  TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap, ImagePlus, TicketPercent, Truck, Send,
-  Sun, Moon, Bot
+  TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap, ImagePlus, TicketPercent, Truck, Send, ChevronDown,
+  Sun, Moon, Bot, Search
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
@@ -22,6 +22,14 @@ import { toEnglishDigits } from "@/lib/format";
 type Tab = "dashboard" | "users" | "books" | "posts" | "reports" | "banners" | "academic" | "subscriptionRequests" | "supportMessages" | "broadcastMessages" | "materials";
 type TabMotionCustom = { direction: number; reduceMotion: boolean };
 type Material = { id: number; name: string; classification?: string; sortOrder?: number; createdAt?: string };
+type SubjectInsightItem = {
+  subjectId: number;
+  subjectName: string;
+  subjectIcon?: string | null;
+  yearName: string;
+  subscribersCount: number;
+  watchedSeconds: number;
+};
 type SupportConversationItem = {
   id: number;
   status: string;
@@ -148,6 +156,21 @@ type BroadcastPreviewSummary = {
     status: string;
     hasPushToken: boolean;
   }>;
+};
+type AdminUserListItem = {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  avatarUrl?: string | null;
+  joinedAt?: string | Date;
+  lastActiveAt?: string | Date | null;
+};
+type SupportDraftTarget = {
+  userId: number;
+  requestKey: string;
+  draft: string;
 };
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
@@ -307,8 +330,71 @@ function formatAdminDateTime(value: unknown, fallback = "—") {
   return toEnglishDigits(date.toLocaleString(ADMIN_DATE_LOCALE));
 }
 
+function formatWatchHours(seconds: unknown) {
+  const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+  if (safeSeconds < 60) return "0 ساعة";
+
+  const minutes = Math.ceil(safeSeconds / 60);
+  if (minutes < 60) return `${formatAdminNumber(minutes)} دقيقة`;
+
+  const hours = safeSeconds / 3600;
+  const roundedHours = Math.round(hours * 10) / 10;
+  return `${formatAdminNumber(roundedHours)} ساعة`;
+}
+
 function isAutomaticSupportMessage(message?: { source?: string; automationKey?: string | null } | null) {
   return message?.source === "automatic" || Boolean(message?.automationKey);
+}
+
+function isDirectAdminSupportMessage(message?: { source?: string } | null) {
+  return message?.source === "admin_direct";
+}
+
+function parseAdminDate(value: unknown) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getUserActivityInfo(value: unknown, activeWithinDays: number) {
+  const date = parseAdminDate(value);
+  if (!date) {
+    return {
+      isActive: false,
+      label: "لا يوجد نشاط",
+      meta: "لم يتم تسجيل نشاط بعد",
+    };
+  }
+
+  const ageMs = Date.now() - date.getTime();
+  const isActive = ageMs <= activeWithinDays * 24 * 60 * 60 * 1000;
+  return {
+    isActive,
+    label: isActive ? "نشط" : "غير نشط",
+    meta: `آخر نشاط: ${formatAdminDateTime(date)}`,
+  };
+}
+
+function renderSupportMessageBody(body: string) {
+  return body.split("\n").map((line, index) => {
+    const subjectMatch = line.match(/^(بخصوص طلب الإشتراك الخاص بكم لمادة )(.*)$/);
+    const codeMatch = line.match(/^(بكود )(.*)$/);
+    const match = subjectMatch || codeMatch;
+
+    return (
+      <span key={`${index}-${line}`}>
+        {index > 0 ? <br /> : null}
+        {match ? (
+          <>
+            {match[1]}
+            <strong className="font-black">{match[2]}</strong>
+          </>
+        ) : (
+          line
+        )}
+      </span>
+    );
+  });
 }
 
 function getInitialQuickReplies(): Record<QuickReplyLanguage, QuickReplyItem[]> {
@@ -438,9 +524,130 @@ function StatCard({ label, value, icon: Icon, color, bg }: any) {
   );
 }
 
+function SubjectInsightsTimeline({
+  items,
+  loading,
+  error,
+}: {
+  items: SubjectInsightItem[];
+  loading: boolean;
+  error: string;
+}) {
+  const maxWatchSeconds = Math.max(1, ...items.map((item) => Number(item.watchedSeconds) || 0));
+
+  return (
+    <div className="glass-card p-5 border-primary/15">
+      <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="font-display text-lg font-black text-foreground">بيانات المواد</h3>
+          <p className="text-xs font-semibold text-muted-foreground">المشتركين وساعات المشاهدة لكل مادة</p>
+        </div>
+        <span className="inline-flex w-fit items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-black text-primary">
+          <TrendingUp className="h-3.5 w-3.5" />
+          {formatAdminNumber(items.length, "0")} مادة
+        </span>
+      </div>
+
+      {loading && items.length === 0 ? (
+        <div className="rounded-2xl border border-border/70 bg-white/45 px-4 py-6 text-center text-sm font-semibold text-muted-foreground">
+          جاري تحميل بيانات المواد...
+        </div>
+      ) : null}
+
+      {!loading && error ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      {!loading && !error && items.length === 0 ? (
+        <div className="rounded-2xl border border-border/70 bg-white/45 px-4 py-6 text-center text-sm font-semibold text-muted-foreground">
+          لا توجد مواد لعرضها حاليا
+        </div>
+      ) : null}
+
+      {items.length > 0 ? (
+        <div className="space-y-3">
+          {items.map((item) => {
+            const watchedSeconds = Number(item.watchedSeconds) || 0;
+            const watchPercent = watchedSeconds > 0 ? Math.max(6, Math.round((watchedSeconds / maxWatchSeconds) * 100)) : 0;
+
+            return (
+              <div
+                key={item.subjectId}
+                className="relative overflow-hidden rounded-[1.65rem] border border-white/70 bg-slate-200/55 shadow-sm ring-1 ring-slate-900/5 dark:bg-white/10 dark:ring-white/10"
+              >
+                <div
+                  className="pointer-events-none absolute inset-y-0 right-0 rounded-[1.65rem] bg-gradient-to-l from-primary/35 via-sky-400/25 to-cyan-300/10 transition-[width] duration-500 ease-out"
+                  style={{ width: `${watchPercent}%` }}
+                />
+                <div className="relative flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-xl">
+                      {item.subjectIcon || "📚"}
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="truncate text-base font-black text-foreground">{item.subjectName}</h4>
+                      <p className="mt-0.5 truncate text-xs font-bold text-muted-foreground">{item.yearName}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:items-center">
+                    <div className="rounded-2xl border border-white/70 bg-white/60 px-3 py-2 text-right shadow-sm backdrop-blur dark:bg-slate-950/25">
+                      <p className="text-[11px] font-bold text-muted-foreground">النشاط</p>
+                      <p className="mt-0.5 text-base font-black text-primary">{formatAdminNumber(watchPercent, "0")}%</p>
+                    </div>
+                    <div className="rounded-2xl border border-primary/15 bg-white/55 px-3 py-2 text-right shadow-sm backdrop-blur dark:bg-slate-950/20">
+                      <p className="text-[11px] font-bold text-primary/80">المشتركين</p>
+                      <p className="mt-0.5 text-base font-black text-primary">{formatAdminNumber(item.subscribersCount, "0")}</p>
+                    </div>
+                    <div className="rounded-2xl border border-sky-200/70 bg-white/55 px-3 py-2 text-right shadow-sm backdrop-blur dark:bg-slate-950/20">
+                      <p className="text-[11px] font-bold text-sky-700">ساعات المشاهدة</p>
+                      <p className="mt-0.5 text-base font-black text-sky-700">{formatWatchHours(watchedSeconds)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // ── Dashboard Tab ─────────────────────────────────────────────────────────
 function DashboardTab({ onOpenMaterials }: { onOpenMaterials: () => void }) {
   const { data: stats } = useGetAdminStats();
+  const [subjectInsights, setSubjectInsights] = useState<SubjectInsightItem[]>([]);
+  const [subjectInsightsLoading, setSubjectInsightsLoading] = useState(false);
+  const [subjectInsightsError, setSubjectInsightsError] = useState("");
+
+  const loadSubjectInsights = async () => {
+    try {
+      setSubjectInsightsLoading(true);
+      setSubjectInsightsError("");
+      const res = await fetch(apiPath("/api/admin/subject-insights"));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as any)?.error || "تعذر تحميل بيانات المواد");
+      }
+      if (!Array.isArray(data)) {
+        throw new Error("استجابة غير متوقعة من الخادم");
+      }
+      setSubjectInsights(data);
+    } catch (err: any) {
+      setSubjectInsightsError(err?.message || "تعذر تحميل بيانات المواد");
+      setSubjectInsights([]);
+    } finally {
+      setSubjectInsightsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadSubjectInsights();
+  }, []);
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-display font-bold">نظرة عامة على المنصة</h2>
@@ -454,6 +661,7 @@ function DashboardTab({ onOpenMaterials }: { onOpenMaterials: () => void }) {
         <StatCard label="النقاط المتداولة" value={stats?.totalPointsCirculating} icon={Coins} color="text-amber-600" bg="from-amber-50/80 to-orange-50/60" />
         <StatCard label="التقارير المعلقة" value={stats?.pendingReports} icon={Flag} color="text-rose-500" bg="from-rose-50/80 to-pink-50/60" />
       </div>
+      <SubjectInsightsTimeline items={subjectInsights} loading={subjectInsightsLoading} error={subjectInsightsError} />
       <div className="glass-card p-5 border-primary/20">
         <button
           onClick={onOpenMaterials}
@@ -680,24 +888,113 @@ function MaterialsTab() {
 }
 
 // ── Users Tab ─────────────────────────────────────────────────────────────
-function UsersTab() {
-  const { data: users = [], refetch } = useListAdminUsers();
+function UsersTab({
+  selectedUserIds,
+  onSelectedUserIdsChange,
+  onSendNotification,
+  onSendSupportMessage,
+}: {
+  selectedUserIds: number[];
+  onSelectedUserIdsChange: (ids: number[]) => void;
+  onSendNotification: (users: AdminUserListItem[]) => void;
+  onSendSupportMessage: (users: AdminUserListItem[]) => void;
+}) {
+  const { data: rawUsers = [], refetch } = useListAdminUsers();
+  const users = rawUsers as AdminUserListItem[];
   const deleteUser = useDeleteAdminUser();
   const updateUser = useUpdateAdminUser();
   const createUser = useCreateAdminUser();
   const [adding, setAdding] = useState(false);
   const [newUser, setNewUser] = useState({ name: "", email: "", role: "student" });
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [actionFilter, setActionFilter] = useState("all");
+  const [activityMode, setActivityMode] = useState<"all" | "active" | "inactive">("all");
+  const [activityDaysPreset, setActivityDaysPreset] = useState("7");
+  const [customActivityDays, setCustomActivityDays] = useState("");
+  const [contactOpen, setContactOpen] = useState(false);
 
   const ROLE_COLORS: Record<string, string> = { student: "bg-blue-100 text-blue-700", teacher: "bg-emerald-100 text-emerald-700", parent: "bg-amber-100 text-amber-700", admin: "bg-violet-100 text-violet-700", owner: "bg-rose-100 text-rose-700" };
   const ROLE_LABELS: Record<string, string> = { student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", owner: "مالك" };
+  const selectedIdSet = new Set(selectedUserIds);
+  const activityDays =
+    activityDaysPreset === "custom"
+      ? Math.max(1, Number.parseInt(customActivityDays || "7", 10) || 7)
+      : Math.max(1, Number.parseInt(activityDaysPreset, 10) || 7);
+  const selectedUsers = users.filter((user) => selectedIdSet.has(user.id));
+  const filteredUsers = users.filter((user) => {
+    if (roleFilter !== "all" && user.role !== roleFilter) return false;
+    if (actionFilter === "suspendable" && user.status !== "active") return false;
+    if (actionFilter === "activatable" && user.status === "active") return false;
+
+    const activity = getUserActivityInfo(user.lastActiveAt, activityDays);
+    if (activityMode === "active" && !activity.isActive) return false;
+    if (activityMode === "inactive" && activity.isActive) return false;
+    return true;
+  });
+  const visibleSelected = filteredUsers.length > 0 && filteredUsers.every((user) => selectedIdSet.has(user.id));
+
+  useEffect(() => {
+    const currentIds = new Set(users.map((user) => user.id));
+    const nextIds = selectedUserIds.filter((id) => currentIds.has(id));
+    if (nextIds.length !== selectedUserIds.length) {
+      onSelectedUserIdsChange(nextIds);
+    }
+  }, [users.length, selectedUserIds.join(",")]);
+
+  const toggleUserSelection = (userId: number) => {
+    onSelectedUserIdsChange(
+      selectedIdSet.has(userId)
+        ? selectedUserIds.filter((id) => id !== userId)
+        : [...selectedUserIds, userId],
+    );
+  };
+
+  const toggleVisibleSelection = () => {
+    const visibleIds = filteredUsers.map((user) => user.id);
+    if (visibleSelected) {
+      onSelectedUserIdsChange(selectedUserIds.filter((id) => !visibleIds.includes(id)));
+      return;
+    }
+    onSelectedUserIdsChange(Array.from(new Set([...selectedUserIds, ...visibleIds])));
+  };
+
+  const handleContactAction = (kind: "notification" | "support") => {
+    if (selectedUsers.length === 0) {
+      alert("حدد مستخدمًا واحدًا على الأقل أولًا");
+      return;
+    }
+    setContactOpen(false);
+    if (kind === "notification") {
+      onSendNotification(selectedUsers);
+    } else {
+      onSendSupportMessage(selectedUsers);
+    }
+  };
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-display font-bold">المستخدمون ({users.length})</h2>
-        <button onClick={() => setAdding(true)} className="btn-primary text-sm py-2.5 px-5">
-          <Plus className="w-4 h-4" /> مستخدم جديد
-        </button>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="text-xl font-display font-bold">المستخدمون ({filteredUsers.length})</h2>
+          {selectedUsers.length > 0 ? (
+            <p className="mt-1 text-xs font-bold text-primary">
+              تم تحديد {formatAdminNumber(selectedUsers.length)} مستخدم
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setContactOpen(true)}
+            disabled={selectedUsers.length === 0}
+            className="h-11 rounded-2xl border border-primary/25 bg-primary/10 px-4 text-sm font-black text-primary transition-all hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50 inline-flex items-center gap-2"
+          >
+            <MessageSquare className="w-4 h-4" />
+            تواصل
+          </button>
+          <button onClick={() => setAdding(true)} className="btn-primary h-11 text-sm px-5">
+            <Plus className="w-4 h-4" /> مستخدم جديد
+          </button>
+        </div>
       </div>
       {adding && (
         <div className="glass-card p-5 space-y-4 border-primary/20">
@@ -730,18 +1027,107 @@ function UsersTab() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-right">
             <thead><tr className="border-b border-white/40">
-              {["الاسم","البريد","الدور","الحالة","إجراءات"].map(h => <th key={h} className="px-5 py-4 font-bold text-muted-foreground text-xs">{h}</th>)}
+              <th className="w-14 px-5 py-4">
+                <input
+                  type="checkbox"
+                  checked={visibleSelected}
+                  onChange={toggleVisibleSelection}
+                  aria-label="تحديد كل المستخدمين الظاهرين"
+                  className="h-4 w-4"
+                />
+              </th>
+              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">الاسم</th>
+              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">البريد</th>
+              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">
+                <div className="space-y-2">
+                  <span>الدور</span>
+                  <select
+                    value={roleFilter}
+                    onChange={(event) => setRoleFilter(event.target.value)}
+                    className="h-9 w-32 rounded-xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
+                  >
+                    <option value="all">كل الأدوار</option>
+                    {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              </th>
+              <th className="min-w-56 px-5 py-4 font-bold text-muted-foreground text-xs">
+                <div className="space-y-2">
+                  <span>النشاط</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={activityMode}
+                      onChange={(event) => setActivityMode(event.target.value as typeof activityMode)}
+                      className="h-9 rounded-xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
+                    >
+                      <option value="all">الكل</option>
+                      <option value="active">نشط</option>
+                      <option value="inactive">غير نشط</option>
+                    </select>
+                    <select
+                      value={activityDaysPreset}
+                      onChange={(event) => setActivityDaysPreset(event.target.value)}
+                      className="h-9 rounded-xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
+                    >
+                      <option value="1">آخر يوم</option>
+                      <option value="7">آخر 7 أيام</option>
+                      <option value="30">آخر 30 يوم</option>
+                      <option value="90">آخر 90 يوم</option>
+                      <option value="custom">مخصص</option>
+                    </select>
+                    {activityDaysPreset === "custom" ? (
+                      <input
+                        value={customActivityDays}
+                        onChange={(event) => setCustomActivityDays(event.target.value.replace(/[^\d]/g, ""))}
+                        placeholder="أيام"
+                        inputMode="numeric"
+                        className="h-9 w-16 rounded-xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              </th>
+              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">
+                <div className="space-y-2">
+                  <span>إجراءات</span>
+                  <select
+                    value={actionFilter}
+                    onChange={(event) => setActionFilter(event.target.value)}
+                    className="h-9 w-32 rounded-xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
+                  >
+                    <option value="all">كل الإجراءات</option>
+                    <option value="suspendable">تعليق</option>
+                    <option value="activatable">تفعيل</option>
+                  </select>
+                </div>
+              </th>
             </tr></thead>
             <tbody className="divide-y divide-white/30">
-              {users.map(u => (
-                <tr key={u.id} className="hover:bg-white/30 transition-colors">
+              {filteredUsers.map(u => {
+                const activity = getUserActivityInfo(u.lastActiveAt, activityDays);
+                return (
+                <tr key={u.id} className={`hover:bg-white/30 transition-colors ${selectedIdSet.has(u.id) ? "bg-primary/5" : ""}`}>
+                  <td className="px-5 py-3.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedIdSet.has(u.id)}
+                      onChange={() => toggleUserSelection(u.id)}
+                      aria-label={`تحديد ${u.name}`}
+                      className="h-4 w-4"
+                    />
+                  </td>
                   <td className="px-5 py-3.5 font-semibold text-foreground">{u.name}</td>
                   <td className="px-5 py-3.5 text-muted-foreground">{u.email}</td>
                   <td className="px-5 py-3.5">
                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${ROLE_COLORS[u.role] || "bg-muted text-muted-foreground"}`}>{ROLE_LABELS[u.role] || u.role}</span>
                   </td>
                   <td className="px-5 py-3.5">
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${u.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>{u.status === "active" ? "نشط" : "موقوف"}</span>
+                    <div className="space-y-1">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${activity.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{activity.label}</span>
+                      <p className="text-[11px] text-muted-foreground">{activity.meta}</p>
+                    </div>
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex gap-2">
@@ -752,11 +1138,84 @@ function UsersTab() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              );})}
+              {filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                    لا يوجد مستخدمون مطابقون للفلاتر الحالية.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
       </div>
+
+      <AnimatePresence>
+        {contactOpen ? (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setContactOpen(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 14, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              transition={{ duration: 0.16 }}
+              className="w-full max-w-md rounded-3xl border border-white/70 bg-white p-5 text-right shadow-2xl dark:bg-[#202124]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-black text-foreground">تواصل مع المستخدمين</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    اختر طريقة التواصل مع {formatAdminNumber(selectedUsers.length)} مستخدم محدد.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setContactOpen(false)}
+                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground hover:text-foreground"
+                  aria-label="إغلاق"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="grid gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleContactAction("notification")}
+                  className="rounded-2xl border border-primary/20 bg-primary/10 p-4 text-right transition-all hover:bg-primary/15"
+                >
+                  <div className="flex items-center gap-3">
+                    <Send className="h-5 w-5 text-primary" />
+                    <div>
+                      <p className="text-sm font-black text-foreground">إرسال إشعار</p>
+                      <p className="mt-1 text-xs text-muted-foreground">يفتح صفحة إرسال الرسائل والجمهور جاهز على المحددين.</p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleContactAction("support")}
+                  className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-right transition-all hover:bg-sky-100 dark:border-sky-400/20 dark:bg-sky-400/10"
+                >
+                  <div className="flex items-center gap-3">
+                    <MessageSquare className="h-5 w-5 text-sky-600" />
+                    <div>
+                      <p className="text-sm font-black text-foreground">رسالة داخل التطبيق</p>
+                      <p className="mt-1 text-xs text-muted-foreground">يفتح رسائل المستخدمين مع حقل إرسال جماعي مميز.</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
     </div>
   );
@@ -1490,12 +1949,20 @@ function BannersTab() {
   );
 }
 
-function SubscriptionRequestsTab({ token }: { token: string | null }) {
+function SubscriptionRequestsTab({
+  token,
+  onContactRequest,
+}: {
+  token: string | null;
+  onContactRequest: (request: SubscriptionRequestItem) => void;
+}) {
   const [requests, setRequests] = useState<SubscriptionRequestItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [processingId, setProcessingId] = useState<number | null>(null);
   const [previewImage, setPreviewImage] = useState<{ src: string; title?: string } | null>(null);
+  const [expandedStudentIds, setExpandedStudentIds] = useState<number[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const loadRequests = async () => {
     if (!token) return;
@@ -1524,6 +1991,15 @@ function SubscriptionRequestsTab({ token }: { token: string | null }) {
   useEffect(() => {
     void loadRequests();
   }, [token]);
+
+  useEffect(() => {
+    const nextIds = Array.from(new Set(requests.map((request) => request.student.id)));
+    setExpandedStudentIds((current) => {
+      if (nextIds.length === 0) return [];
+      if (current.length === 0) return nextIds;
+      return current.filter((id) => nextIds.includes(id));
+    });
+  }, [requests]);
 
   const handleReview = async (requestId: number, status: "approved" | "rejected") => {
     if (!token) return;
@@ -1563,13 +2039,78 @@ function SubscriptionRequestsTab({ token }: { token: string | null }) {
     }
   };
 
+  type StudentRequestGroup = {
+    student: SubscriptionRequestItem["student"];
+    latestSubmittedAt: string;
+    requests: SubscriptionRequestItem[];
+  };
+
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+  const filteredRequests = normalizedSearchTerm
+    ? requests.filter((request) =>
+        [
+          request.student.name,
+          request.student.email,
+          request.subject.name,
+          request.code,
+          request.codeTracking?.normalizedCode ?? "",
+        ].some((value) => value.toLowerCase().includes(normalizedSearchTerm)),
+      )
+    : requests;
+
+  const studentGroups = Array.from(
+    filteredRequests
+      .reduce<Map<number, StudentRequestGroup>>((groups, request) => {
+        const existing = groups.get(request.student.id);
+        if (!existing) {
+          groups.set(request.student.id, {
+            student: request.student,
+            latestSubmittedAt: request.submittedAt,
+            requests: [request],
+          });
+          return groups;
+        }
+
+        existing.requests.push(request);
+        if (new Date(request.submittedAt).getTime() > new Date(existing.latestSubmittedAt).getTime()) {
+          existing.latestSubmittedAt = request.submittedAt;
+        }
+        return groups;
+      }, new Map())
+      .values(),
+  ).sort((a, b) => new Date(b.latestSubmittedAt).getTime() - new Date(a.latestSubmittedAt).getTime());
+
+  const toggleStudentSlide = (studentId: number) => {
+    setExpandedStudentIds((current) =>
+      current.includes(studentId) ? current.filter((id) => id !== studentId) : [...current, studentId],
+    );
+  };
+
+  const handleContactRequest = (request: SubscriptionRequestItem) => {
+    onContactRequest(request);
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-display font-bold">طلبات الاشتراك ({requests.length})</h2>
-        <button onClick={() => void loadRequests()} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold hover:bg-muted transition-all">
-          تحديث
-        </button>
+        <h2 className="text-xl font-display font-bold">
+          طلبات الاشتراك ({filteredRequests.length}) · الطلاب ({studentGroups.length})
+        </h2>
+        <div className="flex items-center gap-2">
+          <div className="relative w-72 max-w-[52vw]">
+            <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="بحث بالاسم أو الإيميل أو المادة أو الكود"
+              className="h-10 w-full rounded-xl border border-border bg-white/65 py-2 pl-3 pr-9 text-sm font-medium text-foreground outline-none transition-all placeholder:text-muted-foreground focus:border-primary/50 focus:bg-white focus:ring-2 focus:ring-primary/10 dark:bg-white/10 dark:focus:bg-white/15"
+              dir="rtl"
+            />
+          </div>
+          <button onClick={() => void loadRequests()} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold hover:bg-muted transition-all">
+            تحديث
+          </button>
+        </div>
       </div>
 
       {error ? (
@@ -1578,113 +2119,189 @@ function SubscriptionRequestsTab({ token }: { token: string | null }) {
         </div>
       ) : null}
 
-      <div className="glass-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1060px] text-sm text-right">
-          <thead>
-            <tr className="border-b border-white/40">
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">الطالب</th>
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">السنة / المادة</th>
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">الكود</th>
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">الصورة</th>
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">الحالة</th>
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">التاريخ</th>
-              <th className="px-4 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">إجراء</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/30">
-            {requests.map((request) => (
-              <tr key={request.id} className="hover:bg-white/30 transition-colors align-middle">
-                <td className="px-4 py-3.5 min-w-[210px]">
-                  <p className="font-semibold text-foreground">{request.student.name}</p>
-                  <p className="text-xs text-muted-foreground">{request.student.email}</p>
-                  {request.student.phone ? <p className="text-xs text-muted-foreground">{request.student.phone}</p> : null}
-                </td>
-                <td className="px-4 py-3.5 min-w-[210px] leading-relaxed">
-                  <p className="font-semibold text-foreground">{request.year.name}</p>
-                  <p className="text-xs text-muted-foreground">{request.subject.name}</p>
-                </td>
-                <td className="px-4 py-3.5 min-w-[220px]">
-                  <p className="font-mono text-xs">{request.code}</p>
-                  {request.codeTracking?.isDuplicate ? (
-                    <div className="mt-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700 leading-relaxed break-words">
-                      <p className="font-bold">تحذير: كود مكرر ({request.codeTracking.usageCount} مرات)</p>
-                      <p>
-                        أول استخدام: {request.codeTracking.firstUsedBy.name} ·{" "}
-                        {formatAdminDate(request.codeTracking.firstUsedAt)}
-                      </p>
-                      <p className="font-mono">الطلبات: {request.codeTracking.requestIds.map((id) => `#${id}`).join("، ")}</p>
-                    </div>
-                  ) : (
-                    <p className="mt-1 text-[11px] text-emerald-700">الاستخدام الأول لهذا الكود</p>
-                  )}
-                </td>
-                <td className="px-4 py-3.5 min-w-[120px]">
-                  {request.codeImageUrl ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPreviewImage({
-                          src: apiPath(request.codeImageUrl || ""),
-                          title: `${request.student.name} · ${request.subject.name}`,
-                        })
-                      }
-                      className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-all inline-flex"
-                    >
-                      فتح الصورة
-                    </button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">لا توجد صورة</span>
-                  )}
-                </td>
-                <td className="px-4 py-3.5 min-w-[170px]">
-                  <span
-                    className={`inline-flex items-center justify-center text-center leading-[1.35] whitespace-normal break-words min-h-[2.1rem] max-w-[8.5rem] px-2.5 py-1 rounded-full text-xs font-bold ${
-                      request.status === "approved"
-                        ? "bg-emerald-100 text-emerald-700"
-                        : request.status === "rejected"
-                        ? "bg-rose-100 text-rose-700"
-                        : "bg-amber-100 text-amber-700"
-                    }`}
-                  >
-                    {request.status === "approved" ? "مقبول" : request.status === "rejected" ? "مرفوض" : "قيد المراجعة"}
-                  </span>
-                  {request.reviewNotes ? <p className="text-xs text-muted-foreground mt-1 max-w-[210px] leading-relaxed">{request.reviewNotes}</p> : null}
-                </td>
-                <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap min-w-[170px]">
-                  {formatAdminDateTime(request.submittedAt)}
-                </td>
-                <td className="px-4 py-3.5 min-w-[130px]">
-                  <div className="flex flex-col gap-2 min-w-[120px]">
-                    <button
-                      onClick={() => void handleReview(request.id, "approved")}
-                      disabled={processingId === request.id || request.status === "approved"}
-                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-all disabled:opacity-50"
-                    >
-                      اعتماد
-                    </button>
-                    <button
-                      onClick={() => void handleReview(request.id, "rejected")}
-                      disabled={processingId === request.id || request.status === "rejected"}
-                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-100 text-rose-700 hover:bg-rose-200 transition-all disabled:opacity-50"
-                    >
-                      رفض
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+      <div className="space-y-3">
+        {loading && requests.length === 0 ? (
+          <div className="glass-card p-7 text-center text-sm text-muted-foreground">جاري تحميل طلبات الاشتراك...</div>
+        ) : null}
 
-            {!loading && requests.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-7 text-center text-muted-foreground text-sm">
-                  لا توجد طلبات اشتراك حالياً
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-          </table>
-        </div>
+        {!loading && requests.length === 0 ? (
+          <div className="glass-card p-7 text-center text-sm text-muted-foreground">لا توجد طلبات اشتراك حالياً</div>
+        ) : null}
+
+        {!loading && requests.length > 0 && studentGroups.length === 0 ? (
+          <div className="glass-card p-7 text-center text-sm text-muted-foreground">لا توجد نتائج مطابقة للبحث</div>
+        ) : null}
+
+        {studentGroups.map((group) => {
+          const isExpanded = expandedStudentIds.includes(group.student.id);
+          const pendingCount = group.requests.filter((request) => request.status === "pending").length;
+          const approvedCount = group.requests.filter((request) => request.status === "approved").length;
+          const rejectedCount = group.requests.filter((request) => request.status === "rejected").length;
+          const duplicateCount = group.requests.filter((request) => request.codeTracking?.isDuplicate).length;
+
+          return (
+            <div key={group.student.id} className="glass-card overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggleStudentSlide(group.student.id)}
+                className="flex w-full flex-col gap-4 px-5 py-4 text-right transition-all hover:bg-white/25 md:flex-row md:items-center md:justify-between"
+                aria-expanded={isExpanded}
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-base font-black text-primary">
+                    {group.student.name.charAt(0)}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="truncate text-base font-black text-foreground">{group.student.name}</h3>
+                      <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-black text-primary">
+                        {formatAdminNumber(group.requests.length)} طلب
+                      </span>
+                    </div>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">{group.student.email}</p>
+                    {group.student.phone ? <p className="mt-0.5 text-xs text-muted-foreground">{group.student.phone}</p> : null}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-black text-amber-700">
+                    قيد المراجعة {formatAdminNumber(pendingCount)}
+                  </span>
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-black text-emerald-700">
+                    مقبول {formatAdminNumber(approvedCount)}
+                  </span>
+                  <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-black text-rose-700">
+                    مرفوض {formatAdminNumber(rejectedCount)}
+                  </span>
+                  {duplicateCount > 0 ? (
+                    <span className="rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-black text-red-700">
+                      مكرر {formatAdminNumber(duplicateCount)}
+                    </span>
+                  ) : null}
+                  <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-bold text-muted-foreground">
+                    آخر طلب: {formatAdminDateTime(group.latestSubmittedAt)}
+                  </span>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                </div>
+              </button>
+
+              <AnimatePresence initial={false}>
+                {isExpanded ? (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+                    className="overflow-hidden"
+                  >
+                    <div className="border-t border-white/35 px-3 pb-3">
+                      <div className="overflow-x-auto pt-3">
+                        <table className="w-full min-w-[900px] text-sm text-right">
+                          <thead>
+                            <tr className="border-b border-white/35">
+                              <th className="px-3 py-3 text-xs font-bold text-muted-foreground whitespace-nowrap">السنة / المادة</th>
+                              <th className="px-3 py-3 text-xs font-bold text-muted-foreground whitespace-nowrap">الكود</th>
+                              <th className="px-3 py-3 text-xs font-bold text-muted-foreground whitespace-nowrap">الصورة</th>
+                              <th className="px-3 py-3 text-xs font-bold text-muted-foreground whitespace-nowrap">الحالة</th>
+                              <th className="px-3 py-3 text-xs font-bold text-muted-foreground whitespace-nowrap">التاريخ</th>
+                              <th className="px-3 py-3 text-xs font-bold text-muted-foreground whitespace-nowrap">إجراء</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/25">
+                            {group.requests.map((request) => (
+                              <tr key={request.id} className="align-middle transition-colors hover:bg-white/25">
+                                <td className="px-3 py-3.5 min-w-[190px] leading-relaxed">
+                                  <p className="font-semibold text-foreground">{request.year.name}</p>
+                                  <p className="text-xs text-muted-foreground">{request.subject.name}</p>
+                                </td>
+                                <td className="px-3 py-3.5 min-w-[220px]">
+                                  <p className="font-mono text-xs">{request.code}</p>
+                                  {request.codeTracking?.isDuplicate ? (
+                                    <div className="mt-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700 leading-relaxed break-words">
+                                      <p className="font-bold">تحذير: كود مكرر ({request.codeTracking.usageCount} مرات)</p>
+                                      <p>
+                                        أول استخدام: {request.codeTracking.firstUsedBy.name} ·{" "}
+                                        {formatAdminDate(request.codeTracking.firstUsedAt)}
+                                      </p>
+                                      <p className="font-mono">الطلبات: {request.codeTracking.requestIds.map((id) => `#${id}`).join("، ")}</p>
+                                    </div>
+                                  ) : (
+                                    <p className="mt-1 text-[11px] text-emerald-700">الاستخدام الأول لهذا الكود</p>
+                                  )}
+                                </td>
+                                <td className="px-3 py-3.5 min-w-[120px]">
+                                  {request.codeImageUrl ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setPreviewImage({
+                                          src: apiPath(request.codeImageUrl || ""),
+                                          title: `${request.student.name} · ${request.subject.name}`,
+                                        })
+                                      }
+                                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs font-bold text-primary transition-all hover:bg-primary/20"
+                                    >
+                                      <Eye className="h-3.5 w-3.5" />
+                                      فتح الصورة
+                                    </button>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">لا توجد صورة</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-3.5 min-w-[170px]">
+                                  <span
+                                    className={`inline-flex min-h-[2.1rem] max-w-[8.5rem] items-center justify-center rounded-full px-2.5 py-1 text-center text-xs font-bold leading-[1.35] whitespace-normal break-words ${
+                                      request.status === "approved"
+                                        ? "bg-emerald-100 text-emerald-700"
+                                        : request.status === "rejected"
+                                          ? "bg-rose-100 text-rose-700"
+                                          : "bg-amber-100 text-amber-700"
+                                    }`}
+                                  >
+                                    {request.status === "approved" ? "مقبول" : request.status === "rejected" ? "مرفوض" : "قيد المراجعة"}
+                                  </span>
+                                  {request.reviewNotes ? <p className="mt-1 max-w-[210px] text-xs leading-relaxed text-muted-foreground">{request.reviewNotes}</p> : null}
+                                </td>
+                                <td className="px-3 py-3.5 min-w-[170px] whitespace-nowrap text-xs text-muted-foreground">
+                                  {formatAdminDateTime(request.submittedAt)}
+                                </td>
+                                <td className="px-3 py-3.5 min-w-[130px]">
+                                  <div className="flex min-w-[120px] flex-col gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleContactRequest(request)}
+                                      className="rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary transition-all hover:bg-primary/20"
+                                    >
+                                      التواصل
+                                    </button>
+                                    <button
+                                      onClick={() => void handleReview(request.id, "approved")}
+                                      disabled={processingId === request.id || request.status === "approved"}
+                                      className="rounded-lg bg-emerald-100 px-3 py-1.5 text-xs font-bold text-emerald-700 transition-all hover:bg-emerald-200 disabled:opacity-50"
+                                    >
+                                      اعتماد
+                                    </button>
+                                    <button
+                                      onClick={() => void handleReview(request.id, "rejected")}
+                                      disabled={processingId === request.id || request.status === "rejected"}
+                                      className="rounded-lg bg-rose-100 px-3 py-1.5 text-xs font-bold text-rose-700 transition-all hover:bg-rose-200 disabled:opacity-50"
+                                    >
+                                      رفض
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </div>
+          );
+        })}
       </div>
 
       <AnimatePresence>
@@ -1700,7 +2317,15 @@ function SubscriptionRequestsTab({ token }: { token: string | null }) {
   );
 }
 
-function BroadcastMessagesTab({ token }: { token: string | null }) {
+function BroadcastMessagesTab({
+  token,
+  targetUsers = [],
+  onClearTargetUsers,
+}: {
+  token: string | null;
+  targetUsers?: AdminUserListItem[];
+  onClearTargetUsers?: () => void;
+}) {
   const [years, setYears] = useState<BroadcastYearOption[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -1710,7 +2335,7 @@ function BroadcastMessagesTab({ token }: { token: string | null }) {
   const [preview, setPreview] = useState<BroadcastPreviewSummary | null>(null);
   const [audience, setAudience] = useState<BroadcastAudience>("all");
   const [role, setRole] = useState<"all" | "student" | "teacher" | "admin" | "owner">("student");
-  const [status, setStatus] = useState<"active" | "inactive" | "all">("active");
+  const [status, setStatus] = useState<"active" | "suspended" | "all">("active");
   const [push, setPush] = useState<"any" | "has" | "none">("any");
   const [joinedWithinDays, setJoinedWithinDays] = useState("");
   const [selectedYearIds, setSelectedYearIds] = useState<number[]>([]);
@@ -1723,6 +2348,8 @@ function BroadcastMessagesTab({ token }: { token: string | null }) {
   const [actionSubjectId, setActionSubjectId] = useState("");
   const [actionLessonId, setActionLessonId] = useState("");
   const allSubjects = years.flatMap((year) => year.subjects.map((subject) => ({ ...subject, yearId: year.id, yearName: year.name })));
+  const targetUserIds = targetUsers.map((user) => user.id);
+  const targetUserKey = targetUserIds.join(",");
 
   const audienceLabels: Record<BroadcastAudience, string> = {
     all: "الكل",
@@ -1742,6 +2369,7 @@ function BroadcastMessagesTab({ token }: { token: string | null }) {
       yearIds: selectedYearIds,
       subjectIds: selectedSubjectIds,
       joinedWithinDays: joinedWithinDays.trim() ? Number(joinedWithinDays) : null,
+      selectedUserIds: targetUserIds,
     };
   }
 
@@ -1803,8 +2431,19 @@ function BroadcastMessagesTab({ token }: { token: string | null }) {
   }, [token]);
 
   useEffect(() => {
+    if (targetUsers.length === 0) return;
+    setAudience("all");
+    setRole("all");
+    setStatus("all");
+    setPush("any");
+    setJoinedWithinDays("");
+    setSelectedYearIds([]);
+    setSelectedSubjectIds([]);
+  }, [targetUserKey]);
+
+  useEffect(() => {
     void loadPreview();
-  }, [token, audience, role, status, push, joinedWithinDays, selectedYearIds.join(","), selectedSubjectIds.join(",")]);
+  }, [token, audience, role, status, push, joinedWithinDays, selectedYearIds.join(","), selectedSubjectIds.join(","), targetUserKey]);
 
   function toggleId(id: number, selected: number[], setter: (value: number[]) => void) {
     setter(selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]);
@@ -1998,9 +2637,39 @@ function BroadcastMessagesTab({ token }: { token: string | null }) {
             <div className="flex items-center justify-between">
               <h3 className="font-display font-bold text-lg">فلترة الجمهور</h3>
               <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-black text-primary">
-                {audienceLabels[audience]}
+                {targetUsers.length > 0 ? "مستخدمون محددون" : audienceLabels[audience]}
               </span>
             </div>
+
+            {targetUsers.length > 0 ? (
+              <div className="rounded-2xl border border-primary/20 bg-primary/10 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-black text-primary">جاهز للإرسال إلى {formatAdminNumber(targetUsers.length)} مستخدم محدد</p>
+                    <p className="mt-1 text-xs text-muted-foreground">تم تمرير الجمهور من تحديدات صفحة المستخدمين.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onClearTargetUsers}
+                    className="rounded-xl bg-white/75 px-3 py-1.5 text-xs font-bold text-muted-foreground transition-all hover:text-foreground"
+                  >
+                    مسح
+                  </button>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {targetUsers.slice(0, 6).map((user) => (
+                    <span key={user.id} className="rounded-full bg-background/80 px-2.5 py-1 text-[11px] font-bold text-foreground">
+                      {user.name}
+                    </span>
+                  ))}
+                  {targetUsers.length > 6 ? (
+                    <span className="rounded-full bg-background/80 px-2.5 py-1 text-[11px] font-bold text-muted-foreground">
+                      +{formatAdminNumber(targetUsers.length - 6)}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
 
             <label className="space-y-1.5 block">
               <span className="text-xs font-bold text-muted-foreground">الجمهور الأساسي</span>
@@ -2029,7 +2698,7 @@ function BroadcastMessagesTab({ token }: { token: string | null }) {
                 <span className="text-xs font-bold text-muted-foreground">حالة الحساب</span>
                 <select value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className="w-full rounded-2xl border border-border bg-background px-3 py-2.5 text-sm font-semibold">
                   <option value="active">نشط</option>
-                  <option value="inactive">غير نشط</option>
+                  <option value="suspended">موقوف</option>
                   <option value="all">كل الحالات</option>
                 </select>
               </label>
@@ -2145,9 +2814,17 @@ function BroadcastMessagesTab({ token }: { token: string | null }) {
 function SupportMessagesTab({
   token,
   onUnreadChatCountChange,
+  targetUsers = [],
+  onClearTargetUsers,
+  draftTarget,
+  onDraftTargetHandled,
 }: {
   token: string | null;
   onUnreadChatCountChange?: (count: number) => void;
+  targetUsers?: AdminUserListItem[];
+  onClearTargetUsers?: () => void;
+  draftTarget?: SupportDraftTarget | null;
+  onDraftTargetHandled?: () => void;
 }) {
   const [conversations, setConversations] = useState<SupportConversationItem[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -2157,6 +2834,8 @@ function SupportMessagesTab({
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [conversationSearchTerm, setConversationSearchTerm] = useState("");
+  const [debouncedConversationSearchTerm, setDebouncedConversationSearchTerm] = useState("");
   const [quickRepliesOpen, setQuickRepliesOpen] = useState(false);
   const [quickReplyLanguage, setQuickReplyLanguage] = useState<QuickReplyLanguage>("ar");
   const [quickReplies, setQuickReplies] = useState<Record<QuickReplyLanguage, QuickReplyItem[]>>(getInitialQuickReplies);
@@ -2165,10 +2844,17 @@ function SupportMessagesTab({
   const [automaticReports, setAutomaticReports] = useState<AutomaticSupportMessageReportItem[]>([]);
   const [automaticReportsLoading, setAutomaticReportsLoading] = useState(false);
   const [automaticReportsError, setAutomaticReportsError] = useState("");
+  const [directMessageBody, setDirectMessageBody] = useState("");
+  const [directMessageSending, setDirectMessageSending] = useState(false);
+  const [directMessageSuccess, setDirectMessageSuccess] = useState("");
+  const [messageActionId, setMessageActionId] = useState<number | null>(null);
 
   const selectedConversation = conversations.find((item) => item.id === selectedId) ?? null;
   const activeQuickReplies = quickReplies[quickReplyLanguage] ?? [];
   const quickReplyDirection = quickReplyLanguage === "ar" ? "rtl" : "ltr";
+  const targetUserIds = targetUsers.map((user) => user.id);
+  const draftTargetKey = draftTarget?.requestKey ?? "";
+  const activeConversationSearchTerm = debouncedConversationSearchTerm.trim();
 
   const authHeaders = () => ({
     Authorization: `Bearer ${token}`,
@@ -2199,7 +2885,8 @@ function SupportMessagesTab({
     try {
       setLoading(true);
       setError("");
-      const res = await fetch(apiPath("/api/admin/support/conversations"), {
+      const searchQuery = activeConversationSearchTerm;
+      const res = await fetch(apiPath(`/api/admin/support/conversations${searchQuery ? `?q=${encodeURIComponent(searchQuery)}` : ""}`), {
         headers: authHeaders(),
       });
       const data = await res.json().catch(() => ({}));
@@ -2219,10 +2906,14 @@ function SupportMessagesTab({
         nextItems = items.map((item) => (
           item.id === nextSelectedId ? { ...item, unreadCount: 0 } : item
         ));
+      } else {
+        setMessages([]);
       }
 
       setConversations(nextItems);
-      onUnreadChatCountChange?.(countUnreadSupportChats(nextItems));
+      if (!searchQuery) {
+        onUnreadChatCountChange?.(countUnreadSupportChats(nextItems));
+      }
     } catch (err: any) {
       setError(err?.message || "تعذر تحميل محادثات الدعم");
       setConversations([]);
@@ -2264,7 +2955,60 @@ function SupportMessagesTab({
       void loadConversations();
     }, 9000);
     return () => window.clearInterval(timer);
-  }, [token, selectedId]);
+  }, [token, selectedId, activeConversationSearchTerm]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedConversationSearchTerm(conversationSearchTerm.trim());
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [conversationSearchTerm]);
+
+  useEffect(() => {
+    if (!token || !draftTarget) return;
+
+    let cancelled = false;
+    const openDraftConversation = async () => {
+      try {
+        setError("");
+        const res = await fetch(apiPath("/api/admin/support/conversations/open"), {
+          method: "POST",
+          headers: {
+            ...authHeaders(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ userId: draftTarget.userId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error((data as any)?.error || "تعذر فتح محادثة الطالب");
+        }
+
+        const conversationId = Number((data as any)?.conversation?.id);
+        if (!Number.isFinite(conversationId) || conversationId <= 0) {
+          throw new Error("استجابة غير متوقعة من الخادم");
+        }
+
+        if (cancelled) return;
+        setReply(draftTarget.draft);
+        setQuickRepliesOpen(false);
+        await loadConversations(conversationId);
+      } catch (err: any) {
+        if (!cancelled) {
+          alert(err?.message || "تعذر فتح محادثة الطالب");
+        }
+      } finally {
+        if (!cancelled) {
+          onDraftTargetHandled?.();
+        }
+      }
+    };
+
+    void openDraftConversation();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, draftTargetKey]);
 
   useEffect(() => {
     try {
@@ -2311,6 +3055,92 @@ function SupportMessagesTab({
       alert(err?.message || "تعذر إرسال الرد");
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleEditSupportMessage = async (message: SupportMessageItem) => {
+    if (!token || !selectedId) return;
+    const nextBody = prompt("تعديل الرسالة:", message.body)?.trim();
+    if (!nextBody || nextBody === message.body.trim()) return;
+
+    try {
+      setMessageActionId(message.id);
+      const res = await fetch(apiPath(`/api/admin/support/messages/${message.id}`), {
+        method: "PATCH",
+        headers: {
+          ...authHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ body: nextBody }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as any)?.error || "تعذر تعديل الرسالة");
+      }
+      await loadMessages(selectedId);
+      await loadConversations(selectedId);
+    } catch (err: any) {
+      alert(err?.message || "تعذر تعديل الرسالة");
+    } finally {
+      setMessageActionId(null);
+    }
+  };
+
+  const handleDeleteSupportMessage = async (message: SupportMessageItem) => {
+    if (!token || !selectedId) return;
+    if (!confirm("حذف هذه الرسالة من المحادثة؟")) return;
+
+    try {
+      setMessageActionId(message.id);
+      const res = await fetch(apiPath(`/api/admin/support/messages/${message.id}`), {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as any)?.error || "تعذر حذف الرسالة");
+      }
+      await loadMessages(selectedId);
+      await loadConversations(selectedId);
+    } catch (err: any) {
+      alert(err?.message || "تعذر حذف الرسالة");
+    } finally {
+      setMessageActionId(null);
+    }
+  };
+
+  const handleSendDirectSupportMessage = async () => {
+    if (!token || targetUsers.length === 0) return;
+    const body = directMessageBody.trim();
+    if (!body) return;
+
+    try {
+      setDirectMessageSending(true);
+      setDirectMessageSuccess("");
+      const res = await fetch(apiPath("/api/admin/support/direct-messages"), {
+        method: "POST",
+        headers: {
+          ...authHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userIds: targetUserIds, body }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as any)?.error || "تعذر إرسال الرسالة");
+      }
+
+      const sentCount = Number((data as any)?.sentCount ?? 0);
+      const firstConversationId = Array.isArray((data as any)?.conversations)
+        ? Number((data as any).conversations[0]?.conversationId)
+        : null;
+      setDirectMessageBody("");
+      setDirectMessageSuccess(`تم إرسال الرسالة إلى ${formatAdminNumber(sentCount)} مستخدم.`);
+      await loadConversations(Number.isFinite(firstConversationId) && firstConversationId ? firstConversationId : selectedId);
+    } catch (err: any) {
+      alert(err?.message || "تعذر إرسال الرسالة");
+    } finally {
+      setDirectMessageSending(false);
     }
   };
 
@@ -2386,6 +3216,97 @@ function SupportMessagesTab({
         </div>
       ) : null}
 
+      <div className="glass-card p-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="relative w-full md:max-w-xl">
+            <Search className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={conversationSearchTerm}
+              onChange={(event) => setConversationSearchTerm(event.target.value)}
+              placeholder="بحث باسم المستخدم أو الإيميل أو محتوى الرسالة"
+              className="h-11 w-full rounded-2xl border border-border bg-white/70 py-2 pl-10 pr-10 text-sm font-semibold text-foreground outline-none transition-all placeholder:text-muted-foreground focus:border-primary/50 focus:bg-white focus:ring-2 focus:ring-primary/10 dark:bg-white/10 dark:focus:bg-white/15"
+              dir="rtl"
+            />
+            {conversationSearchTerm.trim() ? (
+              <button
+                type="button"
+                onClick={() => setConversationSearchTerm("")}
+                className="absolute left-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-muted text-muted-foreground transition-all hover:text-foreground"
+                aria-label="مسح البحث"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+          {activeConversationSearchTerm ? (
+            <span className="w-fit rounded-full bg-primary/10 px-3 py-1.5 text-xs font-black text-primary">
+              نتائج البحث: {formatAdminNumber(conversations.length, "0")}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {targetUsers.length > 0 ? (
+        <div className="glass-card border-sky-200/70 bg-sky-50/70 p-4 dark:border-sky-400/20 dark:bg-sky-400/10">
+          <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h3 className="text-base font-black text-foreground">رسالة مباشرة إلى {formatAdminNumber(targetUsers.length)} مستخدم</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                ستظهر في شات الدعم كرسالة تواصل مباشر مميزة.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClearTargetUsers}
+              className="h-9 rounded-xl border border-sky-200 bg-white px-3 text-xs font-bold text-sky-700 transition-all hover:bg-sky-100 dark:bg-background"
+            >
+              مسح التحديد
+            </button>
+          </div>
+          <div className="mb-3 flex flex-wrap gap-2">
+            {targetUsers.slice(0, 8).map((user) => (
+              <span key={user.id} className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-bold text-foreground dark:bg-background/80">
+                {user.name}
+              </span>
+            ))}
+            {targetUsers.length > 8 ? (
+              <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-bold text-muted-foreground dark:bg-background/80">
+                +{formatAdminNumber(targetUsers.length - 8)}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex flex-col gap-3 md:flex-row md:items-end">
+            <textarea
+              value={directMessageBody}
+              onChange={(event) => setDirectMessageBody(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  void handleSendDirectSupportMessage();
+                }
+              }}
+              rows={3}
+              placeholder="اكتب محتوى الرسالة التي ستصل داخل شات الدعم..."
+              className="min-h-24 flex-1 resize-y rounded-2xl border border-sky-200 bg-white/90 px-4 py-3 text-sm leading-7 outline-none focus:border-sky-400 dark:bg-background"
+            />
+            <button
+              type="button"
+              onClick={() => void handleSendDirectSupportMessage()}
+              disabled={directMessageSending || directMessageBody.trim().length === 0}
+              className="h-12 rounded-2xl bg-sky-600 px-5 text-sm font-black text-white shadow-lg shadow-sky-600/20 transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 inline-flex items-center justify-center gap-2"
+            >
+              <Send className="h-4 w-4" />
+              {directMessageSending ? "جاري الإرسال..." : "إرسال"}
+            </button>
+          </div>
+          {directMessageSuccess ? (
+            <p className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+              {directMessageSuccess}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 xl:grid-cols-[340px_minmax(0,1fr)] gap-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
         <div className="glass-card flex min-h-[580px] flex-col p-3 xl:h-full xl:min-h-0 xl:overflow-hidden">
           <div className="px-2 pb-3 flex shrink-0 items-center justify-between">
@@ -2397,6 +3318,7 @@ function SupportMessagesTab({
               const active = conversation.id === selectedId;
               const lastText = conversation.lastMessage?.body ?? "لا توجد رسائل بعد";
               const automaticLastMessage = isAutomaticSupportMessage(conversation.lastMessage);
+              const directLastMessage = isDirectAdminSupportMessage(conversation.lastMessage);
               return (
                 <button
                   key={conversation.id}
@@ -2406,6 +3328,10 @@ function SupportMessagesTab({
                       ? active
                         ? "bg-amber-100/80 border-amber-300"
                         : "bg-amber-50/80 border-amber-200 hover:bg-amber-100/70"
+                      : directLastMessage
+                        ? active
+                          ? "bg-sky-100/80 border-sky-300"
+                          : "bg-sky-50/80 border-sky-200 hover:bg-sky-100/70"
                       : active
                         ? "bg-primary/10 border-primary/20"
                         : "bg-white/45 border-white/50 hover:bg-white/70"
@@ -2429,6 +3355,12 @@ function SupportMessagesTab({
                         <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-amber-200/70 px-2 py-0.5 text-[10px] font-bold text-amber-800">
                           <Bot className="h-3 w-3" />
                           رسالة تلقائية
+                        </span>
+                      ) : null}
+                      {directLastMessage ? (
+                        <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-sky-200/70 px-2 py-0.5 text-[10px] font-bold text-sky-800">
+                          <Send className="h-3 w-3" />
+                          تواصل مباشر
                         </span>
                       ) : null}
                       <p className="text-xs text-muted-foreground truncate mt-2">{lastText}</p>
@@ -2469,6 +3401,12 @@ function SupportMessagesTab({
                 {messages.map((message) => {
                   const fromUser = message.senderRole === "user";
                   const automaticMessage = isAutomaticSupportMessage(message);
+                  const directAdminMessage = isDirectAdminSupportMessage(message);
+                  const actionBusy = messageActionId === message.id;
+                  const actionButtonClass =
+                    fromUser || automaticMessage || directAdminMessage
+                      ? "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 disabled:opacity-50"
+                      : "bg-white/15 text-white/85 hover:bg-white/25 hover:text-white disabled:opacity-50";
                   return (
                     <div key={message.id} className="w-full">
                       <div
@@ -2477,6 +3415,8 @@ function SupportMessagesTab({
                             ? "ml-auto bg-white/95 border-slate-300/90 rounded-br-md shadow-sm shadow-slate-900/5"
                             : automaticMessage
                               ? "mr-auto bg-amber-50 text-amber-950 border-amber-200 rounded-bl-md shadow-sm shadow-amber-900/5"
+                              : directAdminMessage
+                                ? "mr-auto bg-sky-50 text-sky-950 border-sky-200 rounded-bl-md shadow-sm shadow-sky-900/5"
                               : "mr-auto bg-primary text-white border-primary rounded-bl-md"
                         }`}
                       >
@@ -2486,17 +3426,41 @@ function SupportMessagesTab({
                             رسالة تلقائية من النظام
                           </div>
                         ) : null}
+                        {directAdminMessage ? (
+                          <div className="mb-2 inline-flex items-center gap-1 rounded-full bg-sky-200/70 px-2 py-0.5 text-[10px] font-bold text-sky-800">
+                            <Send className="h-3 w-3" />
+                            رسالة تواصل مباشر
+                          </div>
+                        ) : null}
+                        <div className="mb-2 flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void handleEditSupportMessage(message)}
+                            disabled={actionBusy}
+                            className={`rounded-lg px-2 py-1 text-[10px] font-bold transition-all ${actionButtonClass}`}
+                          >
+                            تعديل
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteSupportMessage(message)}
+                            disabled={actionBusy}
+                            className={`rounded-lg px-2 py-1 text-[10px] font-bold transition-all ${actionButtonClass}`}
+                          >
+                            حذف
+                          </button>
+                        </div>
                         <p
                           dir="auto"
                           className={`text-sm leading-6 ${
-                            fromUser ? "text-foreground" : automaticMessage ? "text-amber-950" : "text-white"
+                            fromUser ? "text-foreground" : automaticMessage ? "text-amber-950" : directAdminMessage ? "text-sky-950" : "text-white"
                           }`}
                         >
-                          {message.body}
+                          {renderSupportMessageBody(message.body)}
                         </p>
                         <p
                           className={`text-[10px] mt-2 ${
-                            fromUser ? "text-muted-foreground" : automaticMessage ? "text-amber-700" : "text-white/70"
+                            fromUser ? "text-muted-foreground" : automaticMessage ? "text-amber-700" : directAdminMessage ? "text-sky-700" : "text-white/70"
                           }`}
                         >
                           {formatAdminDateTime(message.createdAt)}
@@ -2640,6 +3604,12 @@ function SupportMessagesTab({
                   <textarea
                     value={reply}
                     onChange={(event) => setReply(event.target.value)}
+                    onKeyDown={(event) => {
+                      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                        event.preventDefault();
+                        void handleSendReply();
+                      }
+                    }}
                     placeholder="اكتب ردك هنا..."
                     dir="rtl"
                     rows={2}
@@ -2781,6 +3751,10 @@ export default function AdminPanel() {
   const [transitionDirection, setTransitionDirection] = useState(1);
   const [supportUnreadChatCount, setSupportUnreadChatCount] = useState(0);
   const [adminTheme, setAdminTheme] = useState<AdminTheme>(getInitialAdminTheme);
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const [broadcastTargetUsers, setBroadcastTargetUsers] = useState<AdminUserListItem[]>([]);
+  const [supportTargetUsers, setSupportTargetUsers] = useState<AdminUserListItem[]>([]);
+  const [supportDraftTarget, setSupportDraftTarget] = useState<SupportDraftTarget | null>(null);
   const shouldReduceMotion = useReducedMotion();
   const isAdminUser = Boolean(user && (user.role === "admin" || user.role === "owner"));
   const isDarkAdmin = adminTheme === "dark";
@@ -2789,6 +3763,31 @@ export default function AdminPanel() {
     if (nextTab === tab) return;
     setTransitionDirection(getTabTransitionIndex(nextTab) >= getTabTransitionIndex(tab) ? 1 : -1);
     setTab(nextTab);
+  };
+
+  const openBroadcastForUsers = (users: AdminUserListItem[]) => {
+    setBroadcastTargetUsers(users);
+    setSupportTargetUsers([]);
+    setSupportDraftTarget(null);
+    selectTab("broadcastMessages");
+  };
+
+  const openSupportForUsers = (users: AdminUserListItem[]) => {
+    setSupportTargetUsers(users);
+    setBroadcastTargetUsers([]);
+    setSupportDraftTarget(null);
+    selectTab("supportMessages");
+  };
+
+  const openSupportDraftForSubscriptionRequest = (request: SubscriptionRequestItem) => {
+    setBroadcastTargetUsers([]);
+    setSupportTargetUsers([]);
+    setSupportDraftTarget({
+      userId: request.student.id,
+      requestKey: `${request.id}:${request.code}`,
+      draft: `بخصوص طلب الإشتراك الخاص بكم لمادة ${request.subject.name}\nبكود ${request.code}\n\n`,
+    });
+    selectTab("supportMessages");
   };
 
   useEffect(() => {
@@ -2836,11 +3835,33 @@ export default function AdminPanel() {
 
   const TAB_CONTENT: Record<Tab, React.ReactNode> = {
     dashboard: <DashboardTab onOpenMaterials={() => selectTab("materials")} />,
-    users: <UsersTab />,
+    users: (
+      <UsersTab
+        selectedUserIds={selectedUserIds}
+        onSelectedUserIdsChange={setSelectedUserIds}
+        onSendNotification={openBroadcastForUsers}
+        onSendSupportMessage={openSupportForUsers}
+      />
+    ),
     academic: <AcademicTab />,
-    subscriptionRequests: <SubscriptionRequestsTab token={token} />,
-    supportMessages: <SupportMessagesTab token={token} onUnreadChatCountChange={setSupportUnreadChatCount} />,
-    broadcastMessages: <BroadcastMessagesTab token={token} />,
+    subscriptionRequests: <SubscriptionRequestsTab token={token} onContactRequest={openSupportDraftForSubscriptionRequest} />,
+    supportMessages: (
+      <SupportMessagesTab
+        token={token}
+        onUnreadChatCountChange={setSupportUnreadChatCount}
+        targetUsers={supportTargetUsers}
+        onClearTargetUsers={() => setSupportTargetUsers([])}
+        draftTarget={supportDraftTarget}
+        onDraftTargetHandled={() => setSupportDraftTarget(null)}
+      />
+    ),
+    broadcastMessages: (
+      <BroadcastMessagesTab
+        token={token}
+        targetUsers={broadcastTargetUsers}
+        onClearTargetUsers={() => setBroadcastTargetUsers([])}
+      />
+    ),
     materials: <MaterialsTab />,
     books: <BooksTab />,
     posts: <PostsTab />,

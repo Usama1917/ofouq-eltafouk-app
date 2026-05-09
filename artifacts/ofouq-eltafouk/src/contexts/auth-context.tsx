@@ -16,6 +16,7 @@ interface AuthUser {
   governorate?: string | null;
   specialty?: string | null;
   joinedAt: string;
+  lastActiveAt?: string | null;
 }
 
 interface AuthContextType {

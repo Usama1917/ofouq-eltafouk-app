@@ -16,4 +16,5 @@ export interface AdminUser {
   status: AdminUserStatus;
   avatarUrl?: string;
   joinedAt: Date;
+  lastActiveAt?: Date | null;
 }

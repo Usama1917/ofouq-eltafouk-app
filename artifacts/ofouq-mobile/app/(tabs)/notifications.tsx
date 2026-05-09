@@ -573,8 +573,8 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontWeight: "400",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
   },
   summaryCard: {
     minHeight: 106,

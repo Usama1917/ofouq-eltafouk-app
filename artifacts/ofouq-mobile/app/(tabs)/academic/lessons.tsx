@@ -161,7 +161,7 @@ export default function LessonsScreen() {
                 },
               ]}
             >
-              <Feather name="arrow-left" size={18} color={colors.textSecondary} />
+              <Feather name="arrow-left" size={20} color={colors.textSecondary} />
               <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>
                 {unitCopy.plural}
               </Text>
@@ -330,8 +330,8 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontWeight: "700",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
   },
   titleRow: {
     flexDirection: "row-reverse",
@@ -351,13 +351,14 @@ const styles = StyleSheet.create({
   titleBlock: { flex: 1, alignItems: "flex-end" },
   title: {
     fontWeight: "700",
-    fontSize: 25,
-    lineHeight: 36,
+    fontSize: 28,
+    lineHeight: 40,
     textAlign: "right",
   },
   subtitle: {
     fontWeight: "400",
-    fontSize: 14,
+    fontSize: 16,
+    lineHeight: 24,
     textAlign: "right",
   },
   lessonCard: {
@@ -390,8 +391,8 @@ const styles = StyleSheet.create({
   lessonBody: { flex: 1, alignItems: "flex-end" },
   lessonTitle: {
     fontWeight: "700",
-    fontSize: 15,
-    lineHeight: 23,
+    fontSize: 19,
+    lineHeight: 28,
     textAlign: "right",
   },
   lessonMeta: {

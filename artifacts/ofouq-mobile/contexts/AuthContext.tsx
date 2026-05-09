@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { AppState } from "react-native";
 
 import { apiFetch } from "@/lib/api";
 import { unregisterCurrentPushToken } from "@/lib/pushNotifications";
@@ -19,6 +20,7 @@ export interface User {
   bio?: string;
   avatarUrl?: string;
   joinedAt?: string;
+  lastActiveAt?: string | null;
 }
 
 interface AuthContextValue {
@@ -70,6 +72,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+
+    let lastPingAt = 0;
+    const pingActivity = async () => {
+      const now = Date.now();
+      if (now - lastPingAt < 60 * 1000) return;
+      lastPingAt = now;
+      await apiFetch<{ lastActiveAt: string }>("/api/auth/activity", {
+        method: "POST",
+        token,
+      }).catch(() => undefined);
+    };
+
+    void pingActivity();
+    const appStateSubscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        void pingActivity();
+      }
+    });
+    const interval = setInterval(() => {
+      if (AppState.currentState === "active") {
+        void pingActivity();
+      }
+    }, 5 * 60 * 1000);
+
+    return () => {
+      appStateSubscription.remove();
+      clearInterval(interval);
+    };
+  }, [token]);
 
   const login = useCallback(async (email: string, password: string) => {
     const data = await apiFetch<{ user: User; token: string }>("/api/auth/login", {

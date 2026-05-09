@@ -20,6 +20,11 @@ import {
   pointsAccountTable,
   pointsTransactionsTable,
   materialsTable,
+  academicYearsTable,
+  subjectsTable,
+  unitsTable,
+  subjectSubscriptionsTable,
+  lessonWatchProgressTable,
 } from "@workspace/db";
 import { eq, ne, and, count, sql, desc, asc, or } from "drizzle-orm";
 
@@ -124,6 +129,66 @@ router.get("/admin/stats", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Admin stats error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/admin/subject-insights", async (req, res) => {
+  try {
+    const subjects = await db
+      .select({
+        subjectId: subjectsTable.id,
+        subjectName: subjectsTable.name,
+        subjectIcon: subjectsTable.icon,
+        yearName: academicYearsTable.name,
+        orderIndex: subjectsTable.orderIndex,
+      })
+      .from(subjectsTable)
+      .innerJoin(academicYearsTable, eq(subjectsTable.yearId, academicYearsTable.id))
+      .orderBy(asc(academicYearsTable.orderIndex), asc(subjectsTable.orderIndex), asc(subjectsTable.name));
+
+    const subscriptionCounts = await db
+      .select({
+        subjectId: subjectSubscriptionsTable.subjectId,
+        subscribersCount: sql<number>`count(distinct ${subjectSubscriptionsTable.studentId})`,
+      })
+      .from(subjectSubscriptionsTable)
+      .where(eq(subjectSubscriptionsTable.status, "active"))
+      .groupBy(subjectSubscriptionsTable.subjectId);
+
+    const watchTotals = await db
+      .select({
+        subjectId: unitsTable.subjectId,
+        watchedSeconds: sql<number>`
+          coalesce(sum(
+            case
+              when ${lessonWatchProgressTable.durationSeconds} > 0
+                then least(${lessonWatchProgressTable.currentSeconds}, ${lessonWatchProgressTable.durationSeconds})
+              else ${lessonWatchProgressTable.currentSeconds}
+            end
+          ), 0)
+        `,
+      })
+      .from(lessonWatchProgressTable)
+      .innerJoin(lessonsTable, eq(lessonWatchProgressTable.lessonId, lessonsTable.id))
+      .innerJoin(unitsTable, eq(lessonsTable.unitId, unitsTable.id))
+      .groupBy(unitsTable.subjectId);
+
+    const subscriptionsBySubject = new Map(subscriptionCounts.map((item) => [item.subjectId, Number(item.subscribersCount) || 0]));
+    const watchSecondsBySubject = new Map(watchTotals.map((item) => [item.subjectId, Number(item.watchedSeconds) || 0]));
+
+    res.json(
+      subjects.map((subject) => ({
+        subjectId: subject.subjectId,
+        subjectName: subject.subjectName,
+        subjectIcon: subject.subjectIcon,
+        yearName: subject.yearName,
+        subscribersCount: subscriptionsBySubject.get(subject.subjectId) ?? 0,
+        watchedSeconds: watchSecondsBySubject.get(subject.subjectId) ?? 0,
+      })),
+    );
+  } catch (err) {
+    req.log.error({ err }, "Admin subject insights error");
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -1807,12 +1807,14 @@ const styles = StyleSheet.create({
   },
   segmentHeaderTitle: {
     fontWeight: "700",
-    fontSize: 14,
+    fontSize: 16,
+    lineHeight: 24,
     color: "#0F172A",
   },
   segmentHeaderMeta: {
     fontWeight: "600",
-    fontSize: 11,
+    fontSize: 13,
+    lineHeight: 20,
     color: "#64748B",
   },
   segmentRail: {
@@ -1860,7 +1862,8 @@ const styles = StyleSheet.create({
   },
   segmentChipTitle: {
     fontWeight: "700",
-    fontSize: 12,
+    fontSize: 14,
+    lineHeight: 22,
     color: "#fff",
     textAlign: "right",
     writingDirection: "rtl",
@@ -1868,7 +1871,8 @@ const styles = StyleSheet.create({
   segmentChipMeta: {
     marginTop: 2,
     fontWeight: "400",
-    fontSize: 10,
+    fontSize: 12,
+    lineHeight: 18,
     color: "rgba(255,255,255,0.68)",
     textAlign: "right",
     writingDirection: "rtl",
@@ -2619,7 +2623,8 @@ const styles = StyleSheet.create({
   segmentPanelTitle: {
     flex: 1,
     fontWeight: "700",
-    fontSize: 14,
+    fontSize: 16,
+    lineHeight: 24,
     color: "#fff",
     textAlign: "right",
     writingDirection: "rtl",
@@ -2668,13 +2673,15 @@ const styles = StyleSheet.create({
   },
   segmentRowTitle: {
     fontWeight: "700",
-    fontSize: 12,
+    fontSize: 14,
+    lineHeight: 22,
     color: "#fff",
     textAlign: "right",
   },
   segmentRowMeta: {
     fontWeight: "400",
-    fontSize: 10,
+    fontSize: 12,
+    lineHeight: 18,
     color: "rgba(255,255,255,0.62)",
     textAlign: "right",
   },

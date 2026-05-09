@@ -291,7 +291,7 @@ export default function SubjectsScreen() {
                 },
               ]}
             >
-              <Feather name="arrow-left" size={18} color={colors.textSecondary} />
+              <Feather name="arrow-left" size={20} color={colors.textSecondary} />
               <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>
                 {strings.academic.years}
               </Text>
@@ -452,8 +452,8 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontWeight: "700",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
   },
   titleRow: {
     flexDirection: "row-reverse",
@@ -474,13 +474,14 @@ const styles = StyleSheet.create({
   title: {
     flexShrink: 1,
     fontWeight: "700",
-    fontSize: 25,
-    lineHeight: 36,
+    fontSize: 28,
+    lineHeight: 40,
     textAlign: "right",
   },
   subtitle: {
     fontWeight: "400",
-    fontSize: 14,
+    fontSize: 16,
+    lineHeight: 24,
     textAlign: "right",
   },
   subscribeFloatingButton: {
@@ -561,14 +562,15 @@ const styles = StyleSheet.create({
   },
   subjectTitle: {
     fontWeight: "700",
-    fontSize: 16,
+    fontSize: 19,
+    lineHeight: 28,
     textAlign: "right",
     maxWidth: "100%",
   },
   subjectDesc: {
     fontWeight: "400",
-    fontSize: 12,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 22,
     textAlign: "right",
     marginTop: 4,
   },

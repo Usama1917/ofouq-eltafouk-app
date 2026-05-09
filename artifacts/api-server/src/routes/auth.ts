@@ -65,6 +65,24 @@ function withPermissions<T extends { role: string }>(safeUser: T) {
   };
 }
 
+function getSessionUserId(req: any) {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  if (!token?.startsWith("session_")) return null;
+
+  const id = Number.parseInt(token.replace("session_", ""), 10);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+async function touchUserActivity(userId: number) {
+  const [updated] = await db
+    .update(usersTable)
+    .set({ lastActiveAt: new Date() })
+    .where(eq(usersTable.id, userId))
+    .returning();
+
+  return updated;
+}
+
 function getErrorDetails(err: unknown, depth = 0): Record<string, unknown> {
   if (depth > 4) {
     return { name: "Error", message: "Max error depth reached" };
@@ -207,6 +225,7 @@ router.post("/auth/register", async (req, res) => {
         password: hashPassword(String(password)),
         role: String(role),
         status: "active",
+        lastActiveAt: new Date(),
         phone: phone === undefined ? undefined : String(phone),
         age: age === undefined ? undefined : Number.parseInt(String(age), 10),
         address: address === undefined ? undefined : String(address),
@@ -250,7 +269,8 @@ router.post("/auth/login", async (req, res) => {
     if (!checkPassword(plainPassword, user.password)) return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
     if (user.status === "suspended") return res.status(403).json({ error: "الحساب موقوف" });
 
-    const { password: _pw, ...safeUser } = user;
+    const activeUser = await touchUserActivity(user.id);
+    const { password: _pw, ...safeUser } = activeUser ?? user;
     return res.json({ user: withPermissions(safeUser), token: `session_${user.id}` });
   } catch (err) {
     const errorDetails = getErrorDetails(err);
@@ -271,14 +291,14 @@ router.post("/auth/login", async (req, res) => {
 // Get current user
 router.get("/auth/me", async (req, res) => {
   try {
-    const token = req.headers.authorization?.replace("Bearer ", "");
-    if (!token?.startsWith("session_")) return res.status(401).json({ error: "غير مصرح" });
-    const id = Number.parseInt(token.replace("session_", ""), 10);
-    if (!Number.isFinite(id) || id <= 0) return res.status(401).json({ error: "غير مصرح" });
+    const id = getSessionUserId(req);
+    if (!id) return res.status(401).json({ error: "غير مصرح" });
 
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
     if (!user) return res.status(404).json({ error: "المستخدم غير موجود" });
-    const { password: _pw, ...safeUser } = user;
+    if (user.status === "suspended") return res.status(403).json({ error: "الحساب موقوف" });
+    const activeUser = await touchUserActivity(user.id);
+    const { password: _pw, ...safeUser } = activeUser ?? user;
     return res.json(withPermissions(safeUser));
   } catch (err) {
     req.log.error({ err: getErrorDetails(err) }, "Get profile error");
@@ -289,13 +309,35 @@ router.get("/auth/me", async (req, res) => {
   }
 });
 
+router.post("/auth/activity", async (req, res) => {
+  try {
+    const id = getSessionUserId(req);
+    if (!id) return res.status(401).json({ error: "غير مصرح" });
+
+    const [user] = await db
+      .select({ id: usersTable.id, status: usersTable.status })
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1);
+    if (!user) return res.status(404).json({ error: "المستخدم غير موجود" });
+    if (user.status === "suspended") return res.status(403).json({ error: "الحساب موقوف" });
+
+    const activeUser = await touchUserActivity(user.id);
+    return res.json({ lastActiveAt: activeUser?.lastActiveAt ?? new Date() });
+  } catch (err) {
+    req.log.error({ err: getErrorDetails(err) }, "Touch activity error");
+    if (isDatabaseUnavailableError(err)) {
+      return sendDatabaseError(res, err);
+    }
+    return res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
 // Update profile
 router.put("/auth/profile", async (req, res) => {
   try {
-    const token = req.headers.authorization?.replace("Bearer ", "");
-    if (!token?.startsWith("session_")) return res.status(401).json({ error: "غير مصرح" });
-    const id = Number.parseInt(token.replace("session_", ""), 10);
-    if (!Number.isFinite(id) || id <= 0) return res.status(401).json({ error: "غير مصرح" });
+    const id = getSessionUserId(req);
+    if (!id) return res.status(401).json({ error: "غير مصرح" });
 
     const { name, phone, age, address, bio, governorate, avatarUrl } = req.body ?? {};
     const updateData: Record<string, unknown> = {};

@@ -200,7 +200,7 @@ export default function LessonDetailScreen() {
                 },
               ]}
             >
-              <Feather name="arrow-left" size={18} color={colors.textSecondary} />
+              <Feather name="arrow-left" size={20} color={colors.textSecondary} />
               <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>
                 {strings.academic.lessons}
               </Text>
@@ -360,20 +360,20 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontWeight: "700",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
   },
   titleBlock: { flex: 1, alignItems: "flex-end", gap: 2 },
   lessonTitle: {
     fontWeight: "700",
-    fontSize: 25,
-    lineHeight: 36,
+    fontSize: 28,
+    lineHeight: 40,
     textAlign: "right",
   },
   lessonDesc: {
     fontWeight: "400",
-    fontSize: 14,
-    lineHeight: 24,
+    fontSize: 16,
+    lineHeight: 26,
     textAlign: "right",
   },
   videoSummary: {

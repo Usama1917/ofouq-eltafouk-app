@@ -5,6 +5,7 @@ import React, { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,7 +17,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Logo } from "@/components/Logo";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
@@ -31,17 +31,6 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-
-  const fillDemo = (role: "student" | "admin" | "owner" | "teacher") => {
-    const accounts: Record<string, { email: string; password: string }> = {
-      student: { email: "student@demo.com", password: "demo123" },
-      teacher: { email: "teacher@demo.com", password: "demo123" },
-      admin: { email: "admin@demo.com", password: "admin123" },
-      owner: { email: "owner@demo.com", password: "owner123" },
-    };
-    setEmail(accounts[role].email);
-    setPassword(accounts[role].password);
-  };
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -74,22 +63,21 @@ export default function LoginScreen() {
         </Pressable>
 
         <View style={styles.logoSection}>
-          <Logo size={72} />
-          <Text style={[styles.appName, { color: colors.text, writingDirection: direction }]}>
-            {strings.common.appName}
-          </Text>
-          <Text style={[styles.appSub, { color: colors.textSecondary, writingDirection: direction }]}>
-            {strings.common.appSubtitle}
-          </Text>
+          <Image
+            source={require("../assets/images/login-educational-logo.png")}
+            style={styles.brandLogo}
+            resizeMode="contain"
+            accessibilityLabel={strings.common.appName}
+          />
         </View>
 
         <View style={[styles.card, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.cardTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+          <Text style={[styles.cardTitle, { color: colors.text, writingDirection: direction }]}>
             {strings.auth.loginTitle}
           </Text>
 
           <View style={styles.field}>
-            <Text style={[styles.fieldLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary, writingDirection: direction }]}>
               {strings.auth.email}
             </Text>
             <View style={[styles.inputWrapper, { backgroundColor: colors.surfaceSecondary, flexDirection: rowDirection }]}>
@@ -108,7 +96,7 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={[styles.fieldLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary, writingDirection: direction }]}>
               {strings.auth.password}
             </Text>
             <View style={[styles.inputWrapper, { backgroundColor: colors.surfaceSecondary, flexDirection: rowDirection }]}>
@@ -145,26 +133,6 @@ export default function LoginScreen() {
           </Pressable>
         </View>
 
-        <View style={[styles.demoSection, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.demoTitle, { color: colors.textSecondary, writingDirection: direction }]}>
-            {strings.auth.demoAccounts}
-          </Text>
-          <View style={styles.demoRow}>
-            {(["student", "teacher", "admin", "owner"] as const).map((role) => {
-              const labels = strings.roles;
-              const roleColors = { student: "#3B82F6", teacher: "#10B981", admin: "#EF4444", owner: "#F59E0B" };
-              return (
-                <Pressable
-                  key={role}
-                  style={[styles.demoChip, { backgroundColor: roleColors[role] + "22", borderColor: roleColors[role] + "44" }]}
-                  onPress={() => fillDemo(role)}
-                >
-                  <Text style={[styles.demoChipText, { color: roleColors[role] }]}>{labels[role]}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -173,11 +141,10 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   scroll: { flexGrow: 1, paddingHorizontal: 20, gap: 16 },
   closeBtn: { alignSelf: "flex-start", padding: 8 },
-  logoSection: { alignItems: "center", gap: 8, paddingVertical: 12 },
-  appName: { fontWeight: "700", fontSize: 28 },
-  appSub: { fontWeight: "400", fontSize: 14 },
+  logoSection: { alignItems: "center", paddingVertical: 12 },
+  brandLogo: { width: 260, height: 104 },
   card: { borderRadius: 24, padding: 24, gap: 16, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
-  cardTitle: { fontWeight: "700", fontSize: 22, textAlign: "right" },
+  cardTitle: { fontWeight: "700", fontSize: 22, textAlign: "center" },
   field: { gap: 6 },
   fieldLabel: { fontWeight: "600", fontSize: 13, textAlign: "right" },
   inputWrapper: { flexDirection: "row", alignItems: "center", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
@@ -187,9 +154,4 @@ const styles = StyleSheet.create({
   loginText: { fontWeight: "700", fontSize: 17, color: "#fff" },
   registerLink: { alignItems: "center", paddingVertical: 4 },
   registerLinkText: { fontWeight: "600", fontSize: 14 },
-  demoSection: { borderRadius: 20, padding: 16, gap: 10 },
-  demoTitle: { fontWeight: "600", fontSize: 13, textAlign: "center" },
-  demoRow: { flexDirection: "row", justifyContent: "center", gap: 8, flexWrap: "wrap" },
-  demoChip: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1 },
-  demoChipText: { fontWeight: "700", fontSize: 13 },
 });

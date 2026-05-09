@@ -477,7 +477,7 @@ export default function WatchHistoryScreen() {
           accessibilityRole="button"
           accessibilityLabel={strings.common.back}
         >
-          <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={18} color={colors.textSecondary} />
+          <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={20} color={colors.textSecondary} />
           <Text style={[styles.pageBackText, { color: colors.text, writingDirection: direction }]}>
             {strings.common.back}
           </Text>
@@ -686,8 +686,8 @@ const styles = StyleSheet.create({
   },
   pageBackText: {
     fontWeight: "700",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
   },
   titleIcon: {
     width: 56,
@@ -708,8 +708,8 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontWeight: "400",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
     textAlign: "right",
   },
   loadingWrap: {
@@ -799,8 +799,8 @@ const styles = StyleSheet.create({
   },
   summarySubtitle: {
     fontWeight: "400",
-    fontSize: 12,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 22,
   },
   summaryPercent: {
     minWidth: 58,
@@ -912,8 +912,8 @@ const styles = StyleSheet.create({
   },
   subjectMeta: {
     fontWeight: "400",
-    fontSize: 12,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 22,
   },
   subjectPercent: {
     color: COLORS.primaryLight,

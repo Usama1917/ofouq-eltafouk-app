@@ -31,11 +31,12 @@ type AdminActionType = "none" | "external_link" | "support_chat" | "subject_unit
 type AdminAudienceFilters = {
   audience: AdminAudience;
   role: "all" | "student" | "teacher" | "admin" | "owner";
-  status: "active" | "inactive" | "all";
+  status: "active" | "suspended" | "inactive" | "all";
   push: "any" | "has" | "none";
   yearIds: number[];
   subjectIds: number[];
   joinedWithinDays: number | null;
+  selectedUserIds: number[];
 };
 
 function parsePositiveInt(value: string | undefined) {
@@ -167,11 +168,12 @@ function normalizeAudienceFilters(value: unknown): AdminAudienceFilters {
   return {
     audience: normalizeAdminAudience(source.audience),
     role: role === "student" || role === "teacher" || role === "admin" || role === "owner" ? role : "all",
-    status: status === "inactive" || status === "all" ? status : "active",
+    status: status === "suspended" || status === "inactive" || status === "all" ? status : "active",
     push: push === "has" || push === "none" ? push : "any",
     yearIds: normalizeIdArray(source.yearIds),
     subjectIds: normalizeIdArray(source.subjectIds),
     joinedWithinDays: Number.isFinite(joinedWithinDays) && joinedWithinDays > 0 ? Math.min(3650, joinedWithinDays) : null,
+    selectedUserIds: normalizeIdArray(source.selectedUserIds),
   };
 }
 
@@ -270,6 +272,7 @@ async function resolveAdminNotificationRecipients(filters: AdminAudienceFilters)
   const activeSubscriptionsByStudent = new Map<number, typeof activeSubscriptions>();
   const lessonsBySubject = new Map<number, typeof lessons>();
   const selectedYearIds = new Set(filters.yearIds);
+  const selectedUserIds = new Set(filters.selectedUserIds);
   const joinedAfter = filters.joinedWithinDays
     ? new Date(Date.now() - filters.joinedWithinDays * 24 * 60 * 60 * 1000)
     : null;
@@ -303,6 +306,7 @@ async function resolveAdminNotificationRecipients(filters: AdminAudienceFilters)
   }
 
   const recipients = users.filter((user) => {
+    if (selectedUserIds.size > 0 && !selectedUserIds.has(user.id)) return false;
     if (filters.status !== "all" && user.status !== filters.status) return false;
     if (filters.role !== "all" && user.role !== filters.role) return false;
     if (filters.push === "has" && !pushUserIds.has(user.id)) return false;

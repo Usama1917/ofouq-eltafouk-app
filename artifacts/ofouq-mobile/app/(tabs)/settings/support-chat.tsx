@@ -85,6 +85,28 @@ function getTextFlow(value: string, fallbackDirection: "rtl" | "ltr") {
   };
 }
 
+function renderSupportMessageBody(value: string) {
+  return value.split("\n").map((line, index) => {
+    const subjectMatch = line.match(/^(بخصوص طلب الإشتراك الخاص بكم لمادة )(.*)$/);
+    const codeMatch = line.match(/^(بكود )(.*)$/);
+    const match = subjectMatch || codeMatch;
+
+    return (
+      <React.Fragment key={`${index}-${line}`}>
+        {index > 0 ? "\n" : null}
+        {match ? (
+          <>
+            {match[1]}
+            <Text style={styles.messageStrongText}>{match[2]}</Text>
+          </>
+        ) : (
+          line
+        )}
+      </React.Fragment>
+    );
+  });
+}
+
 export default function SupportChatScreen() {
   const {
     colors,
@@ -222,7 +244,7 @@ export default function SupportChatScreen() {
           accessibilityRole="button"
           accessibilityLabel={strings.common.back}
         >
-          <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={18} color={colors.textSecondary} />
+          <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={20} color={colors.textSecondary} />
           <Text style={[styles.pageBackText, { color: colors.text, writingDirection: direction }]}>
             {strings.common.back}
           </Text>
@@ -361,7 +383,7 @@ export default function SupportChatScreen() {
                           },
                         ]}
                       >
-                        {displayBody}
+                        {renderSupportMessageBody(displayBody)}
                       </Text>
                     </View>
                   </View>
@@ -489,8 +511,8 @@ const styles = StyleSheet.create({
   },
   pageBackText: {
     fontWeight: "700",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
   },
   header: {
     position: "absolute",
@@ -527,8 +549,8 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontWeight: "400",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
     textAlign: "right",
   },
   loadingWrap: {
@@ -590,6 +612,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 14,
     lineHeight: 24,
+  },
+  messageStrongText: {
+    fontWeight: "900",
   },
   quickWrap: {
     borderTopWidth: 1,

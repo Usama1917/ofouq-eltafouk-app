@@ -161,7 +161,7 @@ export default function ContactScreen() {
           accessibilityRole="button"
           accessibilityLabel={strings.common.back}
         >
-          <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={18} color={colors.textSecondary} />
+          <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={20} color={colors.textSecondary} />
           <Text style={[styles.pageBackText, { color: colors.text, writingDirection: direction }]}>
             {strings.common.back}
           </Text>
@@ -287,8 +287,8 @@ const styles = StyleSheet.create({
   },
   pageBackText: {
     fontWeight: "700",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
   },
   titleRow: {
     flexDirection: "row-reverse",
@@ -327,8 +327,8 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontWeight: "400",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
     textAlign: "right",
   },
   card: {

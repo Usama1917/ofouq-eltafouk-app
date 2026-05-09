@@ -301,6 +301,7 @@ export interface AdminUser {
   status: AdminUserStatus;
   avatarUrl?: string;
   joinedAt: string;
+  lastActiveAt?: string | null;
 }
 
 export type CreateAdminUserBodyRole =

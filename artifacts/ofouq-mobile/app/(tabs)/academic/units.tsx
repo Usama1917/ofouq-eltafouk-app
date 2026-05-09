@@ -137,7 +137,7 @@ export default function UnitsScreen() {
                 },
               ]}
             >
-              <Feather name="arrow-left" size={18} color={colors.textSecondary} />
+              <Feather name="arrow-left" size={20} color={colors.textSecondary} />
               <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>
                 {strings.academic.subjects}
               </Text>
@@ -293,8 +293,8 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontWeight: "700",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
   },
   titleRow: {
     flexDirection: "row-reverse",
@@ -318,13 +318,14 @@ const styles = StyleSheet.create({
   titleBlock: { flex: 1, alignItems: "flex-end" },
   title: {
     fontWeight: "700",
-    fontSize: 25,
-    lineHeight: 36,
+    fontSize: 28,
+    lineHeight: 40,
     textAlign: "right",
   },
   subtitle: {
     fontWeight: "400",
-    fontSize: 14,
+    fontSize: 16,
+    lineHeight: 24,
     textAlign: "right",
   },
   unitCard: {
@@ -357,14 +358,14 @@ const styles = StyleSheet.create({
   unitBody: { flex: 1, alignItems: "flex-end" },
   unitTitle: {
     fontWeight: "700",
-    fontSize: 16,
-    lineHeight: 25,
+    fontSize: 19,
+    lineHeight: 28,
     textAlign: "right",
   },
   unitDesc: {
     fontWeight: "400",
-    fontSize: 12,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 22,
     textAlign: "right",
     marginTop: 4,
   },

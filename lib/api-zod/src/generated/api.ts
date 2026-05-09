@@ -490,6 +490,7 @@ export const ListAdminUsersResponseItem = zod.object({
   status: zod.enum(["active", "suspended"]),
   avatarUrl: zod.string().optional(),
   joinedAt: zod.date(),
+  lastActiveAt: zod.date().nullable().optional(),
 });
 export const ListAdminUsersResponse = zod.array(ListAdminUsersResponseItem);
 
@@ -524,6 +525,7 @@ export const UpdateAdminUserResponse = zod.object({
   status: zod.enum(["active", "suspended"]),
   avatarUrl: zod.string().optional(),
   joinedAt: zod.date(),
+  lastActiveAt: zod.date().nullable().optional(),
 });
 
 /**

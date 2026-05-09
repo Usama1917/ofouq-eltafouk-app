@@ -7,7 +7,7 @@ import {
   supportMessagesTable,
   usersTable,
 } from "@workspace/db";
-import { and, asc, count, desc, eq, isNull, lte } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNull, lte } from "drizzle-orm";
 import { sendPushNotificationToUser } from "../lib/push-notifications";
 import { logger } from "../lib/logger";
 
@@ -263,6 +263,29 @@ async function listConversationMessages(conversationId: number) {
     .orderBy(asc(supportMessagesTable.createdAt), asc(supportMessagesTable.id));
 }
 
+async function refreshConversationLastMessageAt(conversationId: number) {
+  const [lastMessage] = await db
+    .select({ createdAt: supportMessagesTable.createdAt })
+    .from(supportMessagesTable)
+    .where(eq(supportMessagesTable.conversationId, conversationId))
+    .orderBy(desc(supportMessagesTable.createdAt), desc(supportMessagesTable.id))
+    .limit(1);
+
+  const [conversation] = await db
+    .select({ createdAt: supportConversationsTable.createdAt })
+    .from(supportConversationsTable)
+    .where(eq(supportConversationsTable.id, conversationId))
+    .limit(1);
+
+  await db
+    .update(supportConversationsTable)
+    .set({
+      lastMessageAt: lastMessage?.createdAt ?? conversation?.createdAt ?? new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(supportConversationsTable.id, conversationId));
+}
+
 router.get("/support/me", async (req, res) => {
   try {
     const user = await requireAuthenticatedUser(req, res);
@@ -431,7 +454,23 @@ router.get("/admin/support/conversations", async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
 
-    const conversations = await db
+    const searchTerm = normalizeMessageBody(req.query?.q).slice(0, 160);
+    const normalizedSearchTerm = searchTerm.toLowerCase();
+    const matchingMessageConversationIds = new Set<number>();
+
+    if (searchTerm) {
+      const messageMatches = await db
+        .select({ conversationId: supportMessagesTable.conversationId })
+        .from(supportMessagesTable)
+        .where(ilike(supportMessagesTable.body, `%${searchTerm}%`))
+        .limit(500);
+
+      for (const item of messageMatches) {
+        matchingMessageConversationIds.add(item.conversationId);
+      }
+    }
+
+    let conversations = await db
       .select({
         id: supportConversationsTable.id,
         status: supportConversationsTable.status,
@@ -449,6 +488,14 @@ router.get("/admin/support/conversations", async (req, res) => {
       .from(supportConversationsTable)
       .innerJoin(usersTable, eq(supportConversationsTable.userId, usersTable.id))
       .orderBy(desc(supportConversationsTable.lastMessageAt), desc(supportConversationsTable.id));
+
+    if (searchTerm) {
+      conversations = conversations.filter((conversation) => (
+        conversation.user.name.toLowerCase().includes(normalizedSearchTerm)
+        || conversation.user.email.toLowerCase().includes(normalizedSearchTerm)
+        || matchingMessageConversationIds.has(conversation.id)
+      ));
+    }
 
     const enriched = await Promise.all(
       conversations.map(async (conversation) => {
@@ -488,6 +535,51 @@ router.get("/admin/support/conversations", async (req, res) => {
     res.json(enriched);
   } catch (err) {
     req.log.error({ err }, "Failed to list support conversations");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/admin/support/conversations/open", async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const userId = parsePositiveInt(String(req.body?.userId ?? ""));
+    if (!userId) {
+      res.status(400).json({ error: "معرف الطالب غير صالح" });
+      return;
+    }
+
+    const [targetUser] = await db
+      .select({
+        id: usersTable.id,
+        name: usersTable.name,
+        email: usersTable.email,
+        role: usersTable.role,
+        avatarUrl: usersTable.avatarUrl,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+
+    if (!targetUser) {
+      res.status(404).json({ error: "الطالب غير موجود" });
+      return;
+    }
+
+    const conversation = await getOrCreateConversation(targetUser.id);
+
+    res.json({
+      conversation: {
+        id: conversation.id,
+        status: conversation.status,
+        lastMessageAt: conversation.lastMessageAt,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        user: targetUser,
+      },
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to open support conversation");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -640,6 +732,149 @@ router.post("/admin/support/conversations/:id/messages", async (req, res) => {
     res.status(201).json(message);
   } catch (err) {
     req.log.error({ err }, "Failed to create admin support reply");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/admin/support/messages/:id", async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const messageId = parsePositiveInt(req.params.id);
+    if (!messageId) {
+      res.status(400).json({ error: "معرف الرسالة غير صالح" });
+      return;
+    }
+
+    const body = normalizeMessageBody(req.body?.body ?? req.body?.content ?? req.body?.message);
+    if (!body) {
+      res.status(400).json({ error: "نص الرسالة مطلوب" });
+      return;
+    }
+
+    const [message] = await db
+      .update(supportMessagesTable)
+      .set({ body })
+      .where(eq(supportMessagesTable.id, messageId))
+      .returning();
+
+    if (!message) {
+      res.status(404).json({ error: "الرسالة غير موجودة" });
+      return;
+    }
+
+    res.json(message);
+  } catch (err) {
+    req.log.error({ err }, "Failed to update support message");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.delete("/admin/support/messages/:id", async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const messageId = parsePositiveInt(req.params.id);
+    if (!messageId) {
+      res.status(400).json({ error: "معرف الرسالة غير صالح" });
+      return;
+    }
+
+    const [deleted] = await db
+      .delete(supportMessagesTable)
+      .where(eq(supportMessagesTable.id, messageId))
+      .returning();
+
+    if (!deleted) {
+      res.status(404).json({ error: "الرسالة غير موجودة" });
+      return;
+    }
+
+    await refreshConversationLastMessageAt(deleted.conversationId);
+    res.json({ success: true, deletedId: deleted.id, conversationId: deleted.conversationId });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete support message");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/admin/support/direct-messages", async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const rawUserIds = Array.isArray(req.body?.userIds) ? (req.body.userIds as unknown[]) : [];
+    const parsedUserIds: number[] = [];
+    for (const value of rawUserIds) {
+      const parsed = Number.parseInt(String(value), 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        parsedUserIds.push(parsed);
+      }
+    }
+    const userIds = Array.from(new Set<number>(parsedUserIds)).slice(0, 250);
+    const body = normalizeMessageBody(req.body?.body ?? req.body?.content ?? req.body?.message);
+
+    if (userIds.length === 0) {
+      res.status(400).json({ error: "اختر مستخدمًا واحدًا على الأقل" });
+      return;
+    }
+    if (!body) {
+      res.status(400).json({ error: "نص الرسالة مطلوب" });
+      return;
+    }
+
+    const targetUsers = await db
+      .select({ id: usersTable.id, name: usersTable.name, email: usersTable.email })
+      .from(usersTable)
+      .where(inArray(usersTable.id, userIds));
+
+    if (targetUsers.length === 0) {
+      res.status(404).json({ error: "المستخدمون المحددون غير موجودين" });
+      return;
+    }
+
+    const now = new Date();
+    const sent: Array<{ userId: number; conversationId: number; messageId: number }> = [];
+
+    for (const targetUser of targetUsers) {
+      const conversation = await getOrCreateConversation(targetUser.id);
+      const [message] = await db
+        .insert(supportMessagesTable)
+        .values({
+          conversationId: conversation.id,
+          senderId: admin.id,
+          senderRole: "admin",
+          body,
+          source: "admin_direct",
+        })
+        .returning();
+
+      await db
+        .update(supportConversationsTable)
+        .set({ status: "open", lastMessageAt: now, updatedAt: now })
+        .where(eq(supportConversationsTable.id, conversation.id));
+
+      await createSupportReplyNotification({
+        userId: targetUser.id,
+        conversationId: conversation.id,
+        messageId: message.id,
+        body,
+      }).catch((err) => {
+        req.log.warn({ err, userId: targetUser.id, messageId: message.id }, "Failed to create direct support notification");
+      });
+
+      sent.push({ userId: targetUser.id, conversationId: conversation.id, messageId: message.id });
+    }
+
+    res.status(201).json({
+      success: true,
+      requestedCount: userIds.length,
+      sentCount: sent.length,
+      conversations: sent,
+      users: targetUsers,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to create direct admin support messages");
     res.status(500).json({ error: "Internal server error" });
   }
 });

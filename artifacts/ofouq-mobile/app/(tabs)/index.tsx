@@ -307,11 +307,11 @@ export default function HomeScreen() {
             />
 
             <View style={[styles.heroBadge, { alignSelf: alignStart, flexDirection: rowDirection, direction }]}>
-              <Ionicons name="sparkles-outline" size={14} color={COLORS.primary} />
+              <Ionicons name="sparkles-outline" size={18} color={COLORS.primary} />
               <Text style={[styles.heroBadgeText, { writingDirection: direction }]}>{strings.home.badge}</Text>
             </View>
 
-            <Text style={[styles.heroTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+            <Text style={[styles.heroTitle, { color: colors.text, writingDirection: direction }]}>
               {strings.home.welcomePrefix} <Text style={styles.heroTitleAccent}>{strings.common.appName}</Text>
             </Text>
             <HomeSubtitle />
@@ -476,7 +476,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    top: 2,
+    top: 0,
     fontWeight: "700",
     fontSize: 12,
     lineHeight: 16,
@@ -541,22 +541,24 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primary + "30",
     backgroundColor: COLORS.primary + "10",
     borderRadius: 999,
-    paddingHorizontal: 13,
-    paddingVertical: 6,
+    paddingHorizontal: 17,
+    paddingVertical: 10,
     marginBottom: 14,
   },
   heroBadgeText: {
     fontWeight: "700",
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     color: COLORS.primary,
   },
   heroTitle: {
     fontWeight: "700",
-    fontSize: 31,
-    lineHeight: 54,
+    fontSize: 35,
+    lineHeight: 60,
     paddingTop: 5,
     paddingBottom: 2,
-    textAlign: "right",
+    alignSelf: "stretch",
+    textAlign: "center",
     writingDirection: "rtl",
     includeFontPadding: true,
   },
@@ -604,7 +606,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     gap: 14,
   },
-  statTextBlock: { flexShrink: 1, minWidth: 0, transform: [{ translateY: 7 }] },
+  statTextBlock: { flexShrink: 1, minWidth: 0 },
   statIcon: {
     width: 48,
     height: 48,
@@ -639,13 +641,14 @@ const styles = StyleSheet.create({
   sectionTitleBlock: { flex: 1, alignItems: "flex-end" },
   sectionTitle: {
     fontWeight: "700",
-    fontSize: 22,
+    fontSize: 24,
+    lineHeight: 34,
     textAlign: "right",
   },
   sectionSubtitle: {
     fontWeight: "400",
-    fontSize: 13,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 22,
     textAlign: "right",
   },
   softButton: {
@@ -698,14 +701,14 @@ const styles = StyleSheet.create({
   pathBody: { flexShrink: 1, maxWidth: "72%", alignItems: "flex-end" },
   pathTitle: {
     fontWeight: "700",
-    fontSize: 16,
-    lineHeight: 25,
+    fontSize: 19,
+    lineHeight: 28,
     textAlign: "right",
   },
   pathDesc: {
     fontWeight: "400",
-    fontSize: 12,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 22,
     textAlign: "right",
     marginTop: 3,
   },

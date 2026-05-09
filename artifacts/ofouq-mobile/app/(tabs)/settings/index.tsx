@@ -320,8 +320,8 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontWeight: "400",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
     textAlign: "right",
   },
   card: {
@@ -407,7 +407,8 @@ const styles = StyleSheet.create({
   },
   accountSubtitle: {
     fontWeight: "400",
-    fontSize: 12,
+    fontSize: 14,
+    lineHeight: 22,
     textAlign: "right",
   },
   accountIcon: {
@@ -486,7 +487,8 @@ const styles = StyleSheet.create({
   },
   subscriptionSubtitle: {
     fontWeight: "400",
-    fontSize: 12,
+    fontSize: 14,
+    lineHeight: 22,
     textAlign: "right",
   },
   contactRow: {
@@ -547,7 +549,8 @@ const styles = StyleSheet.create({
   },
   contactSubtitle: {
     fontWeight: "400",
-    fontSize: 12,
+    fontSize: 14,
+    lineHeight: 22,
     textAlign: "right",
   },
 });

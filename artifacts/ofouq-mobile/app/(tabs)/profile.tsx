@@ -379,7 +379,7 @@ export default function ProfileScreen() {
           accessibilityRole="button"
           accessibilityLabel={strings.common.back}
         >
-          <Feather name="arrow-left" size={18} color={colors.textSecondary} />
+          <Feather name="arrow-left" size={20} color={colors.textSecondary} />
           <Text style={[styles.pageBackText, { color: colors.text, writingDirection: direction }]}>
             {strings.common.back}
           </Text>
@@ -808,8 +808,8 @@ const styles = StyleSheet.create({
   },
   pageBackText: {
     fontWeight: "700",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
   },
   headerCard: {
     borderRadius: 30,
@@ -1198,7 +1198,8 @@ const styles = StyleSheet.create({
   },
   actionSubtitle: {
     fontWeight: "400",
-    fontSize: 12,
+    fontSize: 14,
+    lineHeight: 22,
     textAlign: "right",
   },
   actionIcon: {

@@ -280,7 +280,7 @@ export default function SubscribeScreen() {
                 },
               ]}
             >
-              <Feather name="arrow-left" size={18} color={colors.textSecondary} />
+              <Feather name="arrow-left" size={20} color={colors.textSecondary} />
               <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>المواد</Text>
             </Pressable>
           </View>
@@ -514,8 +514,8 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontWeight: "700",
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
   },
   titleRow: {
     flexDirection: "row-reverse",
@@ -546,8 +546,8 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontWeight: "400",
-    fontSize: 12,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 22,
     textAlign: "right",
   },
   formCard: {
@@ -715,28 +715,29 @@ const styles = StyleSheet.create({
     direction: "ltr",
   },
   requestTextBlock: {
-    width: "100%",
-    paddingLeft: 92,
+    flex: 1,
+    marginLeft: 92,
     alignItems: "flex-end",
-    alignSelf: "stretch",
     direction: "rtl",
   },
   requestSubject: {
     fontWeight: "700",
     fontSize: 13,
+    width: "100%",
     textAlign: "right",
     writingDirection: "rtl",
   },
   requestMeta: {
     fontWeight: "400",
     fontSize: 11,
+    width: "100%",
     textAlign: "right",
     writingDirection: "rtl",
     marginTop: 2,
   },
   requestBadge: {
     position: "absolute",
-    left: 12,
+    right: 0,
     top: 12,
     flexShrink: 0,
     borderRadius: 999,

@@ -79,6 +79,6 @@ const styles = StyleSheet.create({
   card: { borderRadius: 16, borderWidth: 1, padding: 14, flexDirection: "row-reverse", alignItems: "center", gap: 12 },
   cardIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   cardText: { flex: 1, alignItems: "flex-end" },
-  cardTitle: { fontWeight: "700", fontSize: 16 },
-  cardDesc: { fontWeight: "400", fontSize: 12, marginTop: 2 },
+  cardTitle: { fontWeight: "700", fontSize: 19, lineHeight: 28 },
+  cardDesc: { fontWeight: "400", fontSize: 14, lineHeight: 22, marginTop: 2 },
 });
