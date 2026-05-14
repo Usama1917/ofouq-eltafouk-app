@@ -23,6 +23,7 @@
       }
     },
     "android": {
+      "package": "com.ofouqeltafouk.mobile",
       "usesCleartextTraffic": true
     },
     "web": {

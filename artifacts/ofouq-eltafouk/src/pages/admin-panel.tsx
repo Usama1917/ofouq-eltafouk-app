@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion, type Variants } from "framer-motion";
 import { 
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, 
@@ -474,38 +474,193 @@ function PreviewModal({ title, content, onConfirm, onCancel }: {
 }
 
 function ImageLightbox({ src, title, onClose }: { src: string; title?: string; onClose: () => void }) {
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+
+  useEffect(() => {
+    setStatus("loading");
+  }, [src]);
+
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-3 backdrop-blur-md sm:p-5"
       onClick={onClose}
       dir="rtl"
     >
       <motion.div
-        initial={{ opacity: 0, scale: 0.96 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.96 }}
-        transition={{ duration: 0.16 }}
-        className="w-full max-w-4xl bg-white rounded-3xl border border-white/70 shadow-2xl overflow-hidden"
+        initial={{ opacity: 0, scale: 0.94, y: 18 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 12 }}
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-white/25 bg-white/95 shadow-2xl ring-1 ring-primary/10 backdrop-blur-xl dark:bg-slate-950/95"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="px-5 py-3.5 border-b border-border/60 flex items-center justify-between bg-muted/20">
-          <p className="text-sm font-bold text-foreground">{title || "معاينة الصورة"}</p>
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-white/80 px-4 py-3.5 dark:bg-white/10 sm:px-5">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-black text-foreground">{title || "معاينة الصورة"}</p>
+            <p className="mt-0.5 text-xs font-semibold text-muted-foreground">صورة طلب الاشتراك المرفوعة من الطالب</p>
+          </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-white border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white text-muted-foreground transition-all hover:-translate-y-0.5 hover:bg-primary/10 hover:text-primary dark:bg-white/10"
+            aria-label="إغلاق معاينة الصورة"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="p-4 bg-slate-50/70">
-          <img
-            src={src}
-            alt={title || "preview"}
-            className="w-full max-h-[76vh] object-contain rounded-2xl border border-white/70 bg-white"
-          />
+        <div className="relative flex min-h-[42vh] flex-1 items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/50 to-slate-100 p-3 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 sm:p-4">
+          {status === "loading" ? (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-primary">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary/15 border-t-primary" />
+              <p className="text-xs font-black">جاري تحميل الصورة...</p>
+            </div>
+          ) : null}
+          {status === "error" ? (
+            <div className="flex min-h-[280px] w-full flex-col items-center justify-center rounded-2xl border border-rose-200 bg-rose-50/80 p-6 text-center text-rose-700">
+              <ImagePlus className="mb-3 h-9 w-9" />
+              <p className="text-sm font-black">تعذر تحميل الصورة</p>
+              <p className="mt-1 text-xs font-semibold">قد تكون الصورة غير موجودة أو الرابط لم يعد متاحًا.</p>
+            </div>
+          ) : (
+            <img
+              src={src}
+              alt={title || "preview"}
+              onLoad={() => setStatus("loaded")}
+              onError={() => setStatus("error")}
+              className={`max-h-[76vh] w-full rounded-2xl border border-white/80 bg-white object-contain shadow-inner transition-opacity duration-200 ${
+                status === "loaded" ? "opacity-100" : "opacity-0"
+              }`}
+            />
+          )}
         </div>
       </motion.div>
     </div>
+  );
+}
+
+function RequestImagePreviewButton({
+  src,
+  title,
+  onOpen,
+}: {
+  src: string;
+  title: string;
+  onOpen: () => void;
+}) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewStatus, setPreviewStatus] = useState<"loading" | "loaded" | "error">("loading");
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [placement, setPlacement] = useState<"top" | "bottom">("top");
+  const closeTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
+
+  const openPreview = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) {
+      const previewWidth = 236;
+      const preferredLeft = rect.left + rect.width / 2 - previewWidth / 2;
+      setPlacement("top");
+      setPosition({
+        top: rect.top - 8,
+        left: Math.min(Math.max(12, preferredLeft), window.innerWidth - previewWidth - 12),
+      });
+    }
+    if (!isPreviewOpen) {
+      setPreviewStatus("loading");
+    }
+    setIsPreviewOpen(true);
+  };
+
+  const scheduleClose = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+    }
+    closeTimerRef.current = window.setTimeout(() => {
+      setIsPreviewOpen(false);
+      closeTimerRef.current = null;
+    }, 260);
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={onOpen}
+        onMouseEnter={openPreview}
+        onMouseLeave={scheduleClose}
+        onFocus={openPreview}
+        onBlur={scheduleClose}
+        className="group inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-primary/10 px-2.5 py-1.5 text-xs font-black text-primary shadow-sm shadow-primary/5 transition-all hover:-translate-y-0.5 hover:bg-primary/20 hover:shadow-md hover:shadow-primary/10 focus:outline-none focus:ring-2 focus:ring-primary/20"
+      >
+        <Eye className="h-3.5 w-3.5 transition-transform group-hover:scale-110" />
+        فتح الصورة
+      </button>
+
+      <AnimatePresence>
+        {isPreviewOpen ? (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.98 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            onMouseEnter={openPreview}
+            onMouseLeave={scheduleClose}
+            className={`fixed z-[60] w-[236px] rounded-2xl border border-white/70 bg-white/95 p-2 shadow-2xl shadow-primary/15 ring-1 ring-primary/10 backdrop-blur-xl ${
+              placement === "top" ? "-translate-y-full" : ""
+            }`}
+            style={{ top: position.top, left: position.left }}
+            dir="rtl"
+          >
+            <span
+              className={`absolute left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-white/70 bg-white/95 ${
+                placement === "top"
+                  ? "top-full -translate-y-1/2 border-b border-r"
+                  : "bottom-full translate-y-1/2 border-l border-t"
+              }`}
+            />
+            <div className="mb-2 flex items-center gap-2 px-1">
+              <Eye className="h-3.5 w-3.5 text-primary" />
+              <p className="truncate text-[11px] font-black text-foreground">{title}</p>
+            </div>
+            <div className="relative flex h-36 items-center justify-center overflow-hidden rounded-xl border border-primary/10 bg-slate-50">
+              {previewStatus === "loading" ? (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 text-primary">
+                  <div className="h-7 w-7 animate-spin rounded-full border-3 border-primary/15 border-t-primary" />
+                  <span className="text-[11px] font-black">تحميل...</span>
+                </div>
+              ) : null}
+              {previewStatus === "error" ? (
+                <div className="flex flex-col items-center justify-center px-4 text-center text-rose-600">
+                  <ImagePlus className="mb-2 h-6 w-6" />
+                  <p className="text-[11px] font-black">تعذر عرض الصورة</p>
+                </div>
+              ) : (
+                <img
+                  src={src}
+                  alt={title}
+                  onLoad={() => setPreviewStatus("loaded")}
+                  onError={() => setPreviewStatus("error")}
+                  className={`h-full w-full object-contain transition-opacity duration-200 ${previewStatus === "loaded" ? "opacity-100" : "opacity-0"}`}
+                />
+              )}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </>
   );
 }
 
@@ -2231,19 +2386,16 @@ function SubscriptionRequestsTab({
                                 </td>
                                 <td className="px-3 py-3.5 min-w-[120px]">
                                   {request.codeImageUrl ? (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
+                                    <RequestImagePreviewButton
+                                      src={apiPath(request.codeImageUrl)}
+                                      title={`${request.student.name} · ${request.subject.name}`}
+                                      onOpen={() =>
                                         setPreviewImage({
                                           src: apiPath(request.codeImageUrl || ""),
                                           title: `${request.student.name} · ${request.subject.name}`,
                                         })
                                       }
-                                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs font-bold text-primary transition-all hover:bg-primary/20"
-                                    >
-                                      <Eye className="h-3.5 w-3.5" />
-                                      فتح الصورة
-                                    </button>
+                                    />
                                   ) : (
                                     <span className="text-xs text-muted-foreground">لا توجد صورة</span>
                                   )}
@@ -2872,6 +3024,9 @@ function SupportMessagesTab({
         throw new Error((data as any)?.error || "تعذر تحميل الرسائل");
       }
       setMessages(Array.isArray((data as any).messages) ? (data as any).messages : []);
+      setAutomaticReports((current) => (
+        current.filter((item) => item.conversationId !== conversationId)
+      ));
     } catch (err: any) {
       setError(err?.message || "تعذر تحميل الرسائل");
       setMessages([]);

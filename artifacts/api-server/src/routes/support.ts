@@ -286,6 +286,16 @@ async function refreshConversationLastMessageAt(conversationId: number) {
     .where(eq(supportConversationsTable.id, conversationId));
 }
 
+async function markAutomaticSupportReportsReviewed(conversationId: number) {
+  await db
+    .update(supportAutomaticMessagesTable)
+    .set({ status: "reviewed", updatedAt: new Date() })
+    .where(and(
+      eq(supportAutomaticMessagesTable.conversationId, conversationId),
+      eq(supportAutomaticMessagesTable.status, "sent"),
+    ));
+}
+
 router.get("/support/me", async (req, res) => {
   try {
     const user = await requireAuthenticatedUser(req, res);
@@ -665,6 +675,8 @@ router.get("/admin/support/conversations/:id/messages", async (req, res) => {
           isNull(supportMessagesTable.readAt),
         ),
       );
+
+    await markAutomaticSupportReportsReviewed(conversationId);
 
     res.json({ conversation, messages: await listConversationMessages(conversationId) });
   } catch (err) {

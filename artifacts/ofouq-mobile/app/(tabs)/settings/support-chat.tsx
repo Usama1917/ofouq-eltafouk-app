@@ -7,6 +7,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -43,6 +45,12 @@ type SupportConversationResponse = {
     lastMessageAt: string;
   } | null;
   messages: SupportMessage[];
+};
+
+type ChatMessageColors = {
+  border: string;
+  card: string;
+  text: string;
 };
 
 const QUICK_QUESTIONS_AR = [
@@ -107,6 +115,84 @@ function renderSupportMessageBody(value: string) {
   });
 }
 
+function AnimatedSupportMessage({
+  item,
+  colors,
+  direction,
+}: {
+  item: SupportMessage;
+  colors: ChatMessageColors;
+  direction: "rtl" | "ltr";
+}) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const isUserMessage = item.senderRole === "user";
+  const displayBody = toEnglishDigits(item.body);
+  const messageTextFlow = getTextFlow(displayBody, direction);
+
+  useEffect(() => {
+    progress.setValue(0);
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: isUserMessage ? 260 : 340,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [isUserMessage, progress]);
+
+  const animatedStyle = {
+    opacity: progress,
+    transform: [
+      {
+        translateY: progress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [isUserMessage ? 16 : 10, 0],
+        }),
+      },
+      {
+        scale: progress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [isUserMessage ? 0.94 : 0.97, 1],
+        }),
+      },
+    ],
+  };
+
+  return (
+    <Animated.View
+      style={[
+        styles.messageRow,
+        animatedStyle,
+        { alignItems: isUserMessage ? "flex-start" : "flex-end" },
+      ]}
+    >
+      <View
+        style={[
+          styles.messageBubble,
+          {
+            backgroundColor: isUserMessage ? COLORS.primary : colors.card,
+            borderColor: isUserMessage ? COLORS.primary : colors.border,
+            borderBottomRightRadius: isUserMessage ? 6 : 18,
+            borderBottomLeftRadius: isUserMessage ? 18 : 6,
+          },
+        ]}
+      >
+        <Text
+          style={[
+            styles.messageText,
+            {
+              color: isUserMessage ? "#fff" : colors.text,
+              textAlign: messageTextFlow.textAlign,
+              writingDirection: messageTextFlow.writingDirection,
+            },
+          ]}
+        >
+          {renderSupportMessageBody(displayBody)}
+        </Text>
+      </View>
+    </Animated.View>
+  );
+}
+
 export default function SupportChatScreen() {
   const {
     colors,
@@ -124,6 +210,8 @@ export default function SupportChatScreen() {
   const queryClient = useQueryClient();
   const scrollRef = useRef<ScrollView>(null);
   const sendingRef = useRef(false);
+  const sendButtonScale = useRef(new Animated.Value(1)).current;
+  const sendButtonLift = useRef(new Animated.Value(0)).current;
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -180,6 +268,44 @@ export default function SupportChatScreen() {
       hideSubscription.remove();
     };
   }, []);
+
+  function playSendButtonAnimation() {
+    sendButtonScale.stopAnimation();
+    sendButtonLift.stopAnimation();
+    sendButtonScale.setValue(1);
+    sendButtonLift.setValue(0);
+
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(sendButtonScale, {
+          toValue: 0.86,
+          duration: 90,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(sendButtonLift, {
+          toValue: -3,
+          duration: 90,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.spring(sendButtonScale, {
+          toValue: 1,
+          friction: 4,
+          tension: 190,
+          useNativeDriver: true,
+        }),
+        Animated.spring(sendButtonLift, {
+          toValue: 0,
+          friction: 5,
+          tension: 170,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+  }
 
   async function sendSupportMessage(rawBody: string, options: { dismissQuickQuestions?: boolean } = {}) {
     if (!token) {
@@ -350,45 +476,14 @@ export default function SupportChatScreen() {
                 </View>
               ) : null}
 
-              {messages.map((item) => {
-                const isUserMessage = item.senderRole === "user";
-                const displayBody = toEnglishDigits(item.body);
-                const messageTextFlow = getTextFlow(displayBody, direction);
-                return (
-                  <View
-                    key={item.id}
-                    style={[
-                      styles.messageRow,
-                      { alignItems: isUserMessage ? "flex-start" : "flex-end" },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.messageBubble,
-                        {
-                          backgroundColor: isUserMessage ? COLORS.primary : colors.card,
-                          borderColor: isUserMessage ? COLORS.primary : colors.border,
-                          borderBottomRightRadius: isUserMessage ? 6 : 18,
-                          borderBottomLeftRadius: isUserMessage ? 18 : 6,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.messageText,
-                          {
-                            color: isUserMessage ? "#fff" : colors.text,
-                            textAlign: messageTextFlow.textAlign,
-                            writingDirection: messageTextFlow.writingDirection,
-                          },
-                        ]}
-                      >
-                        {renderSupportMessageBody(displayBody)}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
+              {messages.map((item) => (
+                <AnimatedSupportMessage
+                  key={item.id}
+                  item={item}
+                  colors={colors}
+                  direction={direction}
+                />
+              ))}
             </ScrollView>
 
             {showQuickQuestions ? (
@@ -466,20 +561,29 @@ export default function SupportChatScreen() {
                   },
                 ]}
               />
-              <Pressable
-                onPress={() => void sendSupportMessage(message)}
-                disabled={sending || message.trim().length === 0}
-                style={({ pressed }) => [
-                  styles.sendButton,
-                  { opacity: pressed || sending || message.trim().length === 0 ? 0.66 : 1 },
-                ]}
+              <Animated.View
+                style={{
+                  transform: [{ scale: sendButtonScale }, { translateY: sendButtonLift }],
+                }}
               >
-                {sending ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Feather name="send" size={18} color="#fff" />
-                )}
-              </Pressable>
+                <Pressable
+                  onPress={() => {
+                    playSendButtonAnimation();
+                    void sendSupportMessage(message);
+                  }}
+                  disabled={sending || message.trim().length === 0}
+                  style={({ pressed }) => [
+                    styles.sendButton,
+                    { opacity: pressed || sending || message.trim().length === 0 ? 0.66 : 1 },
+                  ]}
+                >
+                  {sending ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Feather name="send" size={18} color="#fff" />
+                  )}
+                </Pressable>
+              </Animated.View>
             </View>
           </>
         )}
