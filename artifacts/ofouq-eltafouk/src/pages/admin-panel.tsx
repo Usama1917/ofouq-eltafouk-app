@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useReducedMotion, type Variants } from "framer-motion";
 import { 
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, 
@@ -561,10 +562,20 @@ function RequestImagePreviewButton({
   onOpen: () => void;
 }) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const iconRef = useRef<HTMLSpanElement | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<"loading" | "loaded" | "error">("loading");
-  const [position, setPosition] = useState({ top: 0, left: 0 });
-  const [placement, setPlacement] = useState<"top" | "bottom">("top");
+  const [position, setPosition] = useState({
+    top: 0,
+    left: 0,
+    width: 248,
+    height: 174,
+    originTop: 0,
+    originLeft: 0,
+    originWidth: 14,
+    originHeight: 14,
+    arrowLeft: 124,
+  });
   const closeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -576,22 +587,33 @@ function RequestImagePreviewButton({
   }, []);
 
   const openPreview = () => {
+    if (typeof window === "undefined") return;
+
     if (closeTimerRef.current !== null) {
       window.clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
     }
 
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (rect) {
-      const previewWidth = 236;
-      const preferredLeft = rect.left + rect.width / 2 - previewWidth / 2;
-      setPlacement("top");
-      setPosition({
-        top: rect.top - 8,
-        left: Math.min(Math.max(12, preferredLeft), window.innerWidth - previewWidth - 12),
-      });
-    }
     if (!isPreviewOpen) {
+      const rect = iconRef.current?.getBoundingClientRect() ?? buttonRef.current?.getBoundingClientRect();
+      if (rect) {
+        const previewWidth = 248;
+        const previewHeight = 174;
+        const anchorCenterX = rect.left + rect.width / 2;
+        const preferredLeft = anchorCenterX - previewWidth / 2;
+        const nextLeft = Math.min(Math.max(12, preferredLeft), window.innerWidth - previewWidth - 12);
+        setPosition({
+          top: Math.max(12, rect.top - previewHeight - 10),
+          left: nextLeft,
+          width: previewWidth,
+          height: previewHeight,
+          originTop: rect.top,
+          originLeft: rect.left,
+          originWidth: rect.width,
+          originHeight: rect.height,
+          arrowLeft: Math.min(Math.max(18, anchorCenterX - nextLeft), previewWidth - 18),
+        });
+      }
       setPreviewStatus("loading");
     }
     setIsPreviewOpen(true);
@@ -607,6 +629,76 @@ function RequestImagePreviewButton({
     }, 260);
   };
 
+  const preview = (
+    <AnimatePresence>
+      {isPreviewOpen ? (
+        <motion.div
+          initial={{
+            top: position.originTop,
+            left: position.originLeft,
+            width: position.originWidth,
+            height: position.originHeight,
+            opacity: 0.92,
+            borderRadius: 8,
+          }}
+          animate={{
+            top: position.top,
+            left: position.left,
+            width: position.width,
+            height: position.height,
+            opacity: 1,
+            borderRadius: 16,
+          }}
+          exit={{
+            top: position.originTop,
+            left: position.originLeft,
+            width: position.originWidth,
+            height: position.originHeight,
+            opacity: 0,
+            borderRadius: 8,
+          }}
+          transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.72 }}
+          onMouseEnter={openPreview}
+          onMouseLeave={scheduleClose}
+          className="fixed z-[60] overflow-hidden border border-white/70 bg-white/95 p-2 shadow-2xl shadow-primary/15 ring-1 ring-primary/10 backdrop-blur-xl dark:border-white/15 dark:bg-slate-950/95"
+          style={{ transformOrigin: "50% 100%" }}
+          dir="rtl"
+        >
+          <div
+            className="absolute bottom-[-6px] h-3 w-3 -translate-x-1/2 rotate-45 border-b border-r border-white/70 bg-white/95 dark:border-white/15 dark:bg-slate-950/95"
+            style={{ left: position.arrowLeft }}
+          />
+          <div className="mb-2 flex h-5 items-center gap-2 px-1">
+            <span className="h-2 w-2 rounded-full bg-primary ring-4 ring-primary/10" />
+            <p className="truncate text-[11px] font-black text-foreground">{title}</p>
+          </div>
+          <div className="relative flex h-[136px] items-center justify-center overflow-hidden rounded-xl border border-primary/10 bg-slate-50 dark:bg-white/5">
+            {previewStatus === "loading" ? (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 text-primary">
+                <div className="h-7 w-7 animate-spin rounded-full border-3 border-primary/15 border-t-primary" />
+                <span className="text-[11px] font-black">تحميل...</span>
+              </div>
+            ) : null}
+            {previewStatus === "error" ? (
+              <div className="flex flex-col items-center justify-center px-4 text-center text-rose-600">
+                <ImagePlus className="mb-2 h-6 w-6" />
+                <p className="text-[11px] font-black">تعذر عرض الصورة</p>
+              </div>
+            ) : (
+              <img
+                src={src}
+                alt={title}
+                onLoad={() => setPreviewStatus("loaded")}
+                onError={() => setPreviewStatus("error")}
+                className={`h-full w-full object-contain transition-opacity duration-200 ${previewStatus === "loaded" ? "opacity-100" : "opacity-0"}`}
+              />
+            )}
+          </div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+
   return (
     <>
       <button
@@ -619,61 +711,22 @@ function RequestImagePreviewButton({
         onBlur={scheduleClose}
         className="group inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-primary/10 px-2.5 py-1.5 text-xs font-black text-primary shadow-sm shadow-primary/5 transition-all hover:-translate-y-0.5 hover:bg-primary/20 hover:shadow-md hover:shadow-primary/10 focus:outline-none focus:ring-2 focus:ring-primary/20"
       >
-        <Eye className="h-3.5 w-3.5 transition-transform group-hover:scale-110" />
+        <span className="relative flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+          {isPreviewOpen ? (
+            <span className="h-3.5 w-3.5" aria-hidden="true" />
+          ) : (
+            <span
+              ref={iconRef}
+              className="flex h-3.5 w-3.5 items-center justify-center rounded-md"
+            >
+              <Eye className="h-3.5 w-3.5 transition-transform group-hover:scale-110" />
+            </span>
+          )}
+        </span>
         فتح الصورة
       </button>
 
-      <AnimatePresence>
-        {isPreviewOpen ? (
-          <motion.div
-            initial={{ opacity: 0, y: 8, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 6, scale: 0.98 }}
-            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-            onMouseEnter={openPreview}
-            onMouseLeave={scheduleClose}
-            className={`fixed z-[60] w-[236px] rounded-2xl border border-white/70 bg-white/95 p-2 shadow-2xl shadow-primary/15 ring-1 ring-primary/10 backdrop-blur-xl ${
-              placement === "top" ? "-translate-y-full" : ""
-            }`}
-            style={{ top: position.top, left: position.left }}
-            dir="rtl"
-          >
-            <span
-              className={`absolute left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-white/70 bg-white/95 ${
-                placement === "top"
-                  ? "top-full -translate-y-1/2 border-b border-r"
-                  : "bottom-full translate-y-1/2 border-l border-t"
-              }`}
-            />
-            <div className="mb-2 flex items-center gap-2 px-1">
-              <Eye className="h-3.5 w-3.5 text-primary" />
-              <p className="truncate text-[11px] font-black text-foreground">{title}</p>
-            </div>
-            <div className="relative flex h-36 items-center justify-center overflow-hidden rounded-xl border border-primary/10 bg-slate-50">
-              {previewStatus === "loading" ? (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 text-primary">
-                  <div className="h-7 w-7 animate-spin rounded-full border-3 border-primary/15 border-t-primary" />
-                  <span className="text-[11px] font-black">تحميل...</span>
-                </div>
-              ) : null}
-              {previewStatus === "error" ? (
-                <div className="flex flex-col items-center justify-center px-4 text-center text-rose-600">
-                  <ImagePlus className="mb-2 h-6 w-6" />
-                  <p className="text-[11px] font-black">تعذر عرض الصورة</p>
-                </div>
-              ) : (
-                <img
-                  src={src}
-                  alt={title}
-                  onLoad={() => setPreviewStatus("loaded")}
-                  onError={() => setPreviewStatus("error")}
-                  className={`h-full w-full object-contain transition-opacity duration-200 ${previewStatus === "loaded" ? "opacity-100" : "opacity-0"}`}
-                />
-              )}
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      {typeof document !== "undefined" ? createPortal(preview, document.body) : preview}
     </>
   );
 }
