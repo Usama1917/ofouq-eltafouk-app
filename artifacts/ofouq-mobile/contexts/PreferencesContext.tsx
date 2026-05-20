@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useMemo } from "react";
-import { NativeModules, useColorScheme, View, type FlexStyle } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { I18nManager, NativeModules, useColorScheme, View, type FlexStyle } from "react-native";
 
 import { COLORS } from "@/constants/colors";
 import {
@@ -11,9 +12,14 @@ import {
 } from "@/lib/i18n";
 
 export type { AppLanguage };
+export type AppThemePreference = "system" | "light" | "dark";
+
+export const LANGUAGE_STORAGE_KEY = "ofouq_language";
+export const THEME_STORAGE_KEY = "ofouq_theme";
 
 type PreferencesContextValue = {
   language: AppLanguage;
+  themePreference: AppThemePreference;
   resolvedScheme: "light" | "dark";
   colors: typeof COLORS.light;
   strings: AppStrings;
@@ -24,6 +30,8 @@ type PreferencesContextValue = {
   reverseRowDirection: FlexStyle["flexDirection"];
   alignStart: "flex-start" | "flex-end";
   alignEnd: "flex-start" | "flex-end";
+  setLanguage: (language: AppLanguage) => Promise<void>;
+  setThemePreference: (themePreference: AppThemePreference) => Promise<void>;
 };
 
 const PreferencesContext = createContext<PreferencesContextValue | undefined>(undefined);
@@ -42,11 +50,93 @@ function getDeviceLanguage(): AppLanguage {
   return isAppLanguage(languageCode) ? languageCode : "ar";
 }
 
+function isAppThemePreference(value: string | null): value is AppThemePreference {
+  return value === "system" || value === "light" || value === "dark";
+}
+
+function applyNativeDirection(language: AppLanguage) {
+  const shouldBeRTL = language === "ar";
+
+  I18nManager.allowRTL(true);
+  I18nManager.swapLeftAndRightInRTL(false);
+  I18nManager.forceRTL(shouldBeRTL);
+}
+
 export function PreferencesProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();
-  const language = useMemo(getDeviceLanguage, []);
+  const [language, setLanguageState] = useState<AppLanguage>(() => getDeviceLanguage());
+  const [themePreference, setThemePreferenceState] = useState<AppThemePreference>("system");
+  const [isReady, setIsReady] = useState(false);
 
-  const resolvedScheme: "light" | "dark" = systemScheme === "dark" ? "dark" : "light";
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadPreferences() {
+      try {
+        const [storedLanguage, storedThemePreference] = await Promise.all([
+          AsyncStorage.getItem(LANGUAGE_STORAGE_KEY),
+          AsyncStorage.getItem(THEME_STORAGE_KEY),
+        ]);
+        const nextLanguage = isAppLanguage(storedLanguage) ? storedLanguage : getDeviceLanguage();
+        const nextThemePreference = isAppThemePreference(storedThemePreference) ? storedThemePreference : "system";
+
+        applyNativeDirection(nextLanguage);
+
+        if (isMounted) {
+          setLanguageState(nextLanguage);
+          setThemePreferenceState(nextThemePreference);
+        }
+      } catch {
+        const fallbackLanguage = getDeviceLanguage();
+        applyNativeDirection(fallbackLanguage);
+
+        if (isMounted) {
+          setLanguageState(fallbackLanguage);
+          setThemePreferenceState("system");
+        }
+      } finally {
+        if (isMounted) {
+          setIsReady(true);
+        }
+      }
+    }
+
+    void loadPreferences();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const setLanguage = useCallback(
+    async (nextLanguage: AppLanguage) => {
+      await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage);
+    },
+    [],
+  );
+
+  const setThemePreference = useCallback(
+    async (nextThemePreference: AppThemePreference) => {
+      if (nextThemePreference === themePreference) return;
+
+      const previousThemePreference = themePreference;
+      setThemePreferenceState(nextThemePreference);
+
+      try {
+        await AsyncStorage.setItem(THEME_STORAGE_KEY, nextThemePreference);
+      } catch (error) {
+        setThemePreferenceState(previousThemePreference);
+        throw error;
+      }
+    },
+    [themePreference],
+  );
+
+  const resolvedScheme: "light" | "dark" = themePreference === "system"
+    ? systemScheme === "dark"
+      ? "dark"
+      : "light"
+    : themePreference;
   const strings = TRANSLATIONS[language];
   const direction = strings.direction;
   const isRTL = direction === "rtl";
@@ -59,6 +149,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
   const value = useMemo(
     () => ({
       language,
+      themePreference,
       resolvedScheme,
       colors: resolvedScheme === "dark" ? COLORS.dark : COLORS.light,
       strings,
@@ -69,13 +160,40 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       reverseRowDirection,
       alignStart,
       alignEnd,
+      setLanguage,
+      setThemePreference,
     }),
-    [alignEnd, alignStart, direction, isRTL, language, resolvedScheme, rowDirection, reverseRowDirection, strings, textAlign],
+    [
+      alignEnd,
+      alignStart,
+      direction,
+      isRTL,
+      language,
+      resolvedScheme,
+      rowDirection,
+      reverseRowDirection,
+      setLanguage,
+      setThemePreference,
+      strings,
+      textAlign,
+      themePreference,
+    ],
   );
+
+  if (!isReady) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: resolvedScheme === "dark" ? COLORS.dark.background : COLORS.light.background,
+        }}
+      />
+    );
+  }
 
   return (
     <PreferencesContext.Provider value={value}>
-      <View style={{ flex: 1, direction }}>{children}</View>
+      <View style={{ flex: 1, direction, backgroundColor: value.colors.background }}>{children}</View>
     </PreferencesContext.Provider>
   );
 }

@@ -200,7 +200,35 @@ async function loadAdminAcademicOptions() {
     .from(subjectsTable)
     .orderBy(asc(subjectsTable.orderIndex), asc(subjectsTable.id));
 
-  return { years, subjects };
+  const lessons = await db
+    .select({
+      id: lessonsTable.id,
+      title: lessonsTable.title,
+      isPublished: lessonsTable.isPublished,
+      unitId: unitsTable.id,
+      unitName: unitsTable.name,
+      subjectId: subjectsTable.id,
+      subjectName: subjectsTable.name,
+      yearId: academicYearsTable.id,
+      yearName: academicYearsTable.name,
+      videoId: videosTable.id,
+      videoTitle: videosTable.title,
+      videoPublishStatus: videosTable.publishStatus,
+    })
+    .from(lessonsTable)
+    .innerJoin(unitsTable, eq(lessonsTable.unitId, unitsTable.id))
+    .innerJoin(subjectsTable, eq(unitsTable.subjectId, subjectsTable.id))
+    .innerJoin(academicYearsTable, eq(subjectsTable.yearId, academicYearsTable.id))
+    .leftJoin(videosTable, eq(lessonsTable.videoId, videosTable.id))
+    .orderBy(
+      asc(academicYearsTable.orderIndex),
+      asc(subjectsTable.orderIndex),
+      asc(unitsTable.orderIndex),
+      asc(lessonsTable.orderIndex),
+      asc(lessonsTable.id),
+    );
+
+  return { years, subjects, lessons };
 }
 
 function getSelectedSubjectIds(filters: AdminAudienceFilters, subjects: Array<{ id: number; yearId: number }>) {
@@ -458,7 +486,7 @@ router.get("/admin/notifications/options", async (req, res): Promise<void> => {
   try {
     if (!(await requireAdmin(req, res))) return;
 
-    const { years, subjects } = await loadAdminAcademicOptions();
+    const { years, subjects, lessons } = await loadAdminAcademicOptions();
     res.json({
       years: years.map((year) => ({
         id: year.id,
@@ -472,6 +500,20 @@ router.get("/admin/notifications/options", async (req, res): Promise<void> => {
             unitLabel: subject.unitLabel,
             isPublished: subject.isPublished,
           })),
+      })),
+      lessons: lessons.map((lesson) => ({
+        id: lesson.id,
+        title: lesson.title,
+        isPublished: lesson.isPublished,
+        unitId: lesson.unitId,
+        unitName: lesson.unitName,
+        subjectId: lesson.subjectId,
+        subjectName: lesson.subjectName,
+        yearId: lesson.yearId,
+        yearName: lesson.yearName,
+        videoId: lesson.videoId,
+        videoTitle: lesson.videoTitle,
+        videoPublishStatus: lesson.videoPublishStatus,
       })),
       audiences: [
         { id: "all", label: "الكل" },

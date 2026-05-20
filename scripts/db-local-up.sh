@@ -6,6 +6,10 @@ COMPOSE_FILE="$ROOT_DIR/docker-compose.local-db.yml"
 ENV_FILE="$ROOT_DIR/artifacts/api-server/.env"
 
 LOCAL_DB_HOST="${LOCAL_DB_HOST:-localhost}"
+LOCAL_DB_PORT_WAS_SET=0
+if [ -n "${LOCAL_DB_PORT:-}" ]; then
+  LOCAL_DB_PORT_WAS_SET=1
+fi
 LOCAL_DB_PORT="${LOCAL_DB_PORT:-5432}"
 LOCAL_DB_NAME="${LOCAL_DB_NAME:-ofouq_eltafouk}"
 LOCAL_DB_USER="${LOCAL_DB_USER:-postgres}"
@@ -81,6 +85,28 @@ wait_for_postgres() {
   done
 }
 
+choose_local_db_port() {
+  if [ "$LOCAL_DB_PORT_WAS_SET" -eq 1 ]; then
+    return
+  fi
+
+  if ! command -v lsof >/dev/null 2>&1; then
+    return
+  fi
+
+  local listeners
+  listeners="$(lsof -nP -iTCP:"$LOCAL_DB_PORT" -sTCP:LISTEN 2>/dev/null || true)"
+  if [ -z "$listeners" ]; then
+    return
+  fi
+
+  if echo "$listeners" | grep -E '127\.0\.0\.1:5432|\[::1\]:5432' >/dev/null 2>&1; then
+    LOCAL_DB_PORT=55432
+    echo "⚠️  Port 5432 is already used on localhost. Using Docker Postgres host port ${LOCAL_DB_PORT}."
+  fi
+}
+
+choose_local_db_port
 export LOCAL_DB_PORT LOCAL_DB_NAME LOCAL_DB_USER LOCAL_DB_PASSWORD
 
 echo "🐘 تشغيل PostgreSQL المحلي عبر Docker..."
@@ -99,6 +125,9 @@ DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/db run push
 
 echo "🌱 Seed demo users (idempotent)..."
 DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/scripts run seed:demo
+
+echo "🎬 Seed demo academic videos (idempotent)..."
+DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/scripts run seed:academic
 
 echo ""
 echo "✅ Local DB جاهزة"

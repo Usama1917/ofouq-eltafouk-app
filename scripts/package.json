@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
+    "seed:academic": "tsx ./src/seed-demo-academic.ts",
     "seed:demo": "tsx ./src/seed-demo-users.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

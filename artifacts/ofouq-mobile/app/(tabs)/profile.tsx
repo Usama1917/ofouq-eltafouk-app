@@ -1,6 +1,5 @@
 import { Feather } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
@@ -26,6 +25,11 @@ import { useAuth, type User } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { formatDate, toEnglishDigits } from "@/lib/format";
+import {
+  createImageFormDataFile,
+  logImageUploadDebug,
+  pickImageFromLibrary,
+} from "@/lib/imagePicker";
 import { isSupportedProfileImageType, resolveMediaUrl } from "@/lib/media";
 
 const ROLE_GRADIENTS: Record<string, [string, string]> = {
@@ -211,21 +215,25 @@ export default function ProfileScreen() {
       router.push("/login");
       return;
     }
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(strings.profile.photoPermissionTitle, strings.profile.photoPermissionMessage);
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    const result = await pickImageFromLibrary({
+      source: "profile-avatar",
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.82,
     });
-    if (result.canceled) return;
 
-    const asset = result.assets[0];
+    if (result.status === "denied") {
+      Alert.alert(strings.profile.photoPermissionTitle, strings.profile.photoPermissionMessage);
+      return;
+    }
+
+    if (result.status === "canceled") return;
+    if (result.status === "error") {
+      Alert.alert(strings.profile.photoUploadError, strings.profile.photoPermissionMessage);
+      return;
+    }
+
+    const asset = result.asset;
     if (!isSupportedProfileImageType(asset.mimeType)) {
       Alert.alert(strings.auth.errorTitle, strings.profile.photoUnsupported);
       return;
@@ -238,15 +246,13 @@ export default function ProfileScreen() {
     setAvatarUploading(true);
     try {
       const fd = new FormData();
-      fd.append("avatar", {
-        uri: asset.uri,
-        name: asset.fileName ?? "profile-photo.jpg",
-        type: asset.mimeType ?? "image/jpeg",
-      } as any);
+      fd.append("avatar", createImageFormDataFile(asset, "profile-photo.jpg") as any);
+      logImageUploadDebug("profile-avatar", "upload_start", asset);
       const upload = await apiFetch<{ url: string }>("/api/auth/profile-photo/upload", {
         method: "POST",
         body: fd,
       });
+      logImageUploadDebug("profile-avatar", "upload_success", asset);
       const updated = await apiFetch<User>("/api/auth/profile", {
         method: "PUT",
         token,
@@ -254,6 +260,7 @@ export default function ProfileScreen() {
       });
       updateUser(updated);
     } catch (err) {
+      logImageUploadDebug("profile-avatar", "upload_error", asset);
       Alert.alert(
         strings.profile.photoUploadError,
         err instanceof Error ? err.message : strings.profile.photoUploadError,

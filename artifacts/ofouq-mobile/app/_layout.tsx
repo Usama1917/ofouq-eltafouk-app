@@ -15,7 +15,7 @@ import { PreferencesProvider, usePreferences } from "@/contexts/PreferencesConte
 import { usePushNotifications } from "@/lib/pushNotifications";
 
 I18nManager.allowRTL(true);
-I18nManager.forceRTL(false);
+I18nManager.swapLeftAndRightInRTL(false);
 
 SplashScreen.preventAutoHideAsync();
 

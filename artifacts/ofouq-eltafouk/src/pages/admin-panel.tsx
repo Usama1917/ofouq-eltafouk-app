@@ -142,6 +142,20 @@ type BroadcastYearOption = {
   isPublished: boolean;
   subjects: BroadcastSubjectOption[];
 };
+type BroadcastLessonOption = {
+  id: number;
+  title: string;
+  isPublished: boolean;
+  unitId: number;
+  unitName: string;
+  subjectId: number;
+  subjectName: string;
+  yearId: number;
+  yearName: string;
+  videoId?: number | null;
+  videoTitle?: string | null;
+  videoPublishStatus?: string | null;
+};
 type BroadcastPreviewSummary = {
   total: number;
   withPushToken: number;
@@ -2479,6 +2493,7 @@ function BroadcastMessagesTab({
   onClearTargetUsers?: () => void;
 }) {
   const [years, setYears] = useState<BroadcastYearOption[]>([]);
+  const [lessonOptions, setLessonOptions] = useState<BroadcastLessonOption[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -2500,6 +2515,7 @@ function BroadcastMessagesTab({
   const [actionSubjectId, setActionSubjectId] = useState("");
   const [actionLessonId, setActionLessonId] = useState("");
   const allSubjects = years.flatMap((year) => year.subjects.map((subject) => ({ ...subject, yearId: year.id, yearName: year.name })));
+  const selectedActionLesson = lessonOptions.find((lesson) => String(lesson.id) === actionLessonId) ?? null;
   const targetUserIds = targetUsers.map((user) => user.id);
   const targetUserKey = targetUserIds.join(",");
 
@@ -2547,6 +2563,7 @@ function BroadcastMessagesTab({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as any)?.error || "تعذر تحميل اختيارات الإرسال");
       setYears(Array.isArray((data as any).years) ? (data as any).years : []);
+      setLessonOptions(Array.isArray((data as any).lessons) ? (data as any).lessons : []);
     } catch (err: any) {
       setError(err?.message || "تعذر تحميل اختيارات الإرسال");
     } finally {
@@ -2766,13 +2783,34 @@ function BroadcastMessagesTab({
           ) : null}
 
           {actionType === "lesson" ? (
-            <input
-              value={actionLessonId}
-              onChange={(event) => setActionLessonId(event.target.value.replace(/[^\d]/g, ""))}
-              className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm outline-none focus:border-primary"
-              placeholder="رقم الدرس"
-              inputMode="numeric"
-            />
+            <div className="space-y-2">
+              <select
+                value={actionLessonId}
+                onChange={(event) => setActionLessonId(event.target.value)}
+                className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold"
+              >
+                <option value="">اختر الدرس</option>
+                {lessonOptions.map((lesson) => (
+                  <option key={lesson.id} value={lesson.id}>
+                    درس #{lesson.id} - {lesson.title} - {lesson.yearName} / {lesson.subjectName} / {lesson.unitName}
+                    {lesson.videoId ? ` - فيديو #${lesson.videoId}` : " - بلا فيديو"}
+                  </option>
+                ))}
+              </select>
+              {selectedActionLesson ? (
+                <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-xs font-bold text-primary">
+                  رقم الدرس: {formatAdminNumber(selectedActionLesson.id)}
+                  {" · "}
+                  رقم الفيديو: {selectedActionLesson.videoId ? formatAdminNumber(selectedActionLesson.videoId) : "لا يوجد فيديو مرتبط"}
+                  {" · "}
+                  {selectedActionLesson.yearName} / {selectedActionLesson.subjectName} / {selectedActionLesson.unitName}
+                </div>
+              ) : lessonOptions.length === 0 ? (
+                <p className="text-xs font-semibold text-muted-foreground">لا توجد دروس متاحة بعد. أضف درسًا من المحتوى الأكاديمي أولًا.</p>
+              ) : (
+                <p className="text-xs font-semibold text-muted-foreground">اختر الدرس من القائمة بدل كتابة رقمه يدويًا.</p>
+              )}
+            </div>
           ) : null}
 
           <button

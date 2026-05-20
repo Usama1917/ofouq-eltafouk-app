@@ -386,6 +386,7 @@ function ItemCard({
   description,
   isPublished,
   badge,
+  meta,
   onOpen,
   onRename,
   onTogglePublish,
@@ -401,6 +402,7 @@ function ItemCard({
   description?: string;
   isPublished: boolean;
   badge?: React.ReactNode;
+  meta?: React.ReactNode;
   onOpen?: () => void;
   onRename: () => void;
   onTogglePublish: () => void;
@@ -424,6 +426,7 @@ function ItemCard({
           {badge}
         </div>
         {description ? <p className="text-xs text-muted-foreground mt-0.5 truncate">{description}</p> : null}
+        {meta ? <div className="mt-2 flex flex-wrap items-center gap-1.5">{meta}</div> : null}
       </div>
       <div className="flex items-center gap-1.5">
         {onMoveUp ? (
@@ -502,6 +505,7 @@ export function AcademicTab() {
   const [lessonSegments, setLessonSegments] = useState<LessonSegmentFormItem[]>([]);
   const [lessonFormMode, setLessonFormMode] = useState<"create" | "edit">("create");
   const [editingLessonId, setEditingLessonId] = useState<number | null>(null);
+  const [lastSavedLesson, setLastSavedLesson] = useState<{ id: number; title: string; videoId?: number | null } | null>(null);
   const [isSavingLesson, setIsSavingLesson] = useState(false);
   const [detectedDurationSeconds, setDetectedDurationSeconds] = useState<number | null>(null);
   const [isDurationDetecting, setIsDurationDetecting] = useState(false);
@@ -539,9 +543,20 @@ export function AcademicTab() {
   const subjects = useSorted(subjectsQ.data ?? []);
   const units = useSorted(unitsQ.data ?? []);
   const lessons = useSorted(lessonsQ.data ?? []);
+  const editingLesson = editingLessonId ? lessons.find((lesson) => lesson.id === editingLessonId) ?? null : null;
 
   function invalidateAcademic() {
     qc.invalidateQueries({ queryKey: ["admin", "academic"] });
+  }
+
+  function upsertLessonInCache(unitId: number, lesson: Lesson) {
+    qc.setQueryData<Lesson[]>(["admin", "academic", "lessons", unitId], (currentLessons = []) => {
+      const exists = currentLessons.some((item) => item.id === lesson.id);
+      const nextLessons = exists
+        ? currentLessons.map((item) => (item.id === lesson.id ? lesson : item))
+        : [...currentLessons, lesson];
+      return nextLessons.sort((a, b) => (a.orderIndex - b.orderIndex) || (a.id - b.id));
+    });
   }
 
   async function uploadMedia(file: File, kind: UploadKind) {
@@ -624,6 +639,10 @@ export function AcademicTab() {
     setIsDurationDetecting(false);
     setDurationDetectionError(null);
   }
+
+  useEffect(() => {
+    setLastSavedLesson(null);
+  }, [current.unitId]);
 
   function openLessonEditor(lesson: Lesson) {
     const sourceSegments = [...(lesson.video?.segments ?? [])].sort(
@@ -831,18 +850,22 @@ export function AcademicTab() {
 
       if (lessonFormMode === "create") {
         payload.orderIndex = lessons.length;
-        await apiFetch(token, `/admin/academic/units/${current.unitId}/lessons`, {
+        const savedLesson = await apiFetch<Lesson>(token, `/admin/academic/units/${current.unitId}/lessons`, {
           method: "POST",
           body: JSON.stringify(payload),
         });
+        upsertLessonInCache(current.unitId, savedLesson);
+        setLastSavedLesson({ id: savedLesson.id, title: savedLesson.title, videoId: savedLesson.video?.id ?? null });
       } else {
         if (!editingLessonId) {
           throw new Error("تعذر تحديد الدرس المطلوب تعديله");
         }
-        await apiFetch(token, `/admin/academic/lessons/${editingLessonId}`, {
+        const savedLesson = await apiFetch<Lesson>(token, `/admin/academic/lessons/${editingLessonId}`, {
           method: "PUT",
           body: JSON.stringify(payload),
         });
+        upsertLessonInCache(savedLesson.unitId, savedLesson);
+        setLastSavedLesson({ id: savedLesson.id, title: savedLesson.title, videoId: savedLesson.video?.id ?? null });
       }
 
       invalidateAcademic();
@@ -1075,6 +1098,16 @@ export function AcademicTab() {
                 <h3 className="font-bold text-foreground">
                   {lessonFormMode === "edit" ? "تعديل الدرس + الفيديو + التقسيمات" : "إضافة درس + فيديو (داخل السياق الأكاديمي)"}
                 </h3>
+                <div className="rounded-xl border border-primary/15 bg-primary/10 px-3 py-2 text-xs font-bold text-primary flex flex-wrap gap-2">
+                  {lessonFormMode === "edit" ? (
+                    <>
+                      <span>رقم الدرس: {editingLessonId ?? "غير معروف"}</span>
+                      <span>رقم الفيديو: {editingLesson?.video?.id ?? "لا يوجد فيديو مرتبط"}</span>
+                    </>
+                  ) : (
+                    <span>سيظهر رقم الدرس ورقم الفيديو تلقائيًا بعد الحفظ، وسيظهران على كارت الدرس في القائمة.</span>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <input
                     value={lessonForm.title}
@@ -1484,10 +1517,18 @@ export function AcademicTab() {
         ) : null}
 
         {current.level === "lessons" ? (
-          lessons.length === 0 ? (
-            <div className="glass-card p-8 text-center text-muted-foreground">لا توجد دروس داخل هذه الوحدة.</div>
-          ) : (
-            lessons.map((lesson, index) => (
+          <>
+            {lastSavedLesson ? (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+                تم حفظ الدرس "{lastSavedLesson.title}". رقم الدرس: {lastSavedLesson.id}
+                {lastSavedLesson.videoId ? ` · رقم الفيديو: ${lastSavedLesson.videoId}` : " · لا يوجد فيديو مرتبط"}
+              </div>
+            ) : null}
+
+            {lessons.length === 0 ? (
+              <div className="glass-card p-8 text-center text-muted-foreground">لا توجد دروس داخل هذه الوحدة.</div>
+            ) : (
+              lessons.map((lesson, index) => (
               <ItemCard
                 key={lesson.id}
                 icon={<PlayCircle className="w-5 h-5 text-emerald-500" />}
@@ -1502,6 +1543,19 @@ export function AcademicTab() {
                   ) : (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-bold">بلا فيديو</span>
                   )
+                }
+                meta={
+                  <>
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-black text-primary">
+                      رقم الدرس: {lesson.id}
+                    </span>
+                    <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-black text-sky-700">
+                      رقم الفيديو: {lesson.video?.id ?? "لا يوجد"}
+                    </span>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground">
+                      استخدم رقم الدرس في الرسائل
+                    </span>
+                  </>
                 }
                 onRename={async () => {
                   const title = prompt("عنوان الدرس", lesson.title);
@@ -1527,8 +1581,9 @@ export function AcademicTab() {
                 onMoveDown={index < lessons.length - 1 ? () => moveItem(lessons, index, "down", "/admin/academic/lessons/reorder") : undefined}
                 onOpen={() => openLessonEditor(lesson)}
               />
-            ))
-          )
+              ))
+            )}
+          </>
         ) : null}
       </div>
     </div>

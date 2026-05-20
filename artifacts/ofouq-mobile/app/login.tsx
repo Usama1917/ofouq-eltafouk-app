@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,8 +18,18 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
+import { SHOULD_SHOW_PREVIEW_API_DEBUG, getBaseUrl } from "@/constants/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
+import { type ApiNetworkError, getApiUrl } from "@/lib/api";
+
+function debugValue(readValue: () => string) {
+  try {
+    return readValue();
+  } catch (err) {
+    return `Error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
 
 export default function LoginScreen() {
   const { colors, strings, isRTL, textAlign, direction } = usePreferences();
@@ -31,6 +41,15 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [lastNetworkError, setLastNetworkError] = useState<{ name: string; message: string } | null>(null);
+  const previewApiDebug = useMemo(() => {
+    if (!SHOULD_SHOW_PREVIEW_API_DEBUG) return null;
+
+    return {
+      baseUrl: debugValue(() => getBaseUrl()),
+      loginUrl: debugValue(() => getApiUrl("/api/auth/login")),
+    };
+  }, []);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -38,10 +57,18 @@ export default function LoginScreen() {
       return;
     }
     setIsLoading(true);
+    setLastNetworkError(null);
     try {
       await login(email.trim(), password.trim());
       router.replace("/(tabs)");
     } catch (err: any) {
+      const apiError = err as ApiNetworkError;
+      if (SHOULD_SHOW_PREVIEW_API_DEBUG) {
+        setLastNetworkError({
+          name: apiError.networkErrorName ?? apiError.name ?? "Error",
+          message: apiError.networkErrorMessage ?? apiError.message ?? strings.auth.loginFailed,
+        });
+      }
       Alert.alert(strings.auth.errorTitle, err.message ?? strings.auth.loginFailed);
     } finally {
       setIsLoading(false);
@@ -126,6 +153,16 @@ export default function LoginScreen() {
             </LinearGradient>
           </Pressable>
 
+          {previewApiDebug ? (
+            <View style={[styles.debugPanel, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+              <Text style={[styles.debugText, { color: colors.textSecondary }]}>API base: {previewApiDebug.baseUrl}</Text>
+              <Text style={[styles.debugText, { color: colors.textSecondary }]}>Login URL: {previewApiDebug.loginUrl}</Text>
+              <Text style={[styles.debugText, { color: colors.textSecondary }]}>
+                Network: {lastNetworkError ? `${lastNetworkError.name}: ${lastNetworkError.message}` : "not tested"}
+              </Text>
+            </View>
+          ) : null}
+
           <Pressable style={styles.registerLink} onPress={() => router.push("/register")}>
             <Text style={[styles.registerLinkText, { color: COLORS.primary }]}>
               {strings.auth.registerPrompt}
@@ -152,6 +189,8 @@ const styles = StyleSheet.create({
   loginBtn: { borderRadius: 16, overflow: "hidden", marginTop: 4 },
   loginGrad: { paddingVertical: 16, alignItems: "center" },
   loginText: { fontWeight: "700", fontSize: 17, color: "#fff" },
+  debugPanel: { borderWidth: 1, borderRadius: 10, padding: 10, gap: 4 },
+  debugText: { fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }), fontSize: 11, lineHeight: 16, textAlign: "left" },
   registerLink: { alignItems: "center", paddingVertical: 4 },
   registerLinkText: { fontWeight: "600", fontSize: 14 },
 });

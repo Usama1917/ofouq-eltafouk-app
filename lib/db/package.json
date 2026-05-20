@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
+    "./seeds/demo-academic": "./src/seeds/demo-academic.ts",
     "./seeds/demo-users": "./src/seeds/demo-users.ts"
   },
   "scripts": {

@@ -5,6 +5,9 @@ const DEFAULT_API_PORT = "8080";
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 let warnedAboutLocalFallback = false;
 
+export const API_BUILD_PROFILE = cleanEnvValue(process.env.EXPO_PUBLIC_BUILD_PROFILE) ?? "development";
+export const SHOULD_SHOW_PREVIEW_API_DEBUG = API_BUILD_PROFILE === "preview";
+
 function normalizeBaseUrl(url: string) {
   return url.trim().replace(/\/$/, "");
 }
@@ -29,6 +32,77 @@ function extractHost(value: unknown) {
 
 function isLocalHost(host: string | null) {
   return Boolean(host && LOCAL_HOSTS.has(host));
+}
+
+function isPrivateIpv4(host: string) {
+  const parts = host.split(".").map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+
+  const [first, second] = parts;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+function isPrivateIpv6(host: string) {
+  const normalized = host.toLowerCase();
+  return (
+    normalized === "::1" ||
+    normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    normalized.startsWith("fe80:")
+  );
+}
+
+function isLocalOrPrivateHost(host: string | null) {
+  if (!host) return false;
+  const normalized = host.toLowerCase();
+  return (
+    isLocalHost(normalized) ||
+    normalized.endsWith(".local") ||
+    isPrivateIpv4(normalized) ||
+    isPrivateIpv6(normalized)
+  );
+}
+
+function requireProductionHttps(url: string, source: string) {
+  const normalized = normalizeBaseUrl(url);
+
+  if (process.env.NODE_ENV !== "production") {
+    return normalized;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error(`[API] ${source} must be a valid HTTPS URL for production builds.`);
+  }
+
+  const allowsLocalHttp =
+    process.env.EXPO_PUBLIC_ALLOW_LOCAL_HTTP === "1" &&
+    process.env.EXPO_PUBLIC_BUILD_PROFILE !== "production" &&
+    parsed.protocol === "http:" &&
+    isLocalOrPrivateHost(parsed.hostname);
+
+  if (allowsLocalHttp) {
+    return normalized;
+  }
+
+  if (parsed.protocol !== "https:" || isLocalOrPrivateHost(parsed.hostname)) {
+    throw new Error(
+      `[API] ${source} must use a public HTTPS URL in production builds. Local or cleartext URLs are not allowed.`,
+    );
+  }
+
+  return normalized;
 }
 
 function getExpoLanHost() {
@@ -68,12 +142,22 @@ function getExpoLanHost() {
 export function getBaseUrl(): string {
   const apiBaseUrl = cleanEnvValue(process.env.EXPO_PUBLIC_API_BASE_URL);
   if (apiBaseUrl) {
-    return normalizeBaseUrl(apiBaseUrl);
+    return requireProductionHttps(apiBaseUrl, "EXPO_PUBLIC_API_BASE_URL");
   }
 
   const domain = cleanEnvValue(process.env.EXPO_PUBLIC_DOMAIN);
   if (domain) {
-    return `https://${domain}/api-server`;
+    const host = extractHost(domain);
+    if (!host) {
+      throw new Error("[API] EXPO_PUBLIC_DOMAIN must be a valid public domain.");
+    }
+    return requireProductionHttps(`https://${host}/api-server`, "EXPO_PUBLIC_DOMAIN");
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "[API] Production builds require EXPO_PUBLIC_API_BASE_URL=https://... or EXPO_PUBLIC_DOMAIN=<public-domain>.",
+    );
   }
 
   const apiHost = cleanEnvValue(process.env.EXPO_PUBLIC_API_HOST) ?? getExpoLanHost();

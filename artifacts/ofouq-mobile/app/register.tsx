@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
+import type { ImagePickerAsset } from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useState } from "react";
@@ -24,6 +24,11 @@ import { type UserRole, useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { toEnglishDigits } from "@/lib/format";
+import {
+  createImageFormDataFile,
+  logImageUploadDebug,
+  pickImageFromLibrary,
+} from "@/lib/imagePicker";
 import { isSupportedProfileImageType } from "@/lib/media";
 
 const ROLES: { id: UserRole; icon: string; color: string }[] = [
@@ -46,26 +51,30 @@ export default function RegisterScreen() {
   const [phone, setPhone] = useState("");
   const [governorate, setGovernorate] = useState("");
   const [specialty, setSpecialty] = useState("");
-  const [avatar, setAvatar] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [avatar, setAvatar] = useState<ImagePickerAsset | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   async function pickAvatar() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(strings.register.photoPermissionTitle, strings.register.photoPermissionMessage);
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    const result = await pickImageFromLibrary({
+      source: "register-avatar",
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.82,
     });
 
-    if (result.canceled) return;
-    const asset = result.assets[0];
+    if (result.status === "denied") {
+      Alert.alert(strings.register.photoPermissionTitle, strings.register.photoPermissionMessage);
+      return;
+    }
+
+    if (result.status === "canceled") return;
+    if (result.status === "error") {
+      Alert.alert(strings.auth.errorTitle, strings.register.photoPermissionMessage);
+      return;
+    }
+
+    const asset = result.asset;
     if (!isSupportedProfileImageType(asset.mimeType)) {
       Alert.alert(strings.auth.errorTitle, strings.register.photoUnsupported);
       return;
@@ -80,16 +89,19 @@ export default function RegisterScreen() {
   async function uploadAvatarIfNeeded() {
     if (!avatar) return undefined;
     const fd = new FormData();
-    fd.append("avatar", {
-      uri: avatar.uri,
-      name: avatar.fileName ?? "profile-photo.jpg",
-      type: avatar.mimeType ?? "image/jpeg",
-    } as any);
-    const upload = await apiFetch<{ url: string }>("/api/auth/profile-photo/upload", {
-      method: "POST",
-      body: fd,
-    });
-    return upload.url;
+    fd.append("avatar", createImageFormDataFile(avatar, "profile-photo.jpg") as any);
+    logImageUploadDebug("register-avatar", "upload_start", avatar);
+    try {
+      const upload = await apiFetch<{ url: string }>("/api/auth/profile-photo/upload", {
+        method: "POST",
+        body: fd,
+      });
+      logImageUploadDebug("register-avatar", "upload_success", avatar);
+      return upload.url;
+    } catch (error) {
+      logImageUploadDebug("register-avatar", "upload_error", avatar);
+      throw error;
+    }
   }
 
   const handleNext = () => {

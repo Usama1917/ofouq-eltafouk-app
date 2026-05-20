@@ -168,6 +168,57 @@ export default function SettingsScreen() {
 
         </View>
 
+        <View style={[styles.contactCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Pressable
+            onPress={() => router.push("/(tabs)/settings/general" as any)}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.contactRow,
+              {
+                backgroundColor: pressed ? colors.surfaceSecondary : colors.surface,
+                flexDirection: rowDirection,
+                direction,
+              },
+            ]}
+          >
+            <View style={[styles.contactLeading, { flexDirection: rowDirection, direction }]}>
+              <View
+                style={[
+                  styles.contactIcon,
+                  resolvedScheme === "dark" && {
+                    backgroundColor: COLORS.darkIconFrame.background,
+                    borderColor: COLORS.darkIconFrame.border,
+                  },
+                ]}
+              >
+                <Feather
+                  name="sliders"
+                  size={23}
+                  color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary}
+                />
+              </View>
+              <View style={[styles.contactTextBlock, { alignItems: alignStart }]}>
+                <Text style={[styles.contactTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+                  {strings.settings.generalSettings}
+                </Text>
+                <Text
+                  style={[
+                    styles.contactSubtitle,
+                    { color: colors.textSecondary, textAlign, writingDirection: direction },
+                  ]}
+                >
+                  {strings.settings.generalSettingsSubtitle}
+                </Text>
+              </View>
+            </View>
+            <Feather
+              name={isRTL ? "chevron-left" : "chevron-right"}
+              size={19}
+              color={colors.textTertiary}
+            />
+          </Pressable>
+        </View>
+
         <View style={[styles.subscriptionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Pressable
             onPress={() => router.push(user ? "/(tabs)/settings/watch-history" : "/login")}

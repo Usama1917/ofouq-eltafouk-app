@@ -314,6 +314,9 @@ install_orphan_video_cleanup_trigger
 echo "🌱 Seeding demo users (idempotent)..."
 DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/scripts run seed:demo
 
+echo "🎬 Seeding demo academic videos (idempotent)..."
+DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/scripts run seed:academic
+
 API_PORT="${API_PORT:-$API_PORT_DEFAULT}"
 # Keep frontend port independent from API PORT.
 # Falling back to PORT causes collisions when .env sets PORT for API.

@@ -1,7 +1,7 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { BlurView } from "expo-blur";
-import * as ImagePicker from "expo-image-picker";
+import type { ImagePickerAsset } from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams, useNavigation, usePathname } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
@@ -24,6 +24,11 @@ import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
 import { formatShortDate, toEnglishDigits } from "@/lib/format";
+import {
+  createImageFormDataFile,
+  logImageUploadDebug,
+  pickImageFromLibrary,
+} from "@/lib/imagePicker";
 
 type AccessStatus = "none" | "pending" | "approved" | "rejected";
 
@@ -80,7 +85,7 @@ export default function SubscribeScreen() {
     Number.parseInt(String(subjectId ?? "0"), 10) || 0,
   );
   const [code, setCode] = useState("");
-  const [image, setImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [image, setImage] = useState<ImagePickerAsset | null>(null);
   const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -139,22 +144,32 @@ export default function SubscribeScreen() {
   );
 
   async function pickImage() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setMessage({ type: "error", text: "يجب السماح باختيار الصورة لإرفاق كود الاشتراك." });
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    const result = await pickImageFromLibrary({
+      source: "subscription-code",
       allowsEditing: true,
       quality: 0.82,
     });
 
-    if (!result.canceled) {
-      setImage(result.assets[0]);
-      setMessage(null);
+    if (result.status === "denied") {
+      setMessage({
+        type: "error",
+        text: strings.common.photoPermissionMessage,
+      });
+      return;
     }
+
+    if (result.status === "error") {
+      setMessage({
+        type: "error",
+        text: strings.common.photoPermissionMessage,
+      });
+      return;
+    }
+
+    if (result.status === "canceled") return;
+
+    setImage(result.asset);
+    setMessage(null);
   }
 
   async function submitRequest() {
@@ -188,17 +203,15 @@ export default function SubscribeScreen() {
     setMessage(null);
     try {
       const fd = new FormData();
-      fd.append("image", {
-        uri: image.uri,
-        name: image.fileName ?? "subscription-code.jpg",
-        type: image.mimeType ?? "image/jpeg",
-      } as any);
+      fd.append("image", createImageFormDataFile(image, "subscription-code.jpg") as any);
 
+      logImageUploadDebug("subscription-code", "upload_start", image);
       const upload = await apiFetch<{ url: string }>("/api/academic/subscription-requests/upload-code-image", {
         method: "POST",
         token,
         body: fd,
       });
+      logImageUploadDebug("subscription-code", "upload_success", image);
 
       const result = await apiFetch<{ message?: string }>("/api/academic/subscription-requests", {
         method: "POST",
@@ -221,6 +234,7 @@ export default function SubscribeScreen() {
       });
       await refetchRequests();
     } catch (err) {
+      logImageUploadDebug("subscription-code", "upload_error", image);
       setMessage({ type: "error", text: err instanceof Error ? err.message : "تعذر إرسال الطلب." });
     } finally {
       setSubmitting(false);
