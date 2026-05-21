@@ -1748,9 +1748,15 @@ export function AcademicVideoPlayer({
                   <Text style={styles.segmentPanelTitle}>{strings.academic.lessonSegments}</Text>
                 </View>
                 <ScrollView
-                  style={styles.segmentPanelList}
+                  style={[
+                    styles.segmentPanelList,
+                    IS_ANDROID ? styles.segmentPanelListAndroid : null,
+                    IS_ANDROID && isLandscapeFullscreen ? styles.segmentPanelListAndroidLandscape : null,
+                  ]}
                   contentContainerStyle={styles.segmentPanelListContent}
-                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled={IS_ANDROID}
+                  persistentScrollbar={IS_ANDROID}
+                  showsVerticalScrollIndicator={IS_ANDROID}
                 >
                   {normalizedSegments.map((segment) => (
                     <AnimatedPressable
@@ -2675,6 +2681,14 @@ const styles = StyleSheet.create({
   },
   segmentPanelList: {
     zIndex: 1,
+  },
+  segmentPanelListAndroid: {
+    maxHeight: 170,
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  segmentPanelListAndroidLandscape: {
+    maxHeight: 130,
   },
   segmentPanelListContent: {
     alignItems: "center",
