@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants, { ExecutionEnvironment } from "expo-constants";
+import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
@@ -41,14 +42,16 @@ function getProjectId() {
 }
 
 function getDeviceName() {
-  return cleanText(Constants.deviceName) ?? cleanText(Constants.sessionId);
+  return cleanText(Device.deviceName) ?? cleanText(Constants.deviceName) ?? cleanText(Constants.sessionId);
 }
 
-function warnIfExpoGo() {
-  if (Constants.executionEnvironment !== ExecutionEnvironment.StoreClient) return;
+function isAndroidExpoGo() {
+  return Platform.OS === "android" && Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+}
 
+function warnUnsupportedAndroidExpoGo() {
   console.warn(
-    "[Push] Remote push notifications are not supported reliably in Expo Go on SDK 53+. Use a development build for background/closed-app push notifications.",
+    "[Push] Android remote push notifications are unavailable in Expo Go on SDK 53+. Install a development or preview build to receive notifications outside the app.",
   );
 }
 
@@ -57,7 +60,11 @@ async function ensureAndroidChannel() {
 
   await Notifications.setNotificationChannelAsync(PUSH_CHANNEL_ID, {
     name: "أفق التفوق",
+    description: "تنبيهات الدروس والدعم والرسائل المهمة",
     importance: Notifications.AndroidImportance.MAX,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    enableVibrate: true,
+    showBadge: true,
     vibrationPattern: [0, 250, 250, 250],
     lightColor: "#0A84FF",
     sound: "default",
@@ -68,19 +75,39 @@ async function requestPermissions() {
   const existing = await Notifications.getPermissionsAsync();
   if (existing.granted || existing.status === "granted") return true;
 
-  const requested = await Notifications.requestPermissionsAsync();
-  return requested.granted || requested.status === "granted";
+  const requested = await Notifications.requestPermissionsAsync({
+    android: {},
+    ios: {
+      allowAlert: true,
+      allowBadge: true,
+      allowSound: true,
+    },
+  });
+  const granted = requested.granted || requested.status === "granted";
+  if (!granted) {
+    console.warn("[Push] Notification permission was not granted.", {
+      status: requested.status,
+      canAskAgain: requested.canAskAgain,
+    });
+  }
+  return granted;
 }
 
 async function registerForPushNotifications(authToken: string) {
   if (Platform.OS === "web") return null;
 
   await ensureAndroidChannel();
-  warnIfExpoGo();
+  if (!Device.isDevice) {
+    console.warn("[Push] Remote push notifications require a physical device.");
+    return null;
+  }
+  if (isAndroidExpoGo()) {
+    warnUnsupportedAndroidExpoGo();
+    return null;
+  }
 
   const hasPermission = await requestPermissions();
   if (!hasPermission) {
-    console.warn("[Push] Notification permission was not granted.");
     return null;
   }
 
@@ -90,6 +117,13 @@ async function registerForPushNotifications(authToken: string) {
       "[Push] Missing EAS projectId. Set EXPO_PUBLIC_EAS_PROJECT_ID or extra.eas.projectId, then run the app in a development build.",
     );
     return null;
+  }
+
+  let nativePushTokenType: string | null = null;
+  try {
+    nativePushTokenType = (await Notifications.getDevicePushTokenAsync()).type;
+  } catch (err) {
+    console.warn("[Push] Native device push token is unavailable.", err);
   }
 
   const expoToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
@@ -106,6 +140,7 @@ async function registerForPushNotifications(authToken: string) {
   console.info("[Push] Registered Expo push token.", {
     platform: Platform.OS,
     registrationId: response.id,
+    nativePushTokenType,
   });
 
   return expoToken;

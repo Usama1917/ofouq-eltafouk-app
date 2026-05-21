@@ -13,6 +13,12 @@ type ExpoPushTicket = {
   };
 };
 
+function summarizeExpoPushError(ticket: ExpoPushTicket) {
+  const message = String(ticket.message ?? "").trim();
+  const detail = String(ticket.details?.error ?? "").trim();
+  return [detail, message].filter(Boolean).join(": ") || "Unknown Expo push error";
+}
+
 export function isExpoPushToken(token: string) {
   return /^(ExponentPushToken|ExpoPushToken)\[[^\]]+\]$/.test(token);
 }
@@ -48,6 +54,11 @@ export async function sendPushNotificationToUser(args: {
   const disabledIds = [...invalidIds];
   let sentCount = 0;
   let ticketErrorCount = 0;
+  const errorMessages = new Set<string>();
+
+  if (invalidIds.length > 0) {
+    errorMessages.add("Invalid Expo push token format");
+  }
 
   for (const batch of chunk(validRows, EXPO_PUSH_BATCH_SIZE)) {
     const messages = batch.map((row) => ({
@@ -84,6 +95,7 @@ export async function sendPushNotificationToUser(args: {
 
       if (ticket.status === "error") {
         ticketErrorCount += 1;
+        errorMessages.add(summarizeExpoPushError(ticket));
       }
 
       if (ticket.status === "error" && ticket.details?.error === "DeviceNotRegistered") {
@@ -105,5 +117,6 @@ export async function sendPushNotificationToUser(args: {
     sentCount,
     disabledCount: disabledIds.length,
     ticketErrorCount,
+    errorMessages: Array.from(errorMessages).slice(0, 5),
   };
 }

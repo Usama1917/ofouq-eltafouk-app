@@ -602,6 +602,7 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
     let pushSentCount = 0;
     let pushDisabledCount = 0;
     let pushTicketErrorCount = 0;
+    const pushErrorMessages = new Set<string>();
 
     for (const batch of chunk(inserted, 25)) {
       const results = await Promise.all(
@@ -616,7 +617,13 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
             },
           }).catch((err) => {
             req.log.warn({ err, userId: notification.userId }, "Failed to send push notification");
-            return { registeredCount: 0, sentCount: 0, disabledCount: 0, ticketErrorCount: 1 };
+            return {
+              registeredCount: 0,
+              sentCount: 0,
+              disabledCount: 0,
+              ticketErrorCount: 1,
+              errorMessages: [err instanceof Error ? err.message : "Failed to send push notification"],
+            };
           }),
         ),
       );
@@ -626,6 +633,7 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
         pushSentCount += result.sentCount;
         pushDisabledCount += result.disabledCount;
         pushTicketErrorCount += result.ticketErrorCount;
+        result.errorMessages.forEach((message) => pushErrorMessages.add(message));
       }
     }
 
@@ -637,6 +645,7 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
       pushSentCount,
       pushDisabledCount,
       pushTicketErrorCount,
+      pushErrorMessages: Array.from(pushErrorMessages).slice(0, 5),
       summary,
     });
   } catch (err) {

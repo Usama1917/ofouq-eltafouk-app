@@ -2725,11 +2725,14 @@ function BroadcastMessagesTab({
       const pushRegisteredCount = Number((data as any).pushRegisteredCount ?? 0);
       const pushSentCount = Number((data as any).pushSentCount ?? 0);
       const pushTicketErrorCount = Number((data as any).pushTicketErrorCount ?? 0);
+      const pushErrorMessages = Array.isArray((data as any).pushErrorMessages)
+        ? (data as any).pushErrorMessages.filter((message: unknown) => typeof message === "string" && message.trim())
+        : [];
       const pushStatus =
         pushRegisteredCount <= 0
           ? " لا توجد أجهزة مسجلة لاستقبال إشعارات خارج التطبيق."
           : pushTicketErrorCount > 0
-            ? ` أخطاء Expo: ${formatAdminNumber(pushTicketErrorCount)}.`
+            ? ` أخطاء Expo: ${formatAdminNumber(pushTicketErrorCount)}${pushErrorMessages.length ? ` (${pushErrorMessages.join(" / ")})` : ""}.`
             : "";
       setSuccess(
         `تم إرسال ${formatAdminNumber(notificationCount)} إشعار. إشعارات الجهاز المرسلة: ${formatAdminNumber(pushSentCount)}.${pushStatus}`,
