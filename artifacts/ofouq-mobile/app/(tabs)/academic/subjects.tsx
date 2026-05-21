@@ -20,8 +20,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
+import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import { normalizeAcademicUnitLabel } from "@/lib/academicUnitLabels";
-import { toEnglishDigits } from "@/lib/format";
 
 type AccessStatus = "none" | "pending" | "approved" | "rejected";
 
@@ -65,7 +65,7 @@ function SubjectCard({
   routeBase: ReturnType<typeof getAcademicRouteBase>;
   openSubscribe: (subject?: Subject) => void;
 }) {
-  const { colors, resolvedScheme, strings, isRTL, textAlign, direction, rowDirection } = usePreferences();
+  const { colors, resolvedScheme, strings, language, isRTL, textAlign, direction, rowDirection } = usePreferences();
   const { token } = useAuth();
   const scale = useRef(new Animated.Value(1)).current;
   const subjectIcon = item.icon || "📚";
@@ -150,19 +150,19 @@ function SubjectCard({
               style={[styles.subjectTitle, { color: colors.text, textAlign, writingDirection: direction }]}
               numberOfLines={1}
             >
-              {toEnglishDigits(item.name)}
+              {localizeAcademicText(item.name, language)}
             </Text>
             {item.description ? (
               <Text
                 style={[styles.subjectDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]}
                 numberOfLines={1}
               >
-                {toEnglishDigits(item.description)}
+                {localizeAcademicText(item.description, language)}
               </Text>
             ) : null}
             {status === "rejected" && item.latestRequest?.reviewNotes ? (
               <Text style={[styles.reviewNote, { textAlign, writingDirection: direction }]} numberOfLines={1}>
-                {strings.academic.reviewNote} {toEnglishDigits(item.latestRequest.reviewNotes)}
+                {strings.academic.reviewNote} {localizeAcademicText(item.latestRequest.reviewNotes, language)}
               </Text>
             ) : null}
             {isLocked ? (
@@ -193,14 +193,14 @@ function SubjectCard({
 }
 
 export default function SubjectsScreen() {
-  const { colors, resolvedScheme, strings, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
+  const { colors, resolvedScheme, strings, language, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
   const { token } = useAuth();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const routeBase = getAcademicRouteBase(usePathname());
   const { yearId, yearName } = useLocalSearchParams<{ yearId: string; yearName: string }>();
   const title = String(yearName ?? strings.academic.subjects);
-  const displayTitle = toEnglishDigits(title);
+  const displayTitle = localizeAcademicText(title, language);
   const headerOverlayHeight = insets.top + 134;
 
   useEffect(() => {

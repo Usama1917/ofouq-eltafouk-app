@@ -21,6 +21,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
+import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import { normalizeAcademicUnitLabel } from "@/lib/academicUnitLabels";
 import { toEnglishDigits } from "@/lib/format";
 import { resolveMediaUrl } from "@/lib/media";
@@ -60,7 +61,7 @@ function formatVideoDuration(seconds: number): string {
 }
 
 export default function LessonDetailScreen() {
-  const { colors, resolvedScheme, strings, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
+  const { colors, resolvedScheme, strings, language, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
   const { token, user } = useAuth();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -94,8 +95,8 @@ export default function LessonDetailScreen() {
   }>();
 
   useEffect(() => {
-    navigation.setOptions({ title: toEnglishDigits(String(lessonTitle ?? strings.academic.lesson)) });
-  }, [lessonTitle, navigation, strings.academic.lesson]);
+    navigation.setOptions({ title: localizeAcademicText(String(lessonTitle ?? strings.academic.lesson), language) });
+  }, [language, lessonTitle, navigation, strings.academic.lesson]);
 
   const {
     data: lesson,
@@ -209,10 +210,10 @@ export default function LessonDetailScreen() {
 
           <View style={[styles.titleBlock, { alignItems: alignStart }]}>
             <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
-              {toEnglishDigits(lesson?.title ?? String(lessonTitle ?? strings.academic.lesson))}
+              {localizeAcademicText(lesson?.title ?? String(lessonTitle ?? strings.academic.lesson), language)}
             </Text>
             <Text style={[styles.lessonDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
-              {lesson?.description ? toEnglishDigits(lesson.description) : strings.academic.chooseLesson}
+              {lesson?.description ? localizeAcademicText(lesson.description, language) : strings.academic.chooseLesson}
             </Text>
           </View>
         </View>
@@ -277,14 +278,14 @@ export default function LessonDetailScreen() {
                   )}
                   <View style={[styles.summaryText, { alignItems: alignStart }]}>
                     <Text style={[styles.summaryTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
-                      {toEnglishDigits(lesson.video.title)}
+                      {localizeAcademicText(lesson.video.title, language)}
                     </Text>
                     <Text style={[styles.summaryMeta, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                      {toEnglishDigits(lesson.video.instructor)} · {formatVideoDuration(lesson.video.duration)}
+                      {localizeAcademicText(lesson.video.instructor, language)} · {formatVideoDuration(lesson.video.duration)}
                     </Text>
                     {user ? (
                       <Text style={[styles.watermarkHint, { color: colors.textTertiary, textAlign, writingDirection: direction }]} numberOfLines={1}>
-                        {toEnglishDigits(user.name)} - {toEnglishDigits(user.email)}
+                        {localizeAcademicText(user.name, language)} - {toEnglishDigits(user.email)}
                       </Text>
                     ) : null}
                   </View>
@@ -297,12 +298,12 @@ export default function LessonDetailScreen() {
                   key={`${lesson.id}:${initialSeekSeconds}:${resumeFromNotification ?? ""}:${notificationId ?? ""}`}
                   videoUrl={lesson.video.videoUrl}
                   videoType={lesson.video.videoType}
-                  title={toEnglishDigits(lesson.video.title)}
-                  subtitle={toEnglishDigits(lesson.video.instructor || "")}
+                  title={localizeAcademicText(lesson.video.title, language)}
+                  subtitle={localizeAcademicText(lesson.video.instructor || "", language)}
                   posterUrl={lesson.video.posterUrl ?? null}
                   thumbnailUrl={lesson.video.thumbnailUrl ?? null}
                   segments={lesson.video.segments ?? []}
-                  watermarkText={user ? `${toEnglishDigits(user.name)} - ${toEnglishDigits(user.email)}` : undefined}
+                  watermarkText={user ? `${localizeAcademicText(user.name, language)} - ${toEnglishDigits(user.email)}` : undefined}
                   initialSeekSeconds={initialSeekSeconds}
                   autoPlayOnLoad={shouldAutoResume}
                   onProgressUpdate={reportLessonProgress}

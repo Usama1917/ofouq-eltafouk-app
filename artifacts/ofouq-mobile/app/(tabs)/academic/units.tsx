@@ -19,6 +19,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
+import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import { getAcademicUnitLabelCopy } from "@/lib/academicUnitLabels";
 import { toEnglishDigits } from "@/lib/format";
 
@@ -33,7 +34,7 @@ function encode(value: string | undefined) {
 }
 
 export default function UnitsScreen() {
-  const { colors, resolvedScheme, strings, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
+  const { colors, resolvedScheme, strings, language, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
   const { token } = useAuth();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -48,7 +49,7 @@ export default function UnitsScreen() {
   }>();
 
   const title = String(subjectName ?? strings.academic.units);
-  const displayTitle = toEnglishDigits(title);
+  const displayTitle = localizeAcademicText(title, language);
   const displaySubjectIcon = String(subjectIcon ?? "").trim();
   const unitCopy = getAcademicUnitLabelCopy(unitLabel, strings.locale);
   const headerOverlayHeight = insets.top + 134;
@@ -200,11 +201,11 @@ export default function UnitsScreen() {
             </View>
             <View style={[styles.unitBody, { alignItems: alignStart }]}>
               <Text style={[styles.unitTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={2}>
-                {toEnglishDigits(item.name)}
+                {localizeAcademicText(item.name, language)}
               </Text>
               {item.description ? (
                 <Text style={[styles.unitDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={2}>
-                  {toEnglishDigits(item.description)}
+                  {localizeAcademicText(item.description, language)}
                 </Text>
               ) : null}
             </View>

@@ -26,6 +26,7 @@ import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { COLORS } from "@/constants/colors";
 import { getBaseUrl } from "@/constants/api";
 import { usePreferences } from "@/contexts/PreferencesContext";
+import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import { toEnglishDigits } from "@/lib/format";
 
 type VideoType = "youtube" | "upload";
@@ -194,13 +195,6 @@ function formatTime(seconds: number) {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
-function segmentLabel(type: AcademicVideoSegment["segmentType"]) {
-  if (type === "questions") return "سؤال";
-  if (type === "parts") return "جزء";
-  if (type === "topics") return "موضوع";
-  return "تقسيمة";
-}
-
 function labelQuality(value: string) {
   const labels: Record<string, string> = {
     hd2160: "2160p",
@@ -361,7 +355,7 @@ export function AcademicVideoPlayer({
   autoPlayOnLoad = false,
   onProgressUpdate,
 }: AcademicVideoPlayerProps) {
-  const { colors } = usePreferences();
+  const { colors, language, strings } = usePreferences();
   const { width, height } = useWindowDimensions();
   const videoRef = useRef<Video>(null);
   const webViewRef = useRef<WebView>(null);
@@ -460,6 +454,12 @@ export function AcademicVideoPlayer({
       IS_ANDROID ? b - a : a - b,
     );
   }, [playbackRates]);
+  function segmentLabel(type: AcademicVideoSegment["segmentType"]) {
+    if (type === "questions") return strings.academic.segmentTypes.questions;
+    if (type === "parts") return strings.academic.segmentTypes.parts;
+    if (type === "topics") return strings.academic.segmentTypes.topics;
+    return strings.academic.segmentTypes.segment;
+  }
 
   const normalizedSegments = useMemo(() => {
     if (!Array.isArray(segments)) return [];
@@ -475,6 +475,9 @@ export function AcademicVideoPlayer({
       }))
       .sort((a, b) => (a.startSeconds - b.startSeconds) || ((a.orderIndex ?? 0) - (b.orderIndex ?? 0)));
   }, [segments]);
+  const segmentCountLabel = `${toEnglishDigits(normalizedSegments.length)} ${
+    normalizedSegments.length === 1 ? strings.academic.segmentItem : strings.academic.segmentItems
+  }`;
 
   const displayedTime = scrubTime ?? currentTime;
   const watermarkLabel = watermarkText ? `${watermarkText} · ${clockText}` : null;
@@ -1227,7 +1230,7 @@ export function AcademicVideoPlayer({
           optionMenuAnimatedStyle,
         ]}
       >
-        <Text style={styles.optionMenuTitle}>{isQualityMenu ? "الجودة" : "السرعة"}</Text>
+        <Text style={styles.optionMenuTitle}>{isQualityMenu ? strings.academic.quality : strings.academic.speed}</Text>
         {isAndroidSpeedMenu ? (
           <View style={styles.speedOptionMenuListAndroid}>
             {options.map((item) => (
@@ -1302,7 +1305,7 @@ export function AcademicVideoPlayer({
           ) : youTubeId ? (
             <View style={styles.cleanVideoSurface} />
           ) : (
-            <View style={styles.videoFallback}><Text style={styles.videoFallbackText}>رابط الفيديو غير صالح</Text></View>
+            <View style={styles.videoFallback}><Text style={styles.videoFallbackText}>{strings.academic.invalidVideoUrl}</Text></View>
           )
         ) : resolvedVideoUrl ? (
           <Video
@@ -1317,7 +1320,7 @@ export function AcademicVideoPlayer({
             onPlaybackStatusUpdate={handleUploadStatus}
           />
         ) : (
-          <View style={styles.videoFallback}><Text style={styles.videoFallbackText}>رابط الفيديو غير صالح</Text></View>
+          <View style={styles.videoFallback}><Text style={styles.videoFallbackText}>{strings.academic.invalidVideoUrl}</Text></View>
         )}
 
         {shouldShowCleanYouTubeCover ? (
@@ -1330,8 +1333,8 @@ export function AcademicVideoPlayer({
             ) : (
               <View style={styles.cleanVideoPlaceholder}>
                 <View style={styles.cleanVideoAccent} />
-                <Text style={styles.cleanVideoTitle} numberOfLines={2}>{toEnglishDigits(title)}</Text>
-                {subtitle ? <Text style={styles.cleanVideoSubtitle} numberOfLines={1}>{toEnglishDigits(subtitle)}</Text> : null}
+                <Text style={styles.cleanVideoTitle} numberOfLines={2}>{localizeAcademicText(title, language)}</Text>
+                {subtitle ? <Text style={styles.cleanVideoSubtitle} numberOfLines={1}>{localizeAcademicText(subtitle, language)}</Text> : null}
               </View>
             )}
           </View>
@@ -1738,7 +1741,7 @@ export function AcademicVideoPlayer({
                   <AnimatedPressable style={styles.segmentClose} onPress={closeSegmentPanel} pressedScale={0.88}>
                     <Feather name="x" size={16} color="#fff" />
                   </AnimatedPressable>
-                  <Text style={styles.segmentPanelTitle}>تقسيمات الدرس</Text>
+                  <Text style={styles.segmentPanelTitle}>{strings.academic.lessonSegments}</Text>
                 </View>
                 <ScrollView
                   style={styles.segmentPanelList}
@@ -1759,7 +1762,7 @@ export function AcademicVideoPlayer({
                         <Feather name="play" size={15} color="#fff" />
                       </View>
                       <View style={styles.segmentRowBody}>
-                        <Text style={styles.segmentRowTitle} numberOfLines={1}>{toEnglishDigits(segment.title)}</Text>
+                        <Text style={styles.segmentRowTitle} numberOfLines={1}>{localizeAcademicText(segment.title, language)}</Text>
                         <Text style={styles.segmentRowMeta}>{segmentLabel(segment.segmentType)} · {formatTime(segment.startSeconds)}</Text>
                       </View>
                     </AnimatedPressable>
@@ -1775,8 +1778,8 @@ export function AcademicVideoPlayer({
       {normalizedSegments.length > 0 ? (
         <View style={styles.externalSegments}>
           <View style={styles.segmentHeader}>
-            <Text style={[styles.segmentHeaderTitle, { color: colors.text }]}>تقسيمات الدرس</Text>
-            <Text style={[styles.segmentHeaderMeta, { color: colors.textSecondary }]}>{toEnglishDigits(normalizedSegments.length)} عناصر</Text>
+            <Text style={[styles.segmentHeaderTitle, { color: colors.text }]}>{strings.academic.lessonSegments}</Text>
+            <Text style={[styles.segmentHeaderMeta, { color: colors.textSecondary }]}>{segmentCountLabel}</Text>
           </View>
           <View style={styles.segmentList}>
             {normalizedSegments.map((segment) => (
@@ -1793,7 +1796,7 @@ export function AcademicVideoPlayer({
                   </View>
                 )}
                 <View style={styles.segmentChipText}>
-                  <Text style={styles.segmentChipTitle} numberOfLines={1}>{toEnglishDigits(segment.title)}</Text>
+                  <Text style={styles.segmentChipTitle} numberOfLines={1}>{localizeAcademicText(segment.title, language)}</Text>
                   <Text style={styles.segmentChipMeta}>{segmentLabel(segment.segmentType)} · {formatTime(segment.startSeconds)}</Text>
                 </View>
               </Pressable>

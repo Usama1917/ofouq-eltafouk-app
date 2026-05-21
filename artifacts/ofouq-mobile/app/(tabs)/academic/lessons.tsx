@@ -20,8 +20,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
+import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import { getAcademicUnitLabelCopy } from "@/lib/academicUnitLabels";
-import { toEnglishDigits } from "@/lib/format";
 import { resolveMediaUrl } from "@/lib/media";
 
 interface Lesson {
@@ -56,7 +56,7 @@ function formatVideoDuration(seconds: number): string {
 }
 
 export default function LessonsScreen() {
-  const { colors, resolvedScheme, strings, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
+  const { colors, resolvedScheme, strings, language, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
   const { token } = useAuth();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -72,7 +72,7 @@ export default function LessonsScreen() {
   }>();
 
   const title = String(unitName ?? strings.academic.lessons);
-  const displayTitle = toEnglishDigits(title);
+  const displayTitle = localizeAcademicText(title, language);
   const unitCopy = getAcademicUnitLabelCopy(unitLabel, strings.locale);
   const headerOverlayHeight = insets.top + 134;
 
@@ -226,13 +226,13 @@ export default function LessonsScreen() {
               )}
               <View style={[styles.lessonBody, { alignItems: alignStart }]}>
                 <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={2}>
-                  {toEnglishDigits(item.title)}
+                  {localizeAcademicText(item.title, language)}
                 </Text>
                 {item.video ? (
                   <View style={[styles.lessonMeta, { flexDirection: rowDirection, direction }]}>
                     <Feather name="user" size={13} color={colors.textSecondary} />
                     <Text style={[styles.lessonMetaText, { color: colors.textSecondary }]} numberOfLines={1}>
-                      {toEnglishDigits(item.video.instructor)}
+                      {localizeAcademicText(item.video.instructor, language)}
                     </Text>
                     <Feather name="clock" size={13} color={colors.textSecondary} />
                     <Text style={[styles.lessonMetaText, { color: colors.textSecondary }]}>

@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
-import { toEnglishDigits } from "@/lib/format";
+import { localizeAcademicText } from "@/lib/academicContentLocalization";
 
 type AcademicYear = {
   id: number;
@@ -34,7 +34,7 @@ const YEAR_ACCENTS = [
 ];
 
 function YearCard({ item, index }: { item: AcademicYear; index: number }) {
-  const { colors, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
+  const { colors, language, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
   const accent = YEAR_ACCENTS[index % YEAR_ACCENTS.length];
   const scale = useRef(new Animated.Value(1)).current;
 
@@ -95,14 +95,14 @@ function YearCard({ item, index }: { item: AcademicYear; index: number }) {
             style={[styles.yearTitle, { color: colors.text, textAlign, writingDirection: direction }]}
             numberOfLines={2}
           >
-            {toEnglishDigits(item.name)}
+            {localizeAcademicText(item.name, language)}
           </Text>
           {item.description ? (
             <Text
               style={[styles.yearDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]}
               numberOfLines={2}
             >
-              {toEnglishDigits(item.description)}
+              {localizeAcademicText(item.description, language)}
             </Text>
           ) : null}
         </View>

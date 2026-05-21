@@ -10,12 +10,12 @@ import { useQuery } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
-import { toEnglishDigits } from "@/lib/format";
+import { localizeAcademicText } from "@/lib/academicContentLocalization";
 
 interface AcademicYear { id: number; name: string; description: string; }
 
 export default function AcademicTab() {
-  const { colors } = usePreferences();
+  const { colors, language, strings } = usePreferences();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -27,13 +27,13 @@ export default function AcademicTab() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>السنوات الدراسية</Text>
-        <Text style={[styles.headerSub, { color: colors.textSecondary }]}>اختر السنة الدراسية</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{strings.academic.years}</Text>
+        <Text style={[styles.headerSub, { color: colors.textSecondary }]}>{strings.academic.chooseYear}</Text>
       </View>
 
       {isLoading && (
         <View style={styles.center}>
-          <Text style={{ color: colors.textSecondary }}>جاري التحميل...</Text>
+          <Text style={{ color: colors.textSecondary }}>{strings.common.loading}</Text>
         </View>
       )}
 
@@ -45,7 +45,7 @@ export default function AcademicTab() {
           isLoading ? null : (
             <View style={styles.center}>
               <Ionicons name="school-outline" size={48} color={colors.textTertiary} />
-              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>لا توجد سنوات دراسية بعد</Text>
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{strings.academic.noYears}</Text>
             </View>
           )
         }
@@ -58,8 +58,8 @@ export default function AcademicTab() {
               <Ionicons name="school" size={26} color={COLORS.primary} />
             </View>
             <View style={styles.cardText}>
-              <Text style={[styles.cardTitle, { color: colors.text }]}>{toEnglishDigits(item.name)}</Text>
-              {item.description ? <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>{toEnglishDigits(item.description)}</Text> : null}
+              <Text style={[styles.cardTitle, { color: colors.text }]}>{localizeAcademicText(item.name, language)}</Text>
+              {item.description ? <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>{localizeAcademicText(item.description, language)}</Text> : null}
             </View>
             <Ionicons name="chevron-back" size={20} color={colors.textTertiary} />
           </Pressable>
