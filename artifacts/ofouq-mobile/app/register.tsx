@@ -18,7 +18,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Logo } from "@/components/Logo";
 import { COLORS } from "@/constants/colors";
 import { type UserRole, useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
@@ -34,7 +33,6 @@ import { isSupportedProfileImageType } from "@/lib/media";
 const ROLES: { id: UserRole; icon: string; color: string }[] = [
   { id: "student", icon: "book-open", color: "#3B82F6" },
   { id: "teacher", icon: "users", color: "#10B981" },
-  { id: "parent", icon: "heart", color: "#F59E0B" },
 ];
 
 export default function RegisterScreen() {
@@ -173,7 +171,12 @@ export default function RegisterScreen() {
         </View>
 
         <View style={styles.logoSection}>
-          <Logo size={60} />
+          <Image
+            source={require("../assets/images/login-educational-logo.png")}
+            style={styles.brandLogo}
+            contentFit="contain"
+            accessibilityLabel={strings.common.appName}
+          />
           <Text style={[styles.cardTitle, { color: colors.text, writingDirection: direction }]}>
             {step === 1 ? strings.register.chooseRole : strings.register.completeProfile}
           </Text>
@@ -411,6 +414,7 @@ const styles = StyleSheet.create({
   steps: { flexDirection: "row", gap: 6, alignItems: "center" },
   stepDot: { height: 6, width: 6, borderRadius: 3 },
   logoSection: { alignItems: "center", gap: 10 },
+  brandLogo: { width: 250, height: 100 },
   cardTitle: { fontWeight: "700", fontSize: 24 },
   rolesGrid: { gap: 12 },
   roleCard: { borderRadius: 20, padding: 20, flexDirection: "row", alignItems: "center", gap: 14, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2, position: "relative" },
