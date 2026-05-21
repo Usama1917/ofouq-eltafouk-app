@@ -10,6 +10,7 @@ import {
   GestureResponderEvent,
   LayoutChangeEvent,
   Modal,
+  Platform,
   Pressable,
   PressableProps,
   ScrollView,
@@ -151,8 +152,9 @@ const SCRUB_LABEL_UPDATE_MS = 120;
 const SEEK_CONFIRM_TOLERANCE_SECONDS = 0.85;
 const SEEK_CONFIRM_PLAYING_TOLERANCE_SECONDS = 2.5;
 const SEEK_RETRY_MS = 900;
-const DEFAULT_PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
+const DEFAULT_PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const FALLBACK_QUALITY_LEVELS = ["hd720", "large", "medium", "auto"];
+const IS_ANDROID = Platform.OS === "android";
 
 function resolveMediaUrl(url: string | null | undefined) {
   const value = url?.trim();
@@ -454,7 +456,9 @@ export function AcademicVideoPlayer({
     return sorted.length > 0 ? sorted : FALLBACK_QUALITY_LEVELS;
   }, [isYouTube, qualityLevels]);
   const displayPlaybackRates = useMemo(() => {
-    return Array.from(new Set([...(playbackRates.length > 0 ? playbackRates : DEFAULT_PLAYBACK_RATES), 1])).sort((a, b) => a - b);
+    return Array.from(new Set([...(playbackRates.length > 0 ? playbackRates : DEFAULT_PLAYBACK_RATES), 1])).sort((a, b) =>
+      IS_ANDROID ? b - a : a - b,
+    );
   }, [playbackRates]);
 
   const normalizedSegments = useMemo(() => {
@@ -1197,6 +1201,7 @@ export function AcademicVideoPlayer({
     if (optionMenu !== menu) return null;
 
     const isQualityMenu = menu === "quality";
+    const isAndroidSpeedMenu = IS_ANDROID && menu === "speed";
     const options = isQualityMenu
       ? displayQualityLevels.map((value) => ({
           key: value,
@@ -1218,25 +1223,41 @@ export function AcademicVideoPlayer({
           styles.optionMenuPanel,
           isPortraitFullscreen ? styles.optionMenuPanelPortrait : null,
           isLandscapeFullscreen ? styles.optionMenuPanelLandscape : null,
+          isAndroidSpeedMenu ? styles.speedOptionMenuPanelAndroid : null,
           optionMenuAnimatedStyle,
         ]}
       >
         <Text style={styles.optionMenuTitle}>{isQualityMenu ? "الجودة" : "السرعة"}</Text>
-        <ScrollView
-          style={[styles.optionMenuList, isLandscapeFullscreen ? styles.optionMenuListLandscape : null]}
-          showsVerticalScrollIndicator={false}
-        >
-          {options.map((item) => (
-            <Pressable
-              key={item.key}
-              style={[styles.optionMenuItem, item.active ? styles.optionMenuItemActive : null]}
-              onPress={item.onPress}
-            >
-              <Text style={[styles.optionMenuItemText, item.active ? styles.optionMenuItemTextActive : null]}>{item.label}</Text>
-              {item.active ? <Feather name="check" size={13} color="#fff" /> : null}
-            </Pressable>
-          ))}
-        </ScrollView>
+        {isAndroidSpeedMenu ? (
+          <View style={styles.speedOptionMenuListAndroid}>
+            {options.map((item) => (
+              <Pressable
+                key={item.key}
+                style={[styles.optionMenuItem, item.active ? styles.optionMenuItemActive : null]}
+                onPress={item.onPress}
+              >
+                <Text style={[styles.optionMenuItemText, item.active ? styles.optionMenuItemTextActive : null]}>{item.label}</Text>
+                {item.active ? <Feather name="check" size={13} color="#fff" /> : null}
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <ScrollView
+            style={[styles.optionMenuList, isLandscapeFullscreen ? styles.optionMenuListLandscape : null]}
+            showsVerticalScrollIndicator={false}
+          >
+            {options.map((item) => (
+              <Pressable
+                key={item.key}
+                style={[styles.optionMenuItem, item.active ? styles.optionMenuItemActive : null]}
+                onPress={item.onPress}
+              >
+                <Text style={[styles.optionMenuItemText, item.active ? styles.optionMenuItemTextActive : null]}>{item.label}</Text>
+                {item.active ? <Feather name="check" size={13} color="#fff" /> : null}
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
       </Animated.View>
     );
   }
@@ -2536,6 +2557,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 6,
   },
+  speedOptionMenuPanelAndroid: {
+    width: 124,
+    marginLeft: -62,
+    maxHeight: 340,
+  },
   optionMenuTitle: {
     marginBottom: 5,
     fontWeight: "700",
@@ -2548,6 +2574,9 @@ const styles = StyleSheet.create({
   },
   optionMenuListLandscape: {
     maxHeight: 78,
+  },
+  speedOptionMenuListAndroid: {
+    width: "100%",
   },
   optionMenuItem: {
     minHeight: 32,
