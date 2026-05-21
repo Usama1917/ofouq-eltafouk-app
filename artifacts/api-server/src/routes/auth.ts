@@ -41,6 +41,31 @@ function normalizeEmail(email: string) {
   return String(email).trim().toLowerCase();
 }
 
+function normalizePhone(phone: unknown) {
+  const value = String(phone ?? "")
+    .trim()
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
+    .replace(/[\s()-]/g, "");
+
+  return value.length > 0 ? value : "";
+}
+
+function registerConflictMessage(fields: { email: boolean; phone: boolean }) {
+  if (fields.email && fields.phone) return "البريد الإلكتروني ورقم الهاتف مستخدمان من قبل";
+  if (fields.email) return "البريد الإلكتروني مستخدم من قبل";
+  if (fields.phone) return "رقم الهاتف مستخدم من قبل";
+  return "بيانات الحساب مستخدمة من قبل";
+}
+
+function sendRegisterConflict(res: any, fields: { email: boolean; phone: boolean }) {
+  return res.status(409).json({
+    error: registerConflictMessage(fields),
+    code: "auth/register_conflict",
+    fields,
+  });
+}
+
 // NOTE: Keeping simple text passwords for the current project behavior.
 function hashPassword(password: string) {
   return password;
@@ -159,6 +184,11 @@ function isDatabaseUnavailableError(err: unknown) {
   return signals.some((signal) => codeMatches.includes(signal) || messageMatches.some((msg) => signal.includes(msg)));
 }
 
+function isUniqueConstraintError(err: unknown) {
+  const signals = collectErrorSignals(err).map((signal) => signal.toLowerCase());
+  return signals.some((signal) => signal === "23505" || signal.includes("duplicate key"));
+}
+
 function sendDatabaseError(res: any, err: unknown) {
   const errorDetails = getErrorDetails(err);
   if (process.env.NODE_ENV === "development" || process.env.AUTH_DEBUG === "true") {
@@ -204,17 +234,31 @@ router.post("/auth/register", async (req, res) => {
     } = req.body ?? {};
 
     const normalizedEmail = typeof email === "string" ? normalizeEmail(email) : "";
+    const normalizedPhone = normalizePhone(phone);
     if (!name || !normalizedEmail || !password) {
       return res.status(400).json({ error: "الاسم والبريد الإلكتروني وكلمة المرور مطلوبة" });
     }
 
-    const existing = await db
-      .select({ id: usersTable.id })
-      .from(usersTable)
-      .where(eq(usersTable.email, normalizedEmail))
-      .limit(1);
-    if (existing.length > 0) {
-      return res.status(409).json({ error: "البريد الإلكتروني مسجّل مسبقاً" });
+    const [existingEmail, existingPhone] = await Promise.all([
+      db
+        .select({ id: usersTable.id })
+        .from(usersTable)
+        .where(eq(usersTable.email, normalizedEmail))
+        .limit(1),
+      normalizedPhone
+        ? db
+            .select({ id: usersTable.id })
+            .from(usersTable)
+            .where(eq(usersTable.phone, normalizedPhone))
+            .limit(1)
+        : Promise.resolve([]),
+    ]);
+    const conflictFields = {
+      email: existingEmail.length > 0,
+      phone: existingPhone.length > 0,
+    };
+    if (conflictFields.email || conflictFields.phone) {
+      return sendRegisterConflict(res, conflictFields);
     }
 
     const [user] = await db
@@ -226,7 +270,7 @@ router.post("/auth/register", async (req, res) => {
         role: String(role),
         status: "active",
         lastActiveAt: new Date(),
-        phone: phone === undefined ? undefined : String(phone),
+        phone: normalizedPhone || undefined,
         age: age === undefined ? undefined : Number.parseInt(String(age), 10),
         address: address === undefined ? undefined : String(address),
         parentPhone: parentPhone === undefined ? undefined : String(parentPhone),
@@ -245,6 +289,9 @@ router.post("/auth/register", async (req, res) => {
     req.log.error({ err: getErrorDetails(err) }, "Register error");
     if (isDatabaseUnavailableError(err)) {
       return sendDatabaseError(res, err);
+    }
+    if (isUniqueConstraintError(err)) {
+      return sendRegisterConflict(res, { email: true, phone: false });
     }
     return res.status(500).json({ error: "خطأ في الخادم" });
   }

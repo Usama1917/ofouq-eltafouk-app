@@ -22,7 +22,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { type UserRole, useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
-import { apiFetch } from "@/lib/api";
+import { type ApiError, apiFetch } from "@/lib/api";
 import { EGYPT_GOVERNORATES } from "@/lib/egyptGovernorates";
 import { toEnglishDigits } from "@/lib/format";
 import {
@@ -134,6 +134,20 @@ export default function RegisterScreen() {
       });
       router.replace("/(tabs)");
     } catch (err: any) {
+      const apiError = err as ApiError;
+      if (apiError.code === "auth/register_conflict") {
+        const emailUsed = apiError.fields?.email === true;
+        const phoneUsed = apiError.fields?.phone === true;
+        const message = emailUsed && phoneUsed
+          ? strings.register.emailAndPhoneAlreadyUsed
+          : emailUsed
+            ? strings.register.emailAlreadyUsed
+            : phoneUsed
+              ? strings.register.phoneAlreadyUsed
+              : apiError.message || strings.register.failed;
+        Alert.alert(strings.auth.errorTitle, message);
+        return;
+      }
       Alert.alert(strings.auth.errorTitle, err.message ?? strings.register.failed);
     } finally {
       setIsLoading(false);

@@ -13,6 +13,12 @@ export type ApiNetworkError = Error & {
   requestUrl?: string;
 };
 
+export type ApiError = Error & {
+  status?: number;
+  code?: string;
+  fields?: Record<string, unknown>;
+};
+
 export function getApiUrl(path: string) {
   return `${getBaseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
 }
@@ -185,7 +191,16 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
       payload && typeof payload === "object" && "error" in payload
         ? String((payload as { error: unknown }).error)
         : `API error ${res.status}`;
-    throw new Error(message);
+    const apiError = new Error(message) as ApiError;
+    apiError.status = res.status;
+    if (payload && typeof payload === "object") {
+      const body = payload as { code?: unknown; fields?: unknown };
+      if (typeof body.code === "string") apiError.code = body.code;
+      if (body.fields && typeof body.fields === "object") {
+        apiError.fields = body.fields as Record<string, unknown>;
+      }
+    }
+    throw apiError;
   }
 
   return payload as T;
