@@ -154,6 +154,14 @@ export default function RegisterScreen() {
     }
   };
 
+  const handleLoginPromptPress = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/login");
+  };
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -430,7 +438,7 @@ export default function RegisterScreen() {
               </LinearGradient>
             </Pressable>
 
-            <Pressable style={styles.loginLink} onPress={() => router.push("/login")}>
+            <Pressable style={styles.loginLink} onPress={handleLoginPromptPress}>
               <Text style={[styles.loginLinkText, { color: COLORS.primary }]}>
                 {strings.register.loginPrompt}
               </Text>
