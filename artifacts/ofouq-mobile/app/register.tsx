@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -22,6 +23,7 @@ import { COLORS } from "@/constants/colors";
 import { type UserRole, useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
+import { EGYPT_GOVERNORATES } from "@/lib/egyptGovernorates";
 import { toEnglishDigits } from "@/lib/format";
 import {
   createImageFormDataFile,
@@ -36,7 +38,7 @@ const ROLES: { id: UserRole; icon: string; color: string }[] = [
 ];
 
 export default function RegisterScreen() {
-  const { colors, strings, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
+  const { colors, resolvedScheme, strings, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
   const insets = useSafeAreaInsets();
   const { register } = useAuth();
   const inputRowDirection = isRTL ? "row" : "row-reverse";
@@ -48,6 +50,7 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [governorate, setGovernorate] = useState("");
+  const [governoratePickerOpen, setGovernoratePickerOpen] = useState(false);
   const [specialty, setSpecialty] = useState("");
   const [avatar, setAvatar] = useState<ImagePickerAsset | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -346,17 +349,34 @@ export default function RegisterScreen() {
               <Text style={[styles.fieldLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
                 {strings.register.governorate}
               </Text>
-              <View style={[styles.inputWrapper, { backgroundColor: colors.surfaceSecondary, flexDirection: inputRowDirection }]}>
-                <TextInput
-                  style={[styles.input, { color: colors.text, writingDirection: direction }]}
-                  placeholder={strings.register.governoratePlaceholder}
-                  placeholderTextColor={colors.textTertiary}
-                  value={toEnglishDigits(governorate)}
-                  onChangeText={(value) => setGovernorate(toEnglishDigits(value))}
-                  textAlign={textAlign}
-                />
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setGovernoratePickerOpen(true)}
+                style={({ pressed }) => [
+                  styles.inputWrapper,
+                  styles.selectInput,
+                  {
+                    backgroundColor: colors.surfaceSecondary,
+                    opacity: pressed ? 0.78 : 1,
+                  },
+                ]}
+              >
                 <Feather name="map-pin" size={18} color={colors.textTertiary} />
-              </View>
+                <Text
+                  style={[
+                    styles.selectValue,
+                    {
+                      color: governorate ? colors.text : colors.textTertiary,
+                      textAlign,
+                      writingDirection: direction,
+                    },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {governorate || strings.register.governoratePlaceholder}
+                </Text>
+                <Feather name="chevron-down" size={18} color={colors.textTertiary} />
+              </Pressable>
             </View>
 
             {selectedRole === "teacher" && (
@@ -404,6 +424,105 @@ export default function RegisterScreen() {
           </View>
         )}
       </ScrollView>
+
+      <Modal
+        visible={governoratePickerOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setGovernoratePickerOpen(false)}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setGovernoratePickerOpen(false)} />
+          <View
+            style={[
+              styles.governorateSheet,
+              {
+                backgroundColor: resolvedScheme === "dark" ? "rgba(28,28,30,0.98)" : "rgba(248,250,252,0.96)",
+                borderColor: colors.border,
+                paddingBottom: insets.bottom + 16,
+              },
+            ]}
+          >
+            <View style={[styles.sheetGrabber, { backgroundColor: colors.textTertiary }]} />
+            <View style={styles.governorateSheetHeader}>
+              <Pressable
+                onPress={() => setGovernoratePickerOpen(false)}
+                style={({ pressed }) => [
+                  styles.governorateNavButton,
+                  { opacity: pressed ? 0.58 : 1 },
+                  isRTL ? styles.governorateNavButtonLeft : styles.governorateNavButtonRight,
+                ]}
+              >
+                <Text style={[styles.governorateNavButtonText, { color: COLORS.primary, writingDirection: direction }]}>
+                  {strings.common.cancel}
+                </Text>
+              </Pressable>
+              <Text style={[styles.governorateSheetTitle, { color: colors.text, writingDirection: direction }]}>
+                {strings.register.governorate}
+              </Text>
+            </View>
+
+            <ScrollView
+              style={styles.governorateList}
+              contentContainerStyle={styles.governorateListContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {EGYPT_GOVERNORATES.map((item, index) => {
+                const selected = governorate === item;
+                const isLast = index === EGYPT_GOVERNORATES.length - 1;
+
+                return (
+                  <Pressable
+                    key={item}
+                    onPress={() => {
+                      setGovernorate(item);
+                      setGovernoratePickerOpen(false);
+                    }}
+                    style={({ pressed }) => [
+                      styles.governorateOption,
+                      index === 0 ? styles.governorateOptionFirst : null,
+                      isLast ? styles.governorateOptionLast : null,
+                      {
+                        backgroundColor: selected
+                          ? COLORS.primary + "10"
+                          : pressed
+                            ? colors.surfaceSecondary
+                            : colors.surface,
+                        borderBottomColor: isLast ? "transparent" : colors.border,
+                        direction: "ltr",
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.governorateOptionText,
+                        {
+                          color: selected ? COLORS.primary : colors.text,
+                          textAlign: "right",
+                          writingDirection: direction,
+                        },
+                      ]}
+                    >
+                      {item}
+                    </Text>
+                    {selected ? (
+                      <Feather
+                        name="check"
+                        size={18}
+                        color={COLORS.primary}
+                        style={[
+                          styles.governorateOptionCheck,
+                          isRTL ? styles.governorateOptionCheckRtl : styles.governorateOptionCheckLtr,
+                        ]}
+                      />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -463,9 +582,113 @@ const styles = StyleSheet.create({
   fieldLabel: { fontWeight: "600", fontSize: 13, textAlign: "right" },
   inputWrapper: { flexDirection: "row", alignItems: "center", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
   input: { flex: 1, fontWeight: "400", fontSize: 15 },
+  selectInput: {
+    minHeight: 50,
+    flexDirection: "row",
+  },
+  selectValue: {
+    flex: 1,
+    fontWeight: "400",
+    fontSize: 15,
+  },
   nextBtn: { borderRadius: 16, overflow: "hidden", marginTop: 4 },
   nextGrad: { paddingVertical: 16, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 10 },
   nextText: { fontWeight: "700", fontSize: 17, color: "#fff" },
   loginLink: { alignItems: "center", paddingVertical: 4 },
   loginLinkText: { fontWeight: "600", fontSize: 14 },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  governorateSheet: {
+    maxHeight: "76%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    paddingHorizontal: 16,
+    paddingTop: 9,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: -12 },
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+  },
+  sheetGrabber: {
+    width: 38,
+    height: 5,
+    borderRadius: 999,
+    alignSelf: "center",
+    opacity: 0.34,
+    marginBottom: 10,
+  },
+  governorateSheetHeader: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    marginBottom: 14,
+    position: "relative",
+  },
+  governorateSheetTitle: {
+    fontWeight: "700",
+    fontSize: 16,
+    lineHeight: 26,
+    textAlign: "center",
+  },
+  governorateNavButton: {
+    position: "absolute",
+    minHeight: 38,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  governorateNavButtonLeft: {
+    left: 0,
+  },
+  governorateNavButtonRight: {
+    right: 0,
+  },
+  governorateNavButtonText: {
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  governorateList: {
+    maxHeight: 420,
+    borderRadius: 18,
+  },
+  governorateListContent: {
+    paddingBottom: 6,
+  },
+  governorateOption: {
+    minHeight: 50,
+    borderBottomWidth: 1,
+    paddingHorizontal: 16,
+    justifyContent: "center",
+    position: "relative",
+  },
+  governorateOptionFirst: {
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+  },
+  governorateOptionLast: {
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+  },
+  governorateOptionText: {
+    position: "absolute",
+    left: 48,
+    right: 16,
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  governorateOptionCheck: {
+    position: "absolute",
+    top: "50%",
+    marginTop: -9,
+  },
+  governorateOptionCheckRtl: {
+    left: 16,
+  },
+  governorateOptionCheckLtr: {
+    right: 16,
+  },
 });

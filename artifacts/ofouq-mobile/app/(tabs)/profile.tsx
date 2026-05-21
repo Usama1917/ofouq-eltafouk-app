@@ -24,6 +24,7 @@ import { COLORS } from "@/constants/colors";
 import { useAuth, type User } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
+import { EGYPT_GOVERNORATES } from "@/lib/egyptGovernorates";
 import { formatDate, toEnglishDigits } from "@/lib/format";
 import {
   createImageFormDataFile,
@@ -40,36 +41,6 @@ const ROLE_GRADIENTS: Record<string, [string, string]> = {
   moderator: ["#8B5CF6", "#6D28D9"],
   owner: ["#F43F5E", "#DB2777"],
 };
-
-const EGYPT_GOVERNORATES = [
-  "القاهرة",
-  "الجيزة",
-  "الإسكندرية",
-  "الدقهلية",
-  "البحر الأحمر",
-  "البحيرة",
-  "الفيوم",
-  "الغربية",
-  "الإسماعيلية",
-  "المنوفية",
-  "المنيا",
-  "القليوبية",
-  "الوادي الجديد",
-  "السويس",
-  "أسوان",
-  "أسيوط",
-  "بني سويف",
-  "بورسعيد",
-  "دمياط",
-  "الشرقية",
-  "جنوب سيناء",
-  "كفر الشيخ",
-  "مطروح",
-  "الأقصر",
-  "قنا",
-  "شمال سيناء",
-  "سوهاج",
-];
 
 type ProfileForm = {
   name: string;
