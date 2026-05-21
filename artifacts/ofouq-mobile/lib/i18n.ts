@@ -274,7 +274,7 @@ export const TRANSLATIONS = {
       photoTooLarge: "اختر صورة بحجم أقل من 5MB.",
       roles: {
         student: { label: "طالب", desc: "أتعلم وأطور مهاراتي" },
-        teacher: { label: "معلم", desc: "أقدّم المحتوى التعليمي" },
+        teacher: { label: "معلم", desc: "اتباع المحتوي التعليمي" },
         parent: { label: "ولي أمر", desc: "أتابع تقدم ابني" },
       },
     },
