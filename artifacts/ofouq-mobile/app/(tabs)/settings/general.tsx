@@ -488,10 +488,10 @@ export default function GeneralSettingsScreen() {
             <View style={[styles.modalIcon, isDark && styles.modalIconDark]}>
               <Feather name="globe" size={22} color={isDark ? COLORS.darkIconFrame.foreground : COLORS.primary} />
             </View>
-            <Text style={[styles.modalTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+            <Text style={[styles.modalTitle, { color: colors.text, writingDirection: direction }]}>
               {strings.settings.languageSettings}
             </Text>
-            <Text style={[styles.modalMessage, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+            <Text style={[styles.modalMessage, { color: colors.textSecondary, writingDirection: direction }]}>
               {strings.settings.languageRestartMessage}
             </Text>
             <Pressable
