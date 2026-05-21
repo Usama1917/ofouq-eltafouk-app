@@ -104,7 +104,7 @@ export default function LoginScreen() {
           </Text>
 
           <View style={styles.field}>
-            <Text style={[styles.fieldLabel, { color: colors.textSecondary, writingDirection: direction }]}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
               {strings.auth.email}
             </Text>
             <View style={[styles.inputWrapper, { backgroundColor: colors.surfaceSecondary, flexDirection: rowDirection }]}>
@@ -123,7 +123,7 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={[styles.fieldLabel, { color: colors.textSecondary, writingDirection: direction }]}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
               {strings.auth.password}
             </Text>
             <View style={[styles.inputWrapper, { backgroundColor: colors.surfaceSecondary, flexDirection: rowDirection }]}>
@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
   card: { borderRadius: 24, padding: 24, gap: 16, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
   cardTitle: { fontWeight: "700", fontSize: 22, textAlign: "center" },
   field: { gap: 6 },
-  fieldLabel: { fontWeight: "600", fontSize: 13, textAlign: "right" },
+  fieldLabel: { width: "100%", fontWeight: "600", fontSize: 13 },
   inputWrapper: { flexDirection: "row", alignItems: "center", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
   input: { flex: 1, fontWeight: "400", fontSize: 15 },
   loginBtn: { borderRadius: 16, overflow: "hidden", marginTop: 4 },
