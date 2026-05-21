@@ -197,6 +197,7 @@ function formatTime(seconds: number) {
 
 function labelQuality(value: string) {
   const labels: Record<string, string> = {
+    highres: "High",
     hd2160: "2160p",
     hd1440: "1440p",
     hd1080: "1080p",
@@ -444,10 +445,13 @@ export function AcademicVideoPlayer({
   const isCompactControls = width < 650;
   const displayQualityLevels = useMemo(() => {
     if (!isYouTube) return ["auto"];
-    const ranked = ["hd2160", "hd1440", "hd1080", "hd720", "large", "medium", "small", "tiny", "auto"];
-    const set = new Set(qualityLevels.length > 0 ? qualityLevels : FALLBACK_QUALITY_LEVELS);
+    const ranked = ["highres", "hd2160", "hd1440", "hd1080", "hd720", "large", "medium", "small", "tiny"];
+    const sourceLevels = qualityLevels.length > 0 ? qualityLevels : FALLBACK_QUALITY_LEVELS;
+    const set = new Set(sourceLevels);
     const sorted = ranked.filter((level) => set.has(level));
-    return sorted.length > 0 ? sorted : FALLBACK_QUALITY_LEVELS;
+    const extraLevels = sourceLevels.filter((level) => level !== "auto" && !ranked.includes(level));
+    const levels = Array.from(new Set([...sorted, ...extraLevels, ...(set.has("auto") ? ["auto"] : [])]));
+    return levels.length > 0 ? levels : FALLBACK_QUALITY_LEVELS;
   }, [isYouTube, qualityLevels]);
   const displayPlaybackRates = useMemo(() => {
     return Array.from(new Set([...(playbackRates.length > 0 ? playbackRates : DEFAULT_PLAYBACK_RATES), 1])).sort((a, b) =>
@@ -1204,7 +1208,7 @@ export function AcademicVideoPlayer({
     if (optionMenu !== menu) return null;
 
     const isQualityMenu = menu === "quality";
-    const isAndroidSpeedMenu = IS_ANDROID && menu === "speed";
+    const isAndroidExpandedMenu = IS_ANDROID && (menu === "quality" || menu === "speed");
     const options = isQualityMenu
       ? displayQualityLevels.map((value) => ({
           key: value,
@@ -1226,13 +1230,13 @@ export function AcademicVideoPlayer({
           styles.optionMenuPanel,
           isPortraitFullscreen ? styles.optionMenuPanelPortrait : null,
           isLandscapeFullscreen ? styles.optionMenuPanelLandscape : null,
-          isAndroidSpeedMenu ? styles.speedOptionMenuPanelAndroid : null,
+          isAndroidExpandedMenu ? styles.androidOptionMenuPanel : null,
           optionMenuAnimatedStyle,
         ]}
       >
         <Text style={styles.optionMenuTitle}>{isQualityMenu ? strings.academic.quality : strings.academic.speed}</Text>
-        {isAndroidSpeedMenu ? (
-          <View style={styles.speedOptionMenuListAndroid}>
+        {isAndroidExpandedMenu ? (
+          <View style={styles.androidOptionMenuList}>
             {options.map((item) => (
               <Pressable
                 key={item.key}
@@ -2560,10 +2564,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 6,
   },
-  speedOptionMenuPanelAndroid: {
+  androidOptionMenuPanel: {
     width: 124,
     marginLeft: -62,
-    maxHeight: 340,
+    maxHeight: 380,
   },
   optionMenuTitle: {
     marginBottom: 5,
@@ -2578,7 +2582,7 @@ const styles = StyleSheet.create({
   optionMenuListLandscape: {
     maxHeight: 78,
   },
-  speedOptionMenuListAndroid: {
+  androidOptionMenuList: {
     width: "100%",
   },
   optionMenuItem: {
