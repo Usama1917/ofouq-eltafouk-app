@@ -176,6 +176,7 @@ type AdminUserListItem = {
   id: number;
   name: string;
   email: string;
+  phone?: string | null;
   role: string;
   status: string;
   avatarUrl?: string | null;
@@ -2540,10 +2541,12 @@ function BroadcastMessagesTab({
   token,
   targetUsers = [],
   onClearTargetUsers,
+  onTargetUsersChange,
 }: {
   token: string | null;
   targetUsers?: AdminUserListItem[];
   onClearTargetUsers?: () => void;
+  onTargetUsersChange?: (users: AdminUserListItem[]) => void;
 }) {
   const [years, setYears] = useState<BroadcastYearOption[]>([]);
   const [lessonOptions, setLessonOptions] = useState<BroadcastLessonOption[]>([]);
@@ -2567,10 +2570,14 @@ function BroadcastMessagesTab({
   const [externalUrl, setExternalUrl] = useState("");
   const [actionSubjectId, setActionSubjectId] = useState("");
   const [actionLessonId, setActionLessonId] = useState("");
+  const [recipientSearch, setRecipientSearch] = useState("");
+  const [recipientMatches, setRecipientMatches] = useState<AdminUserListItem[]>([]);
+  const [recipientSearchLoading, setRecipientSearchLoading] = useState(false);
   const allSubjects = years.flatMap((year) => year.subjects.map((subject) => ({ ...subject, yearId: year.id, yearName: year.name })));
   const selectedActionLesson = lessonOptions.find((lesson) => String(lesson.id) === actionLessonId) ?? null;
   const targetUserIds = targetUsers.map((user) => user.id);
   const targetUserKey = targetUserIds.join(",");
+  const normalizedRecipientSearch = recipientSearch.trim();
 
   const audienceLabels: Record<BroadcastAudience, string> = {
     all: "الكل",
@@ -2582,6 +2589,19 @@ function BroadcastMessagesTab({
   };
 
   function buildFilters() {
+    if (targetUserIds.length > 0) {
+      return {
+        audience: "all",
+        role: "all",
+        status: "all",
+        push: "any",
+        yearIds: [],
+        subjectIds: [],
+        joinedWithinDays: null,
+        selectedUserIds: targetUserIds,
+      };
+    }
+
     return {
       audience,
       role,
@@ -2603,6 +2623,14 @@ function BroadcastMessagesTab({
       return { type: actionType, lessonId: actionLessonId ? Number(actionLessonId) : null };
     }
     return { type: actionType };
+  }
+
+  function selectIndividualRecipient(user: AdminUserListItem) {
+    onTargetUsersChange?.([user]);
+    setRecipientSearch("");
+    setRecipientMatches([]);
+    setSuccess("");
+    setError("");
   }
 
   async function loadOptions() {
@@ -2651,6 +2679,41 @@ function BroadcastMessagesTab({
   useEffect(() => {
     void loadOptions();
   }, [token]);
+
+  useEffect(() => {
+    if (!token || normalizedRecipientSearch.length < 2) {
+      setRecipientMatches([]);
+      setRecipientSearchLoading(false);
+      return;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        setRecipientSearchLoading(true);
+        setError("");
+        const res = await fetch(
+          apiPath(`/api/admin/notifications/recipients?q=${encodeURIComponent(normalizedRecipientSearch)}`),
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        const data = await res.json().catch(() => []);
+        if (!res.ok) throw new Error((data as any)?.error || "تعذر البحث عن المستخدم");
+        if (active) setRecipientMatches(Array.isArray(data) ? data : []);
+      } catch (err: any) {
+        if (active) {
+          setRecipientMatches([]);
+          setError(err?.message || "تعذر البحث عن المستخدم");
+        }
+      } finally {
+        if (active) setRecipientSearchLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [token, normalizedRecipientSearch]);
 
   useEffect(() => {
     if (targetUsers.length === 0) return;
@@ -2887,12 +2950,62 @@ function BroadcastMessagesTab({
               </span>
             </div>
 
+            <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3 space-y-2">
+              <div>
+                <p className="text-sm font-black text-foreground">إرسال لمستخدم محدد</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  ابحث بالبريد الإلكتروني أو رقم الهاتف المسجل، ثم اختر المستخدم.
+                </p>
+              </div>
+              <div className="relative">
+                <Search className="absolute right-3 top-3.5 h-4 w-4 text-muted-foreground" />
+                <input
+                  value={recipientSearch}
+                  onChange={(event) => setRecipientSearch(event.target.value)}
+                  className="w-full rounded-2xl border border-border bg-background py-3 pr-10 pl-4 text-sm outline-none focus:border-primary"
+                  placeholder="البريد الإلكتروني أو رقم الهاتف"
+                  dir="auto"
+                />
+              </div>
+              {normalizedRecipientSearch.length >= 2 ? (
+                <div className="space-y-2 pt-1">
+                  {recipientSearchLoading ? <p className="text-xs text-muted-foreground">جاري البحث...</p> : null}
+                  {!recipientSearchLoading && recipientMatches.length === 0 ? (
+                    <p className="text-xs font-semibold text-muted-foreground">لا يوجد مستخدم مطابق لهذا البريد أو الرقم.</p>
+                  ) : null}
+                  {recipientMatches.map((user) => (
+                    <button
+                      key={user.id}
+                      type="button"
+                      onClick={() => selectIndividualRecipient(user)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/80 px-3 py-2 text-right transition-all hover:border-primary/35 hover:bg-primary/5"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold">{user.name}</p>
+                        <p className="truncate text-xs text-muted-foreground" dir="ltr">{user.email}</p>
+                        {user.phone ? <p className="truncate text-xs text-muted-foreground" dir="ltr">{user.phone}</p> : null}
+                      </div>
+                      <span className="shrink-0 rounded-lg bg-primary/10 px-2.5 py-1 text-[11px] font-black text-primary">
+                        اختيار
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
             {targetUsers.length > 0 ? (
               <div className="rounded-2xl border border-primary/20 bg-primary/10 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-black text-primary">جاهز للإرسال إلى {formatAdminNumber(targetUsers.length)} مستخدم محدد</p>
-                    <p className="mt-1 text-xs text-muted-foreground">تم تمرير الجمهور من تحديدات صفحة المستخدمين.</p>
+                    <p className="text-sm font-black text-primary">
+                      {targetUsers.length === 1
+                        ? `سيتم الإرسال إلى ${targetUsers[0].name} فقط`
+                        : `جاهز للإرسال إلى ${formatAdminNumber(targetUsers.length)} مستخدم محدد`}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      عند تحديد مستخدم، لا تُطبق فلاتر الجمهور الموجودة بالأسفل.
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -2904,9 +3017,11 @@ function BroadcastMessagesTab({
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {targetUsers.slice(0, 6).map((user) => (
-                    <span key={user.id} className="rounded-full bg-background/80 px-2.5 py-1 text-[11px] font-bold text-foreground">
-                      {user.name}
-                    </span>
+                    <div key={user.id} className="rounded-xl bg-background/80 px-2.5 py-1 text-[11px] font-bold text-foreground">
+                      <p>{user.name}</p>
+                      <p className="font-medium text-muted-foreground" dir="ltr">{user.email}</p>
+                      {user.phone ? <p className="font-medium text-muted-foreground" dir="ltr">{user.phone}</p> : null}
+                    </div>
                   ))}
                   {targetUsers.length > 6 ? (
                     <span className="rounded-full bg-background/80 px-2.5 py-1 text-[11px] font-bold text-muted-foreground">
@@ -2917,6 +3032,7 @@ function BroadcastMessagesTab({
               </div>
             ) : null}
 
+            <div className={targetUsers.length > 0 ? "pointer-events-none space-y-4 opacity-45" : "space-y-4"}>
             <label className="space-y-1.5 block">
               <span className="text-xs font-bold text-muted-foreground">الجمهور الأساسي</span>
               <select value={audience} onChange={(event) => setAudience(event.target.value as BroadcastAudience)} className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold">
@@ -3013,6 +3129,7 @@ function BroadcastMessagesTab({
                   </div>
                 ))}
               </div>
+            </div>
             </div>
           </div>
 
@@ -4109,6 +4226,7 @@ export default function AdminPanel() {
         token={token}
         targetUsers={broadcastTargetUsers}
         onClearTargetUsers={() => setBroadcastTargetUsers([])}
+        onTargetUsersChange={setBroadcastTargetUsers}
       />
     ),
     materials: <MaterialsTab />,

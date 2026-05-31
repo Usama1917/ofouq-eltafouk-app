@@ -12,7 +12,7 @@ import {
   usersTable,
   videosTable,
 } from "@workspace/db";
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { isExpoPushToken, sendPushNotificationToUser } from "../lib/push-notifications";
 
 const router: IRouter = Router();
@@ -481,6 +481,40 @@ async function buildAdminNotificationAction(action: unknown) {
 
   return { actionUrl: null, data: {} };
 }
+
+router.get("/admin/notifications/recipients", async (req, res): Promise<void> => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const query = normalizeText(req.query.q, 120);
+    if (query.length < 2) {
+      res.json([]);
+      return;
+    }
+
+    const recipients = await db
+      .select({
+        id: usersTable.id,
+        name: usersTable.name,
+        email: usersTable.email,
+        phone: usersTable.phone,
+        role: usersTable.role,
+        status: usersTable.status,
+        avatarUrl: usersTable.avatarUrl,
+        joinedAt: usersTable.joinedAt,
+        lastActiveAt: usersTable.lastActiveAt,
+      })
+      .from(usersTable)
+      .where(or(ilike(usersTable.email, `%${query}%`), ilike(usersTable.phone, `%${query}%`)))
+      .orderBy(desc(usersTable.joinedAt), desc(usersTable.id))
+      .limit(8);
+
+    res.json(recipients);
+  } catch (err) {
+    req.log.error({ err }, "Failed to search admin notification recipients");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 router.get("/admin/notifications/options", async (req, res): Promise<void> => {
   try {

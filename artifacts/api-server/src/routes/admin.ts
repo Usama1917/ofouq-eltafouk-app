@@ -196,7 +196,19 @@ router.get("/admin/subject-insights", async (req, res) => {
 // Users
 router.get("/admin/users", async (req, res) => {
   try {
-    const users = await db.select().from(usersTable).orderBy(desc(usersTable.joinedAt));
+    const users = await db
+      .select({
+        id: usersTable.id,
+        name: usersTable.name,
+        email: usersTable.email,
+        role: usersTable.role,
+        status: usersTable.status,
+        avatarUrl: usersTable.avatarUrl,
+        joinedAt: usersTable.joinedAt,
+        lastActiveAt: usersTable.lastActiveAt,
+      })
+      .from(usersTable)
+      .orderBy(desc(usersTable.joinedAt));
     res.json(users);
   } catch (err) {
     req.log.error({ err }, "List users error");
