@@ -31,6 +31,9 @@ node_modules
 /.sass-cache
 /connect.lock
 /coverage
+.env
+.env.*
+!.env.example
 .tmp/
 .runtime/
 /libpeerconnection.log
