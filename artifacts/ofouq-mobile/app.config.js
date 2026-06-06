@@ -1,4 +1,17 @@
 const { withAndroidManifest } = require("@expo/config-plugins");
+const fs = require("fs");
+const path = require("path");
+
+// Android push (FCM) needs google-services.json embedded in the build. Wire it in
+// only when present, so builds don't fail before Firebase is set up. EAS can expose
+// it as a file secret via GOOGLE_SERVICES_JSON; locally drop the file next to app.json.
+// iOS push is unaffected (Expo/EAS manages APNs separately).
+function resolveGoogleServicesFile() {
+  const fromEnv = process.env.GOOGLE_SERVICES_JSON;
+  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  const local = path.join(__dirname, "google-services.json");
+  return fs.existsSync(local) ? "./google-services.json" : undefined;
+}
 
 function clean(value) {
   const text = String(value ?? "").trim();
@@ -104,11 +117,14 @@ module.exports = ({ config }) => {
 
   assertProductionApiSafety(buildProfile, apiBaseUrl, allowLocalHttp);
 
+  const googleServicesFile = resolveGoogleServicesFile();
+
   const nextConfig = {
     ...config,
     android: {
       ...config.android,
       usesCleartextTraffic: isLocalHttpTesting,
+      ...(googleServicesFile ? { googleServicesFile } : {}),
     },
     extra: {
       ...config.extra,
