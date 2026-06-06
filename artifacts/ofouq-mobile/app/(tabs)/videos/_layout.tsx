@@ -1,4 +1,5 @@
 import { Stack } from "expo-router";
+import { FONT } from "@/constants/typography";
 import { usePreferences } from "@/contexts/PreferencesContext";
 
 export default function VisualLessonsLayout() {
@@ -10,7 +11,7 @@ export default function VisualLessonsLayout() {
         headerShown: false,
         headerStyle: { backgroundColor: colors.surface },
         headerTintColor: colors.text,
-        headerTitleStyle: { fontWeight: "700", fontSize: 18 },
+        headerTitleStyle: { ...FONT.bold, fontSize: 18 },
         headerBackTitle: strings.common.back,
         contentStyle: { backgroundColor: colors.background },
         headerTitleAlign: "center",

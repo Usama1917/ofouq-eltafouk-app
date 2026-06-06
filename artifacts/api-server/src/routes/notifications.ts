@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type RequestHandler } from "express";
 import {
   db,
   academicYearsTable,
@@ -67,6 +67,39 @@ function normalizeText(value: unknown, maxLength: number) {
 function normalizePlatform(value: unknown) {
   const platform = normalizeText(value, 24).toLowerCase();
   return platform || "unknown";
+}
+
+function normalizeDeviceInfo(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  const source = value as Record<string, unknown>;
+  const allowedKeys = [
+    "brand",
+    "manufacturer",
+    "modelName",
+    "osName",
+    "osVersion",
+    "deviceType",
+    "deviceYearClass",
+  ];
+  const normalized: Record<string, unknown> = {};
+
+  for (const key of allowedKeys) {
+    const entry = source[key];
+    if (typeof entry === "string") {
+      const text = normalizeText(entry, 120);
+      if (text) normalized[key] = text;
+      continue;
+    }
+    if (typeof entry === "number" && Number.isFinite(entry)) {
+      normalized[key] = entry;
+    }
+    if (typeof entry === "boolean") {
+      normalized[key] = entry;
+    }
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
 function getSessionUserId(req: any) {
@@ -636,6 +669,7 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
     let pushSentCount = 0;
     let pushDisabledCount = 0;
     let pushTicketErrorCount = 0;
+    let pushReceiptErrorCount = 0;
     const pushErrorMessages = new Set<string>();
 
     for (const batch of chunk(inserted, 25)) {
@@ -656,6 +690,7 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
               sentCount: 0,
               disabledCount: 0,
               ticketErrorCount: 1,
+              receiptErrorCount: 0,
               errorMessages: [err instanceof Error ? err.message : "Failed to send push notification"],
             };
           }),
@@ -667,6 +702,7 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
         pushSentCount += result.sentCount;
         pushDisabledCount += result.disabledCount;
         pushTicketErrorCount += result.ticketErrorCount;
+        pushReceiptErrorCount += result.receiptErrorCount;
         result.errorMessages.forEach((message) => pushErrorMessages.add(message));
       }
     }
@@ -679,6 +715,7 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
       pushSentCount,
       pushDisabledCount,
       pushTicketErrorCount,
+      pushReceiptErrorCount,
       pushErrorMessages: Array.from(pushErrorMessages).slice(0, 5),
       summary,
     });
@@ -835,7 +872,7 @@ router.post("/notifications/read-all", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/notifications/push-token", async (req, res): Promise<void> => {
+const registerPushTokenHandler: RequestHandler = async (req, res): Promise<void> => {
   try {
     const user = await requireAuthenticatedUser(req, res);
     if (!user) return;
@@ -854,8 +891,10 @@ router.post("/notifications/push-token", async (req, res): Promise<void> => {
         token,
         platform: normalizePlatform(req.body?.platform),
         deviceName: normalizeText(req.body?.deviceName, 120) || null,
+        deviceInfo: normalizeDeviceInfo(req.body?.deviceInfo),
         disabledAt: null,
         lastRegisteredAt: now,
+        lastSeenAt: now,
         updatedAt: now,
       })
       .onConflictDoUpdate({
@@ -864,8 +903,10 @@ router.post("/notifications/push-token", async (req, res): Promise<void> => {
           userId: user.id,
           platform: normalizePlatform(req.body?.platform),
           deviceName: normalizeText(req.body?.deviceName, 120) || null,
+          deviceInfo: normalizeDeviceInfo(req.body?.deviceInfo),
           disabledAt: null,
           lastRegisteredAt: now,
+          lastSeenAt: now,
           updatedAt: now,
         },
       })
@@ -874,6 +915,56 @@ router.post("/notifications/push-token", async (req, res): Promise<void> => {
     res.json({ success: true, id: registered?.id ?? null });
   } catch (err) {
     req.log.error({ err }, "Failed to register push notification token");
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+router.post("/notifications/push-token", registerPushTokenHandler);
+router.post("/notifications/register-token", registerPushTokenHandler);
+
+router.post("/notifications/test-push", async (req, res): Promise<void> => {
+  try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
+    const title = normalizeText(req.body?.title, 140) || "أفق التفوق";
+    const body = normalizeText(req.body?.body, 500) || "هذه رسالة اختبار لإشعارات أندرويد.";
+    const now = new Date();
+    const [notification] = await db
+      .insert(notificationsTable)
+      .values({
+        userId: user.id,
+        type: "test_push",
+        title,
+        body,
+        tone: "primary",
+        data: {
+          route: "notifications",
+          type: "test_push",
+        },
+        dedupeKey: `test-push:${user.id}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+        availableAt: now,
+      })
+      .returning({ id: notificationsTable.id });
+
+    const push = await sendPushNotificationToUser({
+      userId: user.id,
+      title,
+      body,
+      data: {
+        route: "notifications",
+        type: "test_push",
+        notificationId: notification?.id,
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      notificationId: notification?.id ?? null,
+      ...push,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to send test push notification");
     res.status(500).json({ error: "Internal server error" });
   }
 });

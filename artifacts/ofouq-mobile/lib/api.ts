@@ -1,4 +1,5 @@
 import { SHOULD_SHOW_PREVIEW_API_DEBUG, getBaseUrl } from "@/constants/api";
+import { getCachedApiBaseUrlOverride, resolveApiBaseUrl } from "@/lib/apiBaseUrl";
 
 export type ApiFetchOptions = RequestInit & {
   token?: string | null;
@@ -20,7 +21,13 @@ export type ApiError = Error & {
 };
 
 export function getApiUrl(path: string) {
-  return `${getBaseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
+  const baseUrl = getCachedApiBaseUrlOverride() ?? getBaseUrl();
+  return `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+async function resolveApiUrl(path: string) {
+  const baseUrl = await resolveApiBaseUrl();
+  return `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
 function safeBodyPreview(raw: string) {
@@ -92,7 +99,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const url = getApiUrl(path);
+  const url = await resolveApiUrl(path);
   const method = requestOptions.method ?? "GET";
   const shouldLogAcademicVideo = SHOULD_SHOW_PREVIEW_API_DEBUG && isAcademicVideoPath(path);
 

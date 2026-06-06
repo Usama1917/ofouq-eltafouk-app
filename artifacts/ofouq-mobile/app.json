@@ -24,6 +24,9 @@
     },
     "android": {
       "package": "com.ofouqeltafouk.mobile",
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#ffffff"
@@ -52,7 +55,54 @@
           "origin": "https://replit.com/"
         }
       ],
-      "expo-font",
+      [
+        "expo-font",
+        {
+          "ios": {
+            "fonts": [
+              "./assets/fonts/Noto_Sans_Arabic/NotoSansArabic-Regular.ttf",
+              "./assets/fonts/Noto_Sans_Arabic/NotoSansArabic-Medium.ttf",
+              "./assets/fonts/Noto_Sans_Arabic/NotoSansArabic-SemiBold.ttf",
+              "./assets/fonts/Noto_Sans_Arabic/NotoSansArabic-Bold.ttf",
+              "./assets/fonts/Noto_Sans_Arabic/NotoSansArabic-ExtraBold.ttf",
+              "./assets/fonts/Noto_Sans_Arabic/NotoSansArabic-Black.ttf"
+            ]
+          },
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "NotoSansArabic",
+                "fontDefinitions": [
+                  {
+                    "path": "./assets/fonts/Noto_Sans_Arabic/NotoSansArabic-Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./assets/fonts/Noto_Sans_Arabic/NotoSansArabic-Medium.ttf",
+                    "weight": 500
+                  },
+                  {
+                    "path": "./assets/fonts/Noto_Sans_Arabic/NotoSansArabic-SemiBold.ttf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./assets/fonts/Noto_Sans_Arabic/NotoSansArabic-Bold.ttf",
+                    "weight": 700
+                  },
+                  {
+                    "path": "./assets/fonts/Noto_Sans_Arabic/NotoSansArabic-ExtraBold.ttf",
+                    "weight": 800
+                  },
+                  {
+                    "path": "./assets/fonts/Noto_Sans_Arabic/NotoSansArabic-Black.ttf",
+                    "weight": 900
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
       [
         "expo-screen-orientation",
         {

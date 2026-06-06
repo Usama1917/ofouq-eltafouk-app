@@ -17,6 +17,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -556,12 +557,12 @@ const styles = StyleSheet.create({
   stepDot: { height: 6, width: 6, borderRadius: 3 },
   logoSection: { alignItems: "center", gap: 10 },
   brandLogo: { width: 250, height: 100 },
-  cardTitle: { fontWeight: "700", fontSize: 24 },
+  cardTitle: { ...FONT.bold, fontSize: 24 },
   rolesGrid: { gap: 12 },
   roleCard: { borderRadius: 20, padding: 20, flexDirection: "row", alignItems: "center", gap: 14, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2, position: "relative" },
   roleIcon: { width: 54, height: 54, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  roleLabel: { fontWeight: "700", fontSize: 17 },
-  roleDesc: { fontWeight: "400", fontSize: 12 },
+  roleLabel: { ...FONT.bold, fontSize: 17 },
+  roleDesc: { ...FONT.regular, fontSize: 12 },
   selectedCheck: { position: "absolute", top: 10, width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   card: { borderRadius: 24, padding: 24, gap: 14, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
   photoSection: { alignItems: "center", gap: 5, paddingBottom: 4 },
@@ -592,32 +593,32 @@ const styles = StyleSheet.create({
     borderColor: "#fff",
   },
   photoTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
   },
   photoHint: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 12,
     textAlign: "center",
   },
   field: { gap: 6 },
-  fieldLabel: { fontWeight: "600", fontSize: 13, textAlign: "right" },
+  fieldLabel: { ...FONT.semiBold, fontSize: 13, textAlign: "right" },
   inputWrapper: { flexDirection: "row", alignItems: "center", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
-  input: { flex: 1, fontWeight: "400", fontSize: 15 },
+  input: { flex: 1, ...FONT.regular, fontSize: 15 },
   selectInput: {
     minHeight: 50,
     flexDirection: "row",
   },
   selectValue: {
     flex: 1,
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 15,
   },
   nextBtn: { borderRadius: 16, overflow: "hidden", marginTop: 4 },
   nextGrad: { paddingVertical: 16, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 10 },
-  nextText: { fontWeight: "700", fontSize: 17, color: "#fff" },
+  nextText: { ...FONT.bold, fontSize: 17, color: "#fff" },
   loginLink: { alignItems: "center", paddingVertical: 4 },
-  loginLinkText: { fontWeight: "600", fontSize: 14 },
+  loginLinkText: { ...FONT.semiBold, fontSize: 14 },
   modalOverlay: {
     flex: 1,
     justifyContent: "flex-end",
@@ -651,7 +652,7 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   governorateSheetTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     lineHeight: 26,
     textAlign: "center",
@@ -670,7 +671,7 @@ const styles = StyleSheet.create({
     right: 0,
   },
   governorateNavButtonText: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 15,
   },
   governorateList: {
@@ -699,7 +700,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 48,
     right: 16,
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 14,
   },
   governorateOptionCheck: {

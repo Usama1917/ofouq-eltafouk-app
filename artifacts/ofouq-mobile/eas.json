@@ -10,7 +10,7 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "http://192.168.0.53:8080",
+        "EXPO_PUBLIC_API_BASE_URL": "http://192.168.0.40:8080",
         "EXPO_PUBLIC_ALLOW_LOCAL_HTTP": "1",
         "EXPO_PUBLIC_BUILD_PROFILE": "preview"
       },

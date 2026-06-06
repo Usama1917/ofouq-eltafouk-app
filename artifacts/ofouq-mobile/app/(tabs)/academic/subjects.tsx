@@ -13,6 +13,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -262,7 +263,7 @@ export default function SubjectsScreen() {
 
       <View style={[styles.topBar, { height: headerOverlayHeight, paddingTop: insets.top + 12 }]}>
         <BlurView
-          intensity={resolvedScheme === "dark" ? 34 : 58}
+          intensity={resolvedScheme === "dark" ? 62 : 92}
           tint={resolvedScheme === "dark" ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
         />
@@ -272,8 +273,8 @@ export default function SubjectsScreen() {
             StyleSheet.absoluteFill,
             {
               backgroundColor: resolvedScheme === "dark"
-                ? "rgba(0,0,0,0.86)"
-                : "rgba(248,251,255,0.68)",
+                ? "rgba(0,0,0,0.92)"
+                : "rgba(248,251,255,0.92)",
             },
           ]}
         />
@@ -451,7 +452,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   backText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 15,
     lineHeight: 24,
   },
@@ -473,13 +474,13 @@ const styles = StyleSheet.create({
   titleBlock: { flex: 1, alignItems: "flex-end" },
   title: {
     flexShrink: 1,
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 28,
     lineHeight: 40,
     textAlign: "right",
   },
   subtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 16,
     lineHeight: 24,
     textAlign: "right",
@@ -512,7 +513,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   subscribeTopText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     lineHeight: 22,
     color: COLORS.primary,
@@ -561,14 +562,14 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   subjectTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 19,
     lineHeight: 28,
     textAlign: "right",
     maxWidth: "100%",
   },
   subjectDesc: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 14,
     lineHeight: 22,
     textAlign: "right",
@@ -580,18 +581,18 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   statusText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 10,
   },
   reviewNote: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 11,
     color: "#BE123C",
     marginTop: 4,
     textAlign: "right",
   },
   lockAction: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 12,
     color: COLORS.primary,
     marginTop: 6,
@@ -606,12 +607,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   stateTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     textAlign: "center",
   },
   stateText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 13,
     lineHeight: 22,
     textAlign: "center",
@@ -624,7 +625,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   retryText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 13,
     color: "#fff",
   },

@@ -13,6 +13,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -132,7 +133,7 @@ export default function LessonsScreen() {
 
       <View style={[styles.topBar, { height: headerOverlayHeight, paddingTop: insets.top + 12 }]}>
         <BlurView
-          intensity={resolvedScheme === "dark" ? 34 : 58}
+          intensity={resolvedScheme === "dark" ? 62 : 92}
           tint={resolvedScheme === "dark" ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
         />
@@ -142,8 +143,8 @@ export default function LessonsScreen() {
             StyleSheet.absoluteFill,
             {
               backgroundColor: resolvedScheme === "dark"
-                ? "rgba(0,0,0,0.86)"
-                : "rgba(248,251,255,0.68)",
+                ? "rgba(0,0,0,0.92)"
+                : "rgba(248,251,255,0.92)",
             },
           ]}
         />
@@ -329,7 +330,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   backText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 15,
     lineHeight: 24,
   },
@@ -350,13 +351,13 @@ const styles = StyleSheet.create({
   },
   titleBlock: { flex: 1, alignItems: "flex-end" },
   title: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 28,
     lineHeight: 40,
     textAlign: "right",
   },
   subtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 16,
     lineHeight: 24,
     textAlign: "right",
@@ -390,7 +391,7 @@ const styles = StyleSheet.create({
   },
   lessonBody: { flex: 1, alignItems: "flex-end" },
   lessonTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 19,
     lineHeight: 28,
     textAlign: "right",
@@ -403,7 +404,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   lessonMetaText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 11,
     maxWidth: 110,
   },
@@ -418,7 +419,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   watchText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 11,
     color: "#fff",
   },
@@ -431,12 +432,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   stateTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     textAlign: "center",
   },
   stateText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 13,
     lineHeight: 22,
     textAlign: "center",
@@ -449,7 +450,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   retryText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 13,
     color: "#fff",
   },
@@ -458,7 +459,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   secondaryText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 12,
     color: COLORS.primary,
   },

@@ -12,6 +12,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -180,7 +181,7 @@ export default function ContactScreen() {
         ]}
       >
         <BlurView
-          intensity={resolvedScheme === "dark" ? 34 : 58}
+          intensity={resolvedScheme === "dark" ? 62 : 92}
           tint={resolvedScheme === "dark" ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
         />
@@ -190,8 +191,8 @@ export default function ContactScreen() {
             StyleSheet.absoluteFill,
             {
               backgroundColor: resolvedScheme === "dark"
-                ? "rgba(0,0,0,0.86)"
-                : "rgba(248,251,255,0.68)",
+                ? "rgba(0,0,0,0.92)"
+                : "rgba(248,251,255,0.92)",
             },
           ]}
         />
@@ -286,7 +287,7 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
   },
   pageBackText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 15,
     lineHeight: 24,
   },
@@ -320,13 +321,13 @@ const styles = StyleSheet.create({
   },
   titleBlock: { flex: 1, alignItems: "flex-end", justifyContent: "center" },
   title: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 27,
     lineHeight: 38,
     textAlign: "right",
   },
   subtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 15,
     lineHeight: 24,
     textAlign: "right",
@@ -377,7 +378,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   optionTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     lineHeight: 25,
     textAlign: "right",

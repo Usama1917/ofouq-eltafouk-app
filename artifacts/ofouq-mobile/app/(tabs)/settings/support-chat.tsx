@@ -20,6 +20,7 @@ import {
   type TextStyle,
   View,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -390,7 +391,7 @@ export default function SupportChatScreen() {
           ]}
         >
           <BlurView
-            intensity={resolvedScheme === "dark" ? 34 : 58}
+            intensity={resolvedScheme === "dark" ? 62 : 92}
             tint={resolvedScheme === "dark" ? "dark" : "light"}
             style={StyleSheet.absoluteFill}
           />
@@ -400,8 +401,8 @@ export default function SupportChatScreen() {
               StyleSheet.absoluteFill,
               {
                 backgroundColor: resolvedScheme === "dark"
-                  ? "rgba(0,0,0,0.86)"
-                  : "rgba(248,251,255,0.68)",
+                  ? "rgba(0,0,0,0.92)"
+                  : "rgba(248,251,255,0.92)",
               },
             ]}
           />
@@ -614,7 +615,7 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
   },
   pageBackText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 15,
     lineHeight: 24,
   },
@@ -646,13 +647,13 @@ const styles = StyleSheet.create({
   },
   headerTextBlock: { flex: 1, alignItems: "flex-end", justifyContent: "center" },
   title: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 25,
     lineHeight: 36,
     textAlign: "right",
   },
   subtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 15,
     lineHeight: 24,
     textAlign: "right",
@@ -679,12 +680,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   stateTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     textAlign: "center",
   },
   stateText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 13,
     lineHeight: 22,
     textAlign: "center",
@@ -698,7 +699,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   primaryButtonText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     color: "#fff",
   },
@@ -713,12 +714,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   messageText: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 14,
     lineHeight: 24,
   },
   messageStrongText: {
-    fontWeight: "900",
+    ...FONT.black,
   },
   quickWrap: {
     borderTopWidth: 1,
@@ -731,7 +732,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   quickTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 12,
   },
   quickList: {
@@ -747,7 +748,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   quickChipText: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 12,
   },
   composer: {
@@ -766,7 +767,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 10,
     paddingBottom: 10,
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 14,
   },
   sendButton: {

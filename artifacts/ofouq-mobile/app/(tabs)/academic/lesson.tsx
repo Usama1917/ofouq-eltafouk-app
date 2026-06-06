@@ -13,6 +13,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AcademicVideoPlayer, AcademicVideoSegment } from "@/components/AcademicVideoPlayer";
@@ -172,7 +173,7 @@ export default function LessonDetailScreen() {
 
       <View style={[styles.topBar, { height: headerOverlayHeight, paddingTop: insets.top + 12 }]}>
         <BlurView
-          intensity={resolvedScheme === "dark" ? 34 : 58}
+          intensity={resolvedScheme === "dark" ? 62 : 92}
           tint={resolvedScheme === "dark" ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
         />
@@ -182,8 +183,8 @@ export default function LessonDetailScreen() {
             StyleSheet.absoluteFill,
             {
               backgroundColor: resolvedScheme === "dark"
-                ? "rgba(0,0,0,0.86)"
-                : "rgba(248,251,255,0.68)",
+                ? "rgba(0,0,0,0.92)"
+                : "rgba(248,251,255,0.92)",
             },
           ]}
         />
@@ -360,19 +361,19 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   backText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 15,
     lineHeight: 24,
   },
   titleBlock: { flex: 1, alignItems: "flex-end", gap: 2 },
   lessonTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 28,
     lineHeight: 40,
     textAlign: "right",
   },
   lessonDesc: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 16,
     lineHeight: 26,
     textAlign: "right",
@@ -401,18 +402,18 @@ const styles = StyleSheet.create({
   },
   summaryText: { flex: 1, alignItems: "flex-end" },
   summaryTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     textAlign: "right",
   },
   summaryMeta: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 12,
     textAlign: "right",
     marginTop: 2,
   },
   watermarkHint: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 10,
     textAlign: "right",
     marginTop: 3,
@@ -433,12 +434,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   stateTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     textAlign: "center",
   },
   stateText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 13,
     lineHeight: 22,
     textAlign: "center",
@@ -451,7 +452,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   primaryButtonText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 13,
     color: "#fff",
   },
@@ -460,7 +461,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   secondaryText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 12,
     color: COLORS.primary,
   },

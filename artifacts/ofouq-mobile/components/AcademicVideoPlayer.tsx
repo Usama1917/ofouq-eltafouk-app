@@ -21,6 +21,7 @@ import {
   ViewStyle,
   useWindowDimensions,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
 
 import { COLORS } from "@/constants/colors";
@@ -1840,13 +1841,13 @@ const styles = StyleSheet.create({
     direction: "rtl",
   },
   segmentHeaderTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     lineHeight: 24,
     color: "#0F172A",
   },
   segmentHeaderMeta: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 13,
     lineHeight: 20,
     color: "#64748B",
@@ -1895,7 +1896,7 @@ const styles = StyleSheet.create({
     direction: "rtl",
   },
   segmentChipTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     lineHeight: 22,
     color: "#fff",
@@ -1904,7 +1905,7 @@ const styles = StyleSheet.create({
   },
   segmentChipMeta: {
     marginTop: 2,
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 12,
     lineHeight: 18,
     color: "rgba(255,255,255,0.68)",
@@ -1944,7 +1945,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
   },
   videoFallbackText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 13,
     color: "#fff",
   },
@@ -1967,7 +1968,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(37,99,235,0.95)",
   },
   cleanVideoTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 17,
     lineHeight: 27,
     color: "rgba(255,255,255,0.92)",
@@ -1976,7 +1977,7 @@ const styles = StyleSheet.create({
   },
   cleanVideoSubtitle: {
     marginTop: 4,
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 11,
     color: "rgba(226,232,240,0.7)",
     textAlign: "center",
@@ -2042,7 +2043,7 @@ const styles = StyleSheet.create({
     left: 16,
   },
   watermarkText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 10,
     color: "rgba(255,255,255,0.88)",
   },
@@ -2056,7 +2057,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   seekToastText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 13,
     color: "#fff",
   },
@@ -2069,7 +2070,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.72)",
   },
   errorText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 13,
     color: "#fff",
     textAlign: "center",
@@ -2210,7 +2211,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   controlLessonTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     color: "#fff",
     textAlign: "right",
@@ -2218,7 +2219,7 @@ const styles = StyleSheet.create({
   },
   controlLessonSubtitle: {
     marginTop: -2,
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 11,
     color: "rgba(255,255,255,0.62)",
     textAlign: "right",
@@ -2305,7 +2306,7 @@ const styles = StyleSheet.create({
   },
   seekTenText: {
     position: "absolute",
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 10,
     color: "#fff",
     includeFontPadding: false,
@@ -2378,7 +2379,7 @@ const styles = StyleSheet.create({
     minHeight: 14,
   },
   timeText: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 12,
     color: "rgba(255,255,255,0.84)",
     textAlign: "left",
@@ -2527,7 +2528,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   optionText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 12,
     color: "#fff",
   },
@@ -2577,7 +2578,7 @@ const styles = StyleSheet.create({
   },
   optionMenuTitle: {
     marginBottom: 5,
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 10,
     color: "rgba(226,232,240,0.72)",
     textAlign: "center",
@@ -2606,7 +2607,7 @@ const styles = StyleSheet.create({
   },
   optionMenuItemText: {
     flex: 1,
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 11,
     color: "rgba(255,255,255,0.78)",
     textAlign: "left",
@@ -2664,7 +2665,7 @@ const styles = StyleSheet.create({
   },
   segmentPanelTitle: {
     flex: 1,
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     lineHeight: 24,
     color: "#fff",
@@ -2722,14 +2723,14 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   segmentRowTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     lineHeight: 22,
     color: "#fff",
     textAlign: "right",
   },
   segmentRowMeta: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 12,
     lineHeight: 18,
     color: "rgba(255,255,255,0.62)",

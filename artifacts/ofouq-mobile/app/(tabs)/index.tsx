@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
+import { FONT } from "@/constants/typography";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
@@ -122,24 +123,7 @@ function EmptyLessonsState() {
 }
 
 function HomeSubtitle() {
-  const { colors, strings, isRTL, direction } = usePreferences();
-
-  if (isRTL) {
-    const lines = strings.home.subtitle.replace(" المتاحة الآن.", " المتاحة|الآن.").split("|");
-
-    return (
-      <View style={[styles.heroSubtitleBlock, { direction }]}>
-        {lines.map((line) => (
-          <Text
-            key={line}
-            style={[styles.heroSubtitle, { color: colors.textSecondary, writingDirection: direction }]}
-          >
-            {line}
-          </Text>
-        ))}
-      </View>
-    );
-  }
+  const { colors, strings, direction, textAlign } = usePreferences();
 
   return (
     <Text
@@ -148,7 +132,7 @@ function HomeSubtitle() {
         {
           color: colors.textSecondary,
           marginTop: 10,
-          textAlign: "left",
+          textAlign,
           writingDirection: direction,
         },
       ]}
@@ -218,7 +202,7 @@ export default function HomeScreen() {
 
       <View style={[styles.topBar, { height: headerOverlayHeight, paddingTop: insets.top + 18 }]}>
         <BlurView
-          intensity={resolvedScheme === "dark" ? 34 : 58}
+          intensity={resolvedScheme === "dark" ? 62 : 92}
           tint={resolvedScheme === "dark" ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
         />
@@ -228,8 +212,8 @@ export default function HomeScreen() {
             StyleSheet.absoluteFill,
             {
               backgroundColor: resolvedScheme === "dark"
-                ? "rgba(0,0,0,0.86)"
-                : "rgba(248,251,255,0.68)",
+                ? "rgba(0,0,0,0.92)"
+                : "rgba(248,251,255,0.92)",
             },
           ]}
         />
@@ -361,7 +345,10 @@ export default function HomeScreen() {
               <Text style={[styles.sectionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
                 {strings.home.continueLearning}
               </Text>
-              <Text style={[styles.sectionSubtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+              <Text
+                style={[styles.sectionSubtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}
+                numberOfLines={2}
+              >
                 {strings.home.sectionSubtitle}
               </Text>
             </View>
@@ -477,7 +464,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     top: 0,
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 12,
     lineHeight: 16,
     includeFontPadding: false,
@@ -499,7 +486,7 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
   },
   accountText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 13,
     maxWidth: 122,
     textAlign: "right",
@@ -518,7 +505,7 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   accountInitial: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     color: "#fff",
   },
@@ -546,15 +533,15 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   heroBadgeText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     lineHeight: 24,
     color: COLORS.primary,
   },
   heroTitle: {
-    fontWeight: "700",
-    fontSize: 35,
-    lineHeight: 60,
+    ...FONT.bold,
+    fontSize: 34,
+    lineHeight: 58,
     paddingTop: 5,
     paddingBottom: 2,
     alignSelf: "stretch",
@@ -564,17 +551,14 @@ const styles = StyleSheet.create({
   },
   heroTitleAccent: { color: COLORS.primary },
   heroSubtitle: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 15,
-    lineHeight: 26,
+    lineHeight: 30,
+    alignSelf: "stretch",
     textAlign: "right",
     writingDirection: "rtl",
-  },
-  heroSubtitleBlock: {
-    alignSelf: "stretch",
-    alignItems: "flex-start",
-    marginTop: 10,
     width: "100%",
+    includeFontPadding: false,
   },
   heroActions: { gap: 14, marginTop: 20 },
   primaryCta: {
@@ -593,7 +577,7 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
   },
   primaryCtaText: {
-    fontWeight: "700",
+    ...FONT.bold,
     color: "#fff",
     fontSize: 15,
   },
@@ -618,13 +602,13 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary + "12",
   },
   statLabel: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 12,
     lineHeight: 20,
     textAlign: "right",
   },
   statValue: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 34,
     lineHeight: 48,
     marginBottom: -8,
@@ -633,26 +617,28 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
     marginTop: 12,
   },
-  sectionTitleBlock: { flex: 1, alignItems: "flex-end" },
+  sectionTitleBlock: { flex: 1, minWidth: 0, alignItems: "flex-end" },
   sectionTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 24,
     lineHeight: 34,
     textAlign: "right",
   },
   sectionSubtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 25,
     textAlign: "right",
+    includeFontPadding: false,
   },
   softButton: {
     minHeight: 40,
+    flexShrink: 0,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 14,
@@ -661,13 +647,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   softButtonText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 12,
     color: COLORS.primary,
   },
   loadingCard: { paddingVertical: 26, alignItems: "center", gap: 10 },
   loadingText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 13,
   },
   pathsList: { gap: 14 },
@@ -700,13 +686,13 @@ const styles = StyleSheet.create({
   },
   pathBody: { flexShrink: 1, maxWidth: "72%", alignItems: "flex-end" },
   pathTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 19,
     lineHeight: 28,
     textAlign: "right",
   },
   pathDesc: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 14,
     lineHeight: 22,
     textAlign: "right",
@@ -721,7 +707,7 @@ const styles = StyleSheet.create({
     bottom: 16,
   },
   pathActionText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 12,
     color: COLORS.primary,
   },
@@ -741,12 +727,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary + "10",
   },
   emptyTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     textAlign: "center",
   },
   emptyText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 13,
     textAlign: "center",
     lineHeight: 22,
@@ -759,7 +745,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   retryText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 13,
     color: "#fff",
   },

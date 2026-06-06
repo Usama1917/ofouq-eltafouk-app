@@ -13,6 +13,7 @@ import {
   View,
   useColorScheme,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -267,10 +268,10 @@ const styles = StyleSheet.create({
   headerContent: { flexDirection: "row", alignItems: "center", gap: 12, justifyContent: "flex-end" },
   aiAvatar: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
   headerText: { alignItems: "flex-end" },
-  headerTitle: { fontWeight: "700", fontSize: 18, color: "#fff" },
+  headerTitle: { ...FONT.bold, fontSize: 18, color: "#fff" },
   onlineRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#34D399" },
-  onlineText: { fontWeight: "400", fontSize: 12, color: "rgba(255,255,255,0.75)" },
+  onlineText: { ...FONT.regular, fontSize: 12, color: "rgba(255,255,255,0.75)" },
   messageList: { paddingHorizontal: 16, paddingTop: 12 },
   bubbleRow: { flexDirection: "row", marginBottom: 10, alignItems: "flex-end", gap: 8 },
   bubbleRowUser: { justifyContent: "flex-start" },
@@ -279,16 +280,16 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: "78%", borderRadius: 18, padding: 12 },
   bubbleUser: { borderBottomLeftRadius: 4 },
   bubbleAssistant: { borderBottomRightRadius: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
-  bubbleText: { fontWeight: "400", fontSize: 15, lineHeight: 24, textAlign: "right" },
-  bubbleTime: { fontWeight: "400", fontSize: 10, textAlign: "left", marginTop: 4 },
+  bubbleText: { ...FONT.regular, fontSize: 15, lineHeight: 24, textAlign: "right" },
+  bubbleTime: { ...FONT.regular, fontSize: 10, textAlign: "left", marginTop: 4 },
   typingRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  typingText: { fontWeight: "400", fontSize: 13 },
+  typingText: { ...FONT.regular, fontSize: 13 },
   suggestions: { paddingHorizontal: 16, paddingBottom: 8, gap: 8 },
-  suggestLabel: { fontWeight: "400", fontSize: 12, textAlign: "right" },
+  suggestLabel: { ...FONT.regular, fontSize: 12, textAlign: "right" },
   suggestRow: { flexDirection: "row", gap: 8 },
   suggestChip: { flex: 1, borderRadius: 12, padding: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
-  suggestText: { fontWeight: "400", fontSize: 12, textAlign: "right" },
+  suggestText: { ...FONT.regular, fontSize: 12, textAlign: "right" },
   inputBar: { paddingHorizontal: 12, paddingTop: 10, flexDirection: "row", alignItems: "flex-end", gap: 8 },
-  inputField: { flex: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontWeight: "400", fontSize: 15, maxHeight: 100 },
+  inputField: { flex: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, ...FONT.regular, fontSize: 15, maxHeight: 100 },
   sendBtn: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
 });

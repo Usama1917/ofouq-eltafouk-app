@@ -5,6 +5,7 @@ import {
   FlatList, Pressable, StyleSheet, Text,
   View
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
@@ -72,13 +73,13 @@ export default function AcademicTab() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { paddingHorizontal: 20, paddingBottom: 12, paddingTop: 8, borderBottomWidth: 1 },
-  headerTitle: { fontSize: 22, fontWeight: "700", textAlign: "right" },
-  headerSub: { fontSize: 13, fontWeight: "400", textAlign: "right", marginTop: 2 },
+  headerTitle: { fontSize: 22, ...FONT.bold, textAlign: "right" },
+  headerSub: { fontSize: 13, ...FONT.regular, textAlign: "right", marginTop: 2 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60, gap: 12 },
-  emptyText: { fontWeight: "400", fontSize: 15 },
+  emptyText: { ...FONT.regular, fontSize: 15 },
   card: { borderRadius: 16, borderWidth: 1, padding: 14, flexDirection: "row-reverse", alignItems: "center", gap: 12 },
   cardIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   cardText: { flex: 1, alignItems: "flex-end" },
-  cardTitle: { fontWeight: "700", fontSize: 19, lineHeight: 28 },
-  cardDesc: { fontWeight: "400", fontSize: 14, lineHeight: 22, marginTop: 2 },
+  cardTitle: { ...FONT.bold, fontSize: 19, lineHeight: 28 },
+  cardDesc: { ...FONT.regular, fontSize: 14, lineHeight: 22, marginTop: 2 },
 });

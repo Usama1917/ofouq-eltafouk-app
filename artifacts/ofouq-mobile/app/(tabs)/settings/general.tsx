@@ -14,6 +14,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -91,7 +92,7 @@ export default function GeneralSettingsScreen() {
   });
   const topBarVeilColor = themeMotion.interpolate({
     inputRange: [0, 1],
-    outputRange: ["rgba(248,251,255,0.68)", "rgba(0,0,0,0.86)"],
+    outputRange: ["rgba(248,251,255,0.92)", "rgba(0,0,0,0.92)"],
   });
   const segmentIndicatorColor = themeMotion.interpolate({
     inputRange: [0, 1],
@@ -215,7 +216,7 @@ export default function GeneralSettingsScreen() {
         ]}
       >
         <BlurView
-          intensity={isDark ? 34 : 58}
+          intensity={isDark ? 62 : 92}
           tint={isDark ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
         />
@@ -548,7 +549,7 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
   },
   pageBackText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 15,
     lineHeight: 24,
   },
@@ -564,13 +565,13 @@ const styles = StyleSheet.create({
   },
   titleBlock: { flex: 1, alignItems: "flex-end", justifyContent: "center" },
   title: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 27,
     lineHeight: 38,
     textAlign: "right",
   },
   subtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 15,
     lineHeight: 24,
     textAlign: "right",
@@ -598,7 +599,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary + "12",
   },
   sectionTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 17,
     lineHeight: 28,
     textAlign: "right",
@@ -636,7 +637,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primary + "24",
   },
   languageIconText: {
-    fontWeight: "800",
+    ...FONT.extraBold,
     fontSize: 19,
     lineHeight: 24,
     textAlign: "center",
@@ -648,7 +649,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   optionTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 15,
     lineHeight: 25,
     textAlign: "right",
@@ -672,7 +673,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   restartNote: {
-    fontWeight: "500",
+    ...FONT.medium,
     fontSize: 13,
     lineHeight: 22,
   },
@@ -692,7 +693,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   automaticTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     lineHeight: 26,
   },
@@ -738,7 +739,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   segmentText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     lineHeight: 22,
   },
@@ -778,13 +779,13 @@ const styles = StyleSheet.create({
     borderColor: COLORS.darkIconFrame.border,
   },
   modalTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 18,
     lineHeight: 29,
     textAlign: "center",
   },
   modalMessage: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 15,
     lineHeight: 25,
     textAlign: "center",
@@ -798,7 +799,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   modalButtonText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     color: "#FFFFFF",
   },

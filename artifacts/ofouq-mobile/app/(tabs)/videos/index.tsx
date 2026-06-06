@@ -13,6 +13,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -158,7 +159,7 @@ export default function VideosScreen() {
         ]}
       >
         <BlurView
-          intensity={resolvedScheme === "dark" ? 34 : 58}
+          intensity={resolvedScheme === "dark" ? 62 : 92}
           tint={resolvedScheme === "dark" ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
         />
@@ -168,8 +169,8 @@ export default function VideosScreen() {
             StyleSheet.absoluteFill,
             {
               backgroundColor: resolvedScheme === "dark"
-                ? "rgba(0,0,0,0.86)"
-                : "rgba(248,251,255,0.68)",
+                ? "rgba(0,0,0,0.92)"
+                : "rgba(248,251,255,0.92)",
             },
           ]}
         />
@@ -281,13 +282,13 @@ const styles = StyleSheet.create({
   },
   titleTextBlock: { flex: 1, alignItems: "flex-end" },
   title: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 27,
     lineHeight: 38,
     textAlign: "right",
   },
   subtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 16,
     lineHeight: 25,
     textAlign: "right",
@@ -318,13 +319,13 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   yearTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 17,
     lineHeight: 26,
     textAlign: "right",
   },
   yearDesc: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 14,
     lineHeight: 22,
     textAlign: "right",
@@ -347,12 +348,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary + "10",
   },
   stateTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     textAlign: "center",
   },
   stateText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 13,
     lineHeight: 22,
     textAlign: "center",
@@ -365,7 +366,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   retryText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 13,
     color: "#fff",
   },

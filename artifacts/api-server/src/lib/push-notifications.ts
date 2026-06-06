@@ -2,7 +2,9 @@ import { db, pushNotificationTokensTable } from "@workspace/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
+const EXPO_PUSH_RECEIPTS_ENDPOINT = "https://exp.host/--/api/v2/push/getReceipts";
 const EXPO_PUSH_BATCH_SIZE = 100;
+const EXPO_RECEIPT_BATCH_SIZE = 300;
 
 type ExpoPushTicket = {
   status?: "ok" | "error";
@@ -13,9 +15,16 @@ type ExpoPushTicket = {
   };
 };
 
-function summarizeExpoPushError(ticket: ExpoPushTicket) {
-  const message = String(ticket.message ?? "").trim();
-  const detail = String(ticket.details?.error ?? "").trim();
+type ExpoPushReceipt = ExpoPushTicket;
+
+type PendingReceipt = {
+  ticketId: string;
+  tokenId: number;
+};
+
+function summarizeExpoPushError(result: ExpoPushTicket | ExpoPushReceipt) {
+  const message = String(result.message ?? "").trim();
+  const detail = String(result.details?.error ?? "").trim();
   return [detail, message].filter(Boolean).join(": ") || "Unknown Expo push error";
 }
 
@@ -33,6 +42,37 @@ function chunk<T>(items: T[], size: number) {
 
 function normalizePushData(data: Record<string, unknown> | undefined) {
   return data ? JSON.parse(JSON.stringify(data)) as Record<string, unknown> : {};
+}
+
+async function fetchExpoReceipts(pendingReceipts: PendingReceipt[]) {
+  const receiptErrors: Array<{ tokenId: number; receipt: ExpoPushReceipt }> = [];
+
+  for (const batch of chunk(pendingReceipts, EXPO_RECEIPT_BATCH_SIZE)) {
+    const response = await fetch(EXPO_PUSH_RECEIPTS_ENDPOINT, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "accept-encoding": "gzip, deflate",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ ids: batch.map((item) => item.ticketId) }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Expo push receipt service returned ${response.status}`);
+    }
+
+    const payload = await response.json() as { data?: Record<string, ExpoPushReceipt> };
+    const receipts = payload.data ?? {};
+    for (const item of batch) {
+      const receipt = receipts[item.ticketId];
+      if (receipt?.status === "error") {
+        receiptErrors.push({ tokenId: item.tokenId, receipt });
+      }
+    }
+  }
+
+  return receiptErrors;
 }
 
 export async function sendPushNotificationToUser(args: {
@@ -54,7 +94,9 @@ export async function sendPushNotificationToUser(args: {
   const disabledIds = [...invalidIds];
   let sentCount = 0;
   let ticketErrorCount = 0;
+  let receiptErrorCount = 0;
   const errorMessages = new Set<string>();
+  const pendingReceipts: PendingReceipt[] = [];
 
   if (invalidIds.length > 0) {
     errorMessages.add("Invalid Expo push token format");
@@ -90,6 +132,10 @@ export async function sendPushNotificationToUser(args: {
     tickets.forEach((ticket, index) => {
       if (ticket.status === "ok") {
         sentCount += 1;
+        if (ticket.id) {
+          const row = batch[index];
+          if (row) pendingReceipts.push({ ticketId: ticket.id, tokenId: row.id });
+        }
         return;
       }
 
@@ -105,6 +151,21 @@ export async function sendPushNotificationToUser(args: {
     });
   }
 
+  if (pendingReceipts.length > 0) {
+    try {
+      const receiptErrors = await fetchExpoReceipts(pendingReceipts);
+      receiptErrorCount = receiptErrors.length;
+      for (const { tokenId, receipt } of receiptErrors) {
+        errorMessages.add(summarizeExpoPushError(receipt));
+        if (receipt.details?.error === "DeviceNotRegistered") {
+          disabledIds.push(tokenId);
+        }
+      }
+    } catch (err) {
+      errorMessages.add(err instanceof Error ? err.message : "Failed to fetch Expo push receipts");
+    }
+  }
+
   if (disabledIds.length > 0) {
     await db
       .update(pushNotificationTokensTable)
@@ -117,6 +178,7 @@ export async function sendPushNotificationToUser(args: {
     sentCount,
     disabledCount: disabledIds.length,
     ticketErrorCount,
+    receiptErrorCount,
     errorMessages: Array.from(errorMessages).slice(0, 5),
   };
 }

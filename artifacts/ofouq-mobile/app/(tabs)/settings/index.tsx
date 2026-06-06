@@ -12,6 +12,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -80,7 +81,7 @@ export default function SettingsScreen() {
         ]}
       >
         <BlurView
-          intensity={resolvedScheme === "dark" ? 34 : 58}
+          intensity={resolvedScheme === "dark" ? 62 : 92}
           tint={resolvedScheme === "dark" ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
         />
@@ -90,8 +91,8 @@ export default function SettingsScreen() {
             StyleSheet.absoluteFill,
             {
               backgroundColor: resolvedScheme === "dark"
-                ? "rgba(0,0,0,0.86)"
-                : "rgba(248,251,255,0.68)",
+                ? "rgba(0,0,0,0.92)"
+                : "rgba(248,251,255,0.92)",
             },
           ]}
         />
@@ -364,13 +365,13 @@ const styles = StyleSheet.create({
   },
   titleBlock: { flex: 1, alignItems: "flex-end", justifyContent: "center" },
   title: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 27,
     lineHeight: 38,
     textAlign: "right",
   },
   subtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 15,
     lineHeight: 24,
     textAlign: "right",
@@ -392,7 +393,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-end",
   },
   cardTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 17,
     textAlign: "right",
   },
@@ -415,7 +416,7 @@ const styles = StyleSheet.create({
   },
   optionTextBlock: { flex: 1, alignItems: "flex-end" },
   optionLabel: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 15,
     textAlign: "right",
   },
@@ -452,12 +453,12 @@ const styles = StyleSheet.create({
   },
   accountTextBlock: { flex: 1, alignItems: "flex-end" },
   accountTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     textAlign: "right",
   },
   accountSubtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 14,
     lineHeight: 22,
     textAlign: "right",
@@ -476,7 +477,7 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   accountInitial: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 18,
     color: "#fff",
   },
@@ -531,13 +532,13 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   subscriptionTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     lineHeight: 26,
     textAlign: "right",
   },
   subscriptionSubtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 14,
     lineHeight: 22,
     textAlign: "right",
@@ -594,12 +595,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.error,
   },
   contactTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     textAlign: "right",
   },
   contactSubtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 14,
     lineHeight: 22,
     textAlign: "right",

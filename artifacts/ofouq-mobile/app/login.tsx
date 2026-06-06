@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -15,6 +15,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -22,6 +23,11 @@ import { SHOULD_SHOW_PREVIEW_API_DEBUG, getBaseUrl } from "@/constants/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { type ApiNetworkError, getApiUrl } from "@/lib/api";
+import {
+  clearApiBaseUrlOverride,
+  resolveApiBaseUrl,
+  saveApiBaseUrlOverride,
+} from "@/lib/apiBaseUrl";
 
 function debugValue(readValue: () => string) {
   try {
@@ -41,15 +47,78 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSavingApiBase, setIsSavingApiBase] = useState(false);
+  const [apiBaseInput, setApiBaseInput] = useState("");
+  const [apiBaseMessage, setApiBaseMessage] = useState<string | null>(null);
   const [lastNetworkError, setLastNetworkError] = useState<{ name: string; message: string } | null>(null);
-  const previewApiDebug = useMemo(() => {
+  const [previewApiDebug, setPreviewApiDebug] = useState<{
+    baseUrl: string;
+    loginUrl: string;
+  } | null>(() => {
     if (!SHOULD_SHOW_PREVIEW_API_DEBUG) return null;
 
     return {
       baseUrl: debugValue(() => getBaseUrl()),
       loginUrl: debugValue(() => getApiUrl("/api/auth/login")),
     };
+  });
+
+  const refreshPreviewApiDebug = useCallback(async () => {
+    if (!SHOULD_SHOW_PREVIEW_API_DEBUG) return;
+
+    try {
+      const baseUrl = await resolveApiBaseUrl();
+      setPreviewApiDebug({
+        baseUrl,
+        loginUrl: `${baseUrl}/api/auth/login`,
+      });
+      setApiBaseInput(baseUrl);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setPreviewApiDebug({
+        baseUrl: `Error: ${message}`,
+        loginUrl: `Error: ${message}`,
+      });
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshPreviewApiDebug();
+  }, [refreshPreviewApiDebug]);
+
+  const handleSaveApiBaseUrl = async () => {
+    setIsSavingApiBase(true);
+    setApiBaseMessage(null);
+    try {
+      const normalized = await saveApiBaseUrlOverride(apiBaseInput);
+      setApiBaseInput(normalized);
+      setPreviewApiDebug({
+        baseUrl: normalized,
+        loginUrl: `${normalized}/api/auth/login`,
+      });
+      setLastNetworkError(null);
+      setApiBaseMessage("تم حفظ عنوان الخادم.");
+    } catch (err) {
+      setApiBaseMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSavingApiBase(false);
+    }
+  };
+
+  const handleClearApiBaseUrl = async () => {
+    setIsSavingApiBase(true);
+    setApiBaseMessage(null);
+    try {
+      await clearApiBaseUrlOverride();
+      await refreshPreviewApiDebug();
+      setLastNetworkError(null);
+      setApiBaseMessage("تم الرجوع للعنوان الافتراضي.");
+    } catch (err) {
+      setApiBaseMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSavingApiBase(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -177,6 +246,45 @@ export default function LoginScreen() {
             <View style={[styles.debugPanel, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
               <Text style={[styles.debugText, { color: colors.textSecondary }]}>API base: {previewApiDebug.baseUrl}</Text>
               <Text style={[styles.debugText, { color: colors.textSecondary }]}>Login URL: {previewApiDebug.loginUrl}</Text>
+              <TextInput
+                style={[
+                  styles.debugInput,
+                  {
+                    borderColor: colors.border,
+                    color: colors.text,
+                    backgroundColor: colors.surface,
+                  },
+                ]}
+                value={apiBaseInput}
+                onChangeText={setApiBaseInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                placeholder="http://192.168.0.40:8080"
+                placeholderTextColor={colors.textTertiary}
+                textAlign="left"
+              />
+              <View style={styles.debugActions}>
+                <Pressable
+                  style={[styles.debugButton, { borderColor: colors.border }]}
+                  onPress={handleSaveApiBaseUrl}
+                  disabled={isSavingApiBase}
+                >
+                  <Text style={[styles.debugButtonText, { color: COLORS.primary }]}>
+                    {isSavingApiBase ? "..." : "حفظ"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.debugButton, { borderColor: colors.border }]}
+                  onPress={handleClearApiBaseUrl}
+                  disabled={isSavingApiBase}
+                >
+                  <Text style={[styles.debugButtonText, { color: colors.textSecondary }]}>استعادة</Text>
+                </Pressable>
+              </View>
+              {apiBaseMessage ? (
+                <Text style={[styles.debugMessage, { color: colors.textSecondary }]}>{apiBaseMessage}</Text>
+              ) : null}
               <Text style={[styles.debugText, { color: colors.textSecondary }]}>
                 Network: {lastNetworkError ? `${lastNetworkError.name}: ${lastNetworkError.message}` : "not tested"}
               </Text>
@@ -201,16 +309,21 @@ const styles = StyleSheet.create({
   logoSection: { alignItems: "center", paddingVertical: 12 },
   brandLogo: { width: 260, height: 104 },
   card: { borderRadius: 24, padding: 24, gap: 16, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
-  cardTitle: { fontWeight: "700", fontSize: 22, textAlign: "center" },
+  cardTitle: { ...FONT.bold, fontSize: 22, textAlign: "center" },
   field: { gap: 6 },
-  fieldLabel: { fontWeight: "600", fontSize: 13 },
+  fieldLabel: { ...FONT.semiBold, fontSize: 13 },
   inputWrapper: { flexDirection: "row", alignItems: "center", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
-  input: { flex: 1, fontWeight: "400", fontSize: 15 },
+  input: { flex: 1, ...FONT.regular, fontSize: 15 },
   loginBtn: { borderRadius: 16, overflow: "hidden", marginTop: 4 },
   loginGrad: { paddingVertical: 16, alignItems: "center" },
-  loginText: { fontWeight: "700", fontSize: 17, color: "#fff" },
+  loginText: { ...FONT.bold, fontSize: 17, color: "#fff" },
   debugPanel: { borderWidth: 1, borderRadius: 10, padding: 10, gap: 4 },
   debugText: { fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }), fontSize: 11, lineHeight: 16, textAlign: "left" },
+  debugInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }), fontSize: 11 },
+  debugActions: { flexDirection: "row", gap: 8 },
+  debugButton: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  debugButtonText: { ...FONT.bold, fontSize: 12 },
+  debugMessage: { fontSize: 11, textAlign: "left" },
   registerLink: { alignItems: "center", paddingVertical: 4 },
-  registerLinkText: { fontWeight: "600", fontSize: 14 },
+  registerLinkText: { ...FONT.semiBold, fontSize: 14 },
 });

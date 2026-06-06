@@ -12,6 +12,7 @@ import {
   View,
   useColorScheme,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
@@ -190,16 +191,16 @@ export default function BooksScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   headerBar: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12, gap: 10 },
-  headerTitle: { fontWeight: "700", fontSize: 22, textAlign: "right" },
+  headerTitle: { ...FONT.bold, fontSize: 22, textAlign: "right" },
   searchBox: { flexDirection: "row", alignItems: "center", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, gap: 8 },
-  searchInput: { flex: 1, fontWeight: "400", fontSize: 14 },
+  searchInput: { flex: 1, ...FONT.regular, fontSize: 14 },
   categoryBar: { paddingHorizontal: 20, paddingVertical: 8 },
   catChip: { borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, marginLeft: 8 },
-  catChipText: { fontWeight: "600", fontSize: 13 },
+  catChipText: { ...FONT.semiBold, fontSize: 13 },
   resultsRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, marginBottom: 8 },
-  resultsText: { fontWeight: "400", fontSize: 13 },
+  resultsText: { ...FONT.regular, fontSize: 13 },
   pointsIndicator: { flexDirection: "row", alignItems: "center", gap: 4 },
-  userPoints: { fontWeight: "600", fontSize: 13, color: COLORS.accent },
+  userPoints: { ...FONT.semiBold, fontSize: 13, color: COLORS.accent },
   list: { paddingHorizontal: 12, paddingBottom: 100 },
   row: { justifyContent: "space-between", marginBottom: 12 },
   bookCard: { width: "48%", borderRadius: 18, overflow: "hidden", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 3 },
@@ -207,16 +208,16 @@ const styles = StyleSheet.create({
   ownedBadge: { position: "absolute", top: 8, left: 8, backgroundColor: COLORS.success, borderRadius: 10, padding: 3 },
   bookInfo: { padding: 12, gap: 5 },
   categoryBadge: { alignSelf: "flex-end", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  categoryText: { fontWeight: "600", fontSize: 10 },
-  bookTitle: { fontWeight: "700", fontSize: 13, textAlign: "right" },
-  bookAuthor: { fontWeight: "400", fontSize: 11, textAlign: "right" },
+  categoryText: { ...FONT.semiBold, fontSize: 10 },
+  bookTitle: { ...FONT.bold, fontSize: 13, textAlign: "right" },
+  bookAuthor: { ...FONT.regular, fontSize: 11, textAlign: "right" },
   bookFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 },
   ratingRow: { flexDirection: "row", alignItems: "center", gap: 3 },
-  ratingText: { fontWeight: "400", fontSize: 12 },
+  ratingText: { ...FONT.regular, fontSize: 12 },
   priceTag: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#F59E0B22", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
-  priceText: { fontWeight: "700", fontSize: 12, color: COLORS.accent },
+  priceText: { ...FONT.bold, fontSize: 12, color: COLORS.accent },
   ownedTag: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
-  ownedTagText: { fontWeight: "600", fontSize: 11 },
+  ownedTagText: { ...FONT.semiBold, fontSize: 11 },
   empty: { alignItems: "center", justifyContent: "center", padding: 60, gap: 16 },
-  emptyText: { fontWeight: "400", fontSize: 16 },
+  emptyText: { ...FONT.regular, fontSize: 16 },
 });

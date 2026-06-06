@@ -18,6 +18,7 @@ import {
   type TextInputContentSizeChangeEventData,
   View,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -743,11 +744,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary + "10",
   },
   guestTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 24,
   },
   guestText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 14,
     lineHeight: 23,
     textAlign: "center",
@@ -762,7 +763,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   loginButtonText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     color: "#fff",
   },
@@ -785,7 +786,7 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
   },
   pageBackText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 15,
     lineHeight: 24,
   },
@@ -810,7 +811,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   logoutText: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 13,
   },
   profileHeaderRow: {
@@ -853,7 +854,7 @@ const styles = StyleSheet.create({
     borderColor: "#fff",
   },
   avatarText: {
-    fontWeight: "700",
+    ...FONT.bold,
     color: "#fff",
     fontSize: 38,
   },
@@ -867,7 +868,7 @@ const styles = StyleSheet.create({
   userName: {
     alignSelf: "center",
     width: "100%",
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 26,
     lineHeight: 42,
     minHeight: 44,
@@ -880,7 +881,7 @@ const styles = StyleSheet.create({
   userEmail: {
     alignSelf: "center",
     width: "100%",
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 14,
     textAlign: "center",
     flexShrink: 1,
@@ -902,7 +903,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   roleBadgeText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 12,
     color: "#fff",
   },
@@ -912,7 +913,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   joinedText: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 11,
   },
   infoCard: {
@@ -933,7 +934,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   cardTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 18,
     textAlign: "right",
   },
@@ -945,7 +946,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   editText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 13,
     color: COLORS.primary,
   },
@@ -956,7 +957,7 @@ const styles = StyleSheet.create({
   },
   cancelButton: { minHeight: 40, justifyContent: "center", paddingHorizontal: 6 },
   cancelText: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 13,
   },
   saveButton: {
@@ -969,7 +970,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   saveText: {
-    fontWeight: "700",
+    ...FONT.bold,
     color: "#fff",
     fontSize: 12,
   },
@@ -984,7 +985,7 @@ const styles = StyleSheet.create({
   },
   infoTextBlock: { flex: 1, alignItems: "stretch", minWidth: 0 },
   infoLabel: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 12,
     width: "100%",
     textAlign: "right",
@@ -994,7 +995,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   infoValue: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     lineHeight: 24,
     paddingTop: 2,
@@ -1012,14 +1013,14 @@ const styles = StyleSheet.create({
     paddingTop: 2,
   },
   infoRtlValueToken: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     lineHeight: 24,
   },
   formGrid: { gap: 12 },
   inputGroup: { gap: 6 },
   inputLabel: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 12,
     textAlign: "right",
   },
@@ -1028,7 +1029,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 14,
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 14,
   },
   selectInput: {
@@ -1039,7 +1040,7 @@ const styles = StyleSheet.create({
   },
   selectValue: {
     flex: 1,
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 14,
   },
   selectIcon: {
@@ -1083,7 +1084,7 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   governorateSheetTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     lineHeight: 26,
     textAlign: "center",
@@ -1102,7 +1103,7 @@ const styles = StyleSheet.create({
     right: 0,
   },
   governorateNavButtonText: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 15,
   },
   governorateList: {
@@ -1131,7 +1132,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 48,
     right: 16,
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 14,
   },
   governorateOptionCheck: {
@@ -1170,12 +1171,12 @@ const styles = StyleSheet.create({
   },
   actionTextBlock: { flex: 1, alignItems: "flex-end" },
   actionTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     textAlign: "right",
   },
   actionSubtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 14,
     lineHeight: 22,
     textAlign: "right",

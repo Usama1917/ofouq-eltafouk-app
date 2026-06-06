@@ -9,6 +9,7 @@ import { Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
+import { FONT } from "@/constants/typography";
 import { usePreferences } from "@/contexts/PreferencesContext";
 
 function NativeTabLayout() {
@@ -70,7 +71,7 @@ function ClassicTabLayout() {
             <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.surface }]} />
           ) : null,
         tabBarLabelStyle: {
-          fontWeight: "400",
+          ...FONT.regular,
           fontSize: 11,
           writingDirection: direction,
         },

@@ -52,3 +52,9 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Firebase/EAS private credential files. Do not commit service account keys.
+*service-account*.json
+*firebase-adminsdk*.json
+*fcm*.json
+!artifacts/ofouq-mobile/google-services.json

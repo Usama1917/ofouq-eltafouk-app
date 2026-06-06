@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import type { TextStyle, ViewStyle } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -394,7 +395,7 @@ export default function NotificationsScreen() {
         ]}
       >
         <BlurView
-          intensity={resolvedScheme === "dark" ? 34 : 58}
+          intensity={resolvedScheme === "dark" ? 62 : 92}
           tint={resolvedScheme === "dark" ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
         />
@@ -404,8 +405,8 @@ export default function NotificationsScreen() {
             StyleSheet.absoluteFill,
             {
               backgroundColor: resolvedScheme === "dark"
-                ? "rgba(0,0,0,0.86)"
-                : "rgba(248,251,255,0.68)",
+                ? "rgba(0,0,0,0.92)"
+                : "rgba(248,251,255,0.92)",
             },
           ]}
         />
@@ -567,12 +568,12 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   title: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 29,
     lineHeight: 44,
   },
   subtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 15,
     lineHeight: 24,
   },
@@ -604,12 +605,12 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   summaryNumber: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 24,
     lineHeight: 34,
   },
   summaryLabel: {
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 13,
     lineHeight: 21,
   },
@@ -629,12 +630,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   retryText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 12,
     color: "#fff",
   },
   stateText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 13,
     lineHeight: 22,
   },
@@ -660,7 +661,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   sectionTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     lineHeight: 24,
   },
@@ -677,7 +678,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   clearButtonText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -701,7 +702,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   deleteText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 11,
     lineHeight: 16,
     color: COLORS.error,
@@ -760,12 +761,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   notificationTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 15,
     lineHeight: 24,
   },
   notificationTime: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -773,7 +774,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: "100%",
     alignSelf: "center",
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 13,
     lineHeight: 22,
     textAlign: "center",
@@ -799,12 +800,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary + "12",
   },
   emptyTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 18,
     lineHeight: 28,
   },
   emptyText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 13,
     lineHeight: 22,
   },

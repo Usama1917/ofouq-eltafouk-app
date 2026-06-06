@@ -18,6 +18,7 @@ import {
   UIManager,
   View,
 } from "react-native";
+import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -496,7 +497,7 @@ export default function WatchHistoryScreen() {
         ]}
       >
         <BlurView
-          intensity={isDark ? 34 : 58}
+          intensity={isDark ? 62 : 92}
           tint={isDark ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
         />
@@ -504,7 +505,7 @@ export default function WatchHistoryScreen() {
           pointerEvents="none"
           style={[
             StyleSheet.absoluteFill,
-            { backgroundColor: isDark ? "rgba(0,0,0,0.86)" : "rgba(248,251,255,0.68)" },
+            { backgroundColor: isDark ? "rgba(0,0,0,0.92)" : "rgba(248,251,255,0.92)" },
           ]}
         />
         <View style={[styles.topBarContent, { paddingHorizontal: 18, flexDirection: rowDirection, direction }]}>
@@ -685,7 +686,7 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
   },
   pageBackText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 15,
     lineHeight: 24,
   },
@@ -701,13 +702,13 @@ const styles = StyleSheet.create({
   },
   titleBlock: { flex: 1, alignItems: "flex-end", justifyContent: "center" },
   title: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 27,
     lineHeight: 38,
     textAlign: "right",
   },
   subtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 15,
     lineHeight: 24,
     textAlign: "right",
@@ -734,12 +735,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   stateTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 16,
     textAlign: "center",
   },
   stateText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 13,
     lineHeight: 22,
     textAlign: "center",
@@ -753,7 +754,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   primaryButtonText: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     color: "#FFFFFF",
   },
@@ -793,12 +794,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   summaryTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 18,
     lineHeight: 29,
   },
   summarySubtitle: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 14,
     lineHeight: 22,
   },
@@ -810,7 +811,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     backgroundColor: COLORS.primary,
     color: "#FFFFFF",
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
@@ -828,13 +829,13 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(96,165,250,0.10)",
   },
   summaryMetricValue: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 15,
     lineHeight: 25,
     textAlign: "center",
   },
   summaryMetricLabel: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 11,
     lineHeight: 17,
     textAlign: "center",
@@ -906,18 +907,18 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   subjectTitle: {
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 18,
     lineHeight: 31,
   },
   subjectMeta: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 14,
     lineHeight: 22,
   },
   subjectPercent: {
     color: COLORS.primaryLight,
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 17,
     lineHeight: 27,
     textAlign: "left",
@@ -933,7 +934,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     backgroundColor: "rgba(148,163,184,0.12)",
-    fontWeight: "600",
+    ...FONT.semiBold,
     fontSize: 11,
     lineHeight: 17,
   },
@@ -941,7 +942,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   noLessonsText: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 13,
     lineHeight: 22,
     paddingVertical: 8,
@@ -1002,7 +1003,7 @@ const styles = StyleSheet.create({
   },
   lessonTitle: {
     flex: 1,
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 13,
     lineHeight: 23,
   },
@@ -1013,7 +1014,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     backgroundColor: "rgba(245,158,11,0.14)",
     color: COLORS.warning,
-    fontWeight: "700",
+    ...FONT.bold,
     fontSize: 10,
     lineHeight: 15,
   },
@@ -1022,7 +1023,7 @@ const styles = StyleSheet.create({
     color: COLORS.success,
   },
   lessonMeta: {
-    fontWeight: "400",
+    ...FONT.regular,
     fontSize: 11,
     lineHeight: 18,
   },
