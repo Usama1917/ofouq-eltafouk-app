@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "258072425661",
-    "project_id": "ofouq-eltafouk",
-    "storage_bucket": "ofouq-eltafouk.firebasestorage.app"
+    "project_number": "365543305542",
+    "project_id": "ofouq-eltafouk-2f04c",
+    "storage_bucket": "ofouq-eltafouk-2f04c.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:258072425661:android:bf2415cca7335d5af9b3d4",
+        "mobilesdk_app_id": "1:365543305542:android:30250c2e0c8d8f77113547",
         "android_client_info": {
           "package_name": "com.ofouqeltafouk.mobile"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyB5186T8CUasTq_ZAUH_p3CZn9f3TThxrc"
+          "current_key": "AIzaSyBAFbhYKW0iykex8f5HIwMScjXwUUAbEv0"
         }
       ],
       "services": {
