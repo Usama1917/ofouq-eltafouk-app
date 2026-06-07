@@ -1322,6 +1322,7 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
                                 </div>
                                 <p className="text-[11px] text-muted-foreground">{formatAdminDateTime(r.submittedAt)}</p>
                                 {r.reviewNotes ? <p className="mt-1 text-[11px] text-muted-foreground">ملاحظة: {r.reviewNotes}</p> : null}
+                                {r.codeImageUrl ? <a href={r.codeImageUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[11px] font-bold text-primary hover:underline">عرض إثبات الدفع</a> : null}
                               </div>
                             );
                           })}
