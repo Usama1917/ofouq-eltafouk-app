@@ -24,7 +24,12 @@ import {
   subjectsTable,
   unitsTable,
   subjectSubscriptionsTable,
+  subjectSubscriptionRequestsTable,
   lessonWatchProgressTable,
+  notificationsTable,
+  pushNotificationTokensTable,
+  supportConversationsTable,
+  supportMessagesTable,
 } from "@workspace/db";
 import { eq, ne, and, count, sql, desc, asc, or } from "drizzle-orm";
 
@@ -212,6 +217,248 @@ router.get("/admin/users", async (req, res) => {
     res.json(users);
   } catch (err) {
     req.log.error({ err }, "List users error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// --- Admin auth helpers (the legacy CRUD routes above predate auth; the detail
+//     endpoint below is admin/owner-only). Mirrors the pattern in notifications.ts. ---
+function parseSessionUserId(req: any): number | null {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  if (!token?.startsWith("session_")) return null;
+  const parsed = Number.parseInt(token.replace("session_", ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+async function requireAdminActor(req: any, res: any) {
+  const actorId = parseSessionUserId(req);
+  if (!actorId) {
+    res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
+    return null;
+  }
+  const [actor] = await db
+    .select({ id: usersTable.id, role: usersTable.role, status: usersTable.status })
+    .from(usersTable)
+    .where(eq(usersTable.id, actorId))
+    .limit(1);
+  if (!actor || actor.status !== "active") {
+    res.status(401).json({ error: "غير مصرح" });
+    return null;
+  }
+  if (actor.role !== "admin" && actor.role !== "owner") {
+    res.status(403).json({ error: "هذا الإجراء متاح للمشرفين فقط" });
+    return null;
+  }
+  return actor;
+}
+
+function maskPushToken(token: string) {
+  if (!token || token.length <= 16) return "•••";
+  return `${token.slice(0, 18)}…`;
+}
+
+// Full structured details for a single user (admin/owner only). Student-focused,
+// but returns safely-empty sections for any role. Never returns password or full tokens.
+router.get("/admin/users/:userId/details", async (req, res) => {
+  if (!(await requireAdminActor(req, res))) return;
+  try {
+    const userId = Number.parseInt(req.params.userId, 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      res.status(400).json({ error: "معرّف المستخدم غير صالح" });
+      return;
+    }
+
+    const [user] = await db
+      .select({
+        id: usersTable.id,
+        name: usersTable.name,
+        email: usersTable.email,
+        role: usersTable.role,
+        status: usersTable.status,
+        avatarUrl: usersTable.avatarUrl,
+        phone: usersTable.phone,
+        parentPhone: usersTable.parentPhone,
+        age: usersTable.age,
+        address: usersTable.address,
+        governorate: usersTable.governorate,
+        specialty: usersTable.specialty,
+        qualifications: usersTable.qualifications,
+        howDidYouHear: usersTable.howDidYouHear,
+        supportNeeded: usersTable.supportNeeded,
+        bio: usersTable.bio,
+        joinedAt: usersTable.joinedAt,
+        lastActiveAt: usersTable.lastActiveAt,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+
+    if (!user) {
+      res.status(404).json({ error: "المستخدم غير موجود" });
+      return;
+    }
+
+    const [subscriptions, subscriptionRequests, progressRows, deviceRows, supportConvs, notifAgg] =
+      await Promise.all([
+        db
+          .select({
+            id: subjectSubscriptionsTable.id,
+            status: subjectSubscriptionsTable.status,
+            source: subjectSubscriptionsTable.source,
+            createdAt: subjectSubscriptionsTable.createdAt,
+            updatedAt: subjectSubscriptionsTable.updatedAt,
+            subjectId: subjectsTable.id,
+            subjectName: subjectsTable.name,
+            subjectIcon: subjectsTable.icon,
+            yearName: academicYearsTable.name,
+          })
+          .from(subjectSubscriptionsTable)
+          .leftJoin(subjectsTable, eq(subjectSubscriptionsTable.subjectId, subjectsTable.id))
+          .leftJoin(academicYearsTable, eq(subjectSubscriptionsTable.yearId, academicYearsTable.id))
+          .where(eq(subjectSubscriptionsTable.studentId, userId))
+          .orderBy(desc(subjectSubscriptionsTable.createdAt)),
+        db
+          .select({
+            id: subjectSubscriptionRequestsTable.id,
+            status: subjectSubscriptionRequestsTable.status,
+            reviewNotes: subjectSubscriptionRequestsTable.reviewNotes,
+            codeImageUrl: subjectSubscriptionRequestsTable.codeImageUrl,
+            submittedAt: subjectSubscriptionRequestsTable.submittedAt,
+            reviewedAt: subjectSubscriptionRequestsTable.reviewedAt,
+            subjectName: subjectsTable.name,
+            yearName: academicYearsTable.name,
+          })
+          .from(subjectSubscriptionRequestsTable)
+          .leftJoin(subjectsTable, eq(subjectSubscriptionRequestsTable.subjectId, subjectsTable.id))
+          .leftJoin(academicYearsTable, eq(subjectSubscriptionRequestsTable.yearId, academicYearsTable.id))
+          .where(eq(subjectSubscriptionRequestsTable.studentId, userId))
+          .orderBy(desc(subjectSubscriptionRequestsTable.submittedAt)),
+        db
+          .select({
+            id: lessonWatchProgressTable.id,
+            currentSeconds: lessonWatchProgressTable.currentSeconds,
+            durationSeconds: lessonWatchProgressTable.durationSeconds,
+            completed: lessonWatchProgressTable.completed,
+            lastWatchedAt: lessonWatchProgressTable.lastWatchedAt,
+            lessonTitle: lessonsTable.title,
+            subjectName: subjectsTable.name,
+          })
+          .from(lessonWatchProgressTable)
+          .leftJoin(lessonsTable, eq(lessonWatchProgressTable.lessonId, lessonsTable.id))
+          .leftJoin(unitsTable, eq(lessonsTable.unitId, unitsTable.id))
+          .leftJoin(subjectsTable, eq(unitsTable.subjectId, subjectsTable.id))
+          .where(eq(lessonWatchProgressTable.studentId, userId))
+          .orderBy(desc(lessonWatchProgressTable.lastWatchedAt)),
+        db
+          .select({
+            id: pushNotificationTokensTable.id,
+            token: pushNotificationTokensTable.token,
+            platform: pushNotificationTokensTable.platform,
+            deviceName: pushNotificationTokensTable.deviceName,
+            disabledAt: pushNotificationTokensTable.disabledAt,
+            lastRegisteredAt: pushNotificationTokensTable.lastRegisteredAt,
+            lastSeenAt: pushNotificationTokensTable.lastSeenAt,
+          })
+          .from(pushNotificationTokensTable)
+          .where(eq(pushNotificationTokensTable.userId, userId))
+          .orderBy(desc(pushNotificationTokensTable.lastSeenAt)),
+        db
+          .select({
+            id: supportConversationsTable.id,
+            status: supportConversationsTable.status,
+            lastMessageAt: supportConversationsTable.lastMessageAt,
+          })
+          .from(supportConversationsTable)
+          .where(eq(supportConversationsTable.userId, userId))
+          .limit(1),
+        db
+          .select({
+            total: count(),
+            unread: sql<number>`count(*) filter (where ${notificationsTable.readAt} is null)`,
+          })
+          .from(notificationsTable)
+          .where(eq(notificationsTable.userId, userId)),
+      ]);
+
+    // Support message summary (only if a conversation exists)
+    let support = {
+      hasConversation: false,
+      status: null as string | null,
+      messagesCount: 0,
+      unreadCount: 0,
+      lastMessageAt: null as Date | null,
+      lastMessagePreview: null as string | null,
+    };
+    if (supportConvs.length > 0) {
+      const conv = supportConvs[0];
+      const [[msgAgg], [lastMsg]] = await Promise.all([
+        db
+          .select({
+            total: count(),
+            unread: sql<number>`count(*) filter (where ${supportMessagesTable.readAt} is null and ${supportMessagesTable.senderRole} = 'user')`,
+          })
+          .from(supportMessagesTable)
+          .where(eq(supportMessagesTable.conversationId, conv.id)),
+        db
+          .select({ body: supportMessagesTable.body, createdAt: supportMessagesTable.createdAt })
+          .from(supportMessagesTable)
+          .where(eq(supportMessagesTable.conversationId, conv.id))
+          .orderBy(desc(supportMessagesTable.createdAt))
+          .limit(1),
+      ]);
+      support = {
+        hasConversation: true,
+        status: conv.status,
+        messagesCount: Number(msgAgg?.total ?? 0),
+        unreadCount: Number(msgAgg?.unread ?? 0),
+        lastMessageAt: conv.lastMessageAt ?? lastMsg?.createdAt ?? null,
+        lastMessagePreview: lastMsg?.body ? lastMsg.body.slice(0, 160) : null,
+      };
+    }
+
+    const completedLessonsCount = progressRows.filter((row) => row.completed).length;
+    const activity = {
+      watchedLessonsCount: progressRows.length,
+      completedLessonsCount,
+      lastWatchedAt: progressRows[0]?.lastWatchedAt ?? null,
+      lastWatchedLessonTitle: progressRows[0]?.lessonTitle ?? null,
+      recent: progressRows.slice(0, 8).map((row) => ({
+        lessonTitle: row.lessonTitle,
+        subjectName: row.subjectName,
+        completed: row.completed,
+        progressPercent:
+          row.durationSeconds && row.durationSeconds > 0
+            ? Math.min(100, Math.round((row.currentSeconds / row.durationSeconds) * 100))
+            : null,
+        lastWatchedAt: row.lastWatchedAt,
+      })),
+    };
+
+    const devices = deviceRows.map((row) => ({
+      id: row.id,
+      platform: row.platform,
+      deviceName: row.deviceName,
+      tokenPreview: maskPushToken(row.token),
+      enabled: row.disabledAt == null,
+      lastRegisteredAt: row.lastRegisteredAt,
+      lastSeenAt: row.lastSeenAt,
+    }));
+
+    res.json({
+      user,
+      hasActiveAccess: subscriptions.some((s) => s.status === "active"),
+      subscriptions,
+      subscriptionRequests,
+      activity,
+      support,
+      notifications: {
+        total: Number(notifAgg[0]?.total ?? 0),
+        unread: Number(notifAgg[0]?.unread ?? 0),
+      },
+      devices,
+    });
+  } catch (err) {
+    req.log.error({ err }, "User details error");
     res.status(500).json({ error: "Internal server error" });
   }
 });

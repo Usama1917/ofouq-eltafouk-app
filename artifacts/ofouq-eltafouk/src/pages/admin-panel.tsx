@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence, useReducedMotion, type Variants } from "framer-motion";
 import { 
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, 
   Flag, Megaphone, Plus, Edit, Trash2, Eye, Check, X, ArrowUp, ArrowDown,
   TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap, ImagePlus, TicketPercent, Truck, Send, ChevronDown,
-  Sun, Moon, Bot, Search
+  Sun, Moon, Bot, Search, Info, Phone, MapPin, BookMarked, Activity, Bell, Smartphone, Mail, CalendarClock, ShieldCheck
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
@@ -15,6 +16,7 @@ import {
   useListModeratorPosts, useDeleteModeratorPost,
   useListAdminReports, useResolveAdminReport,
   useListAdminBanners, useCreateAdminBanner, useUpdateAdminBanner, useDeleteAdminBanner,
+  customFetch,
 } from "@workspace/api-client-react";
 import { Logo } from "@/components/logo";
 import { AcademicTab } from "./admin-academic";
@@ -1111,6 +1113,299 @@ function MaterialsTab() {
 }
 
 // ── Users Tab ─────────────────────────────────────────────────────────────
+// ── Student / user details drawer ─────────────────────────────────────────
+type StudentDetailsResponse = {
+  user: {
+    id: number; name: string; email: string; role: string; status: string;
+    avatarUrl?: string | null; phone?: string | null; parentPhone?: string | null;
+    age?: number | null; address?: string | null; governorate?: string | null;
+    specialty?: string | null; qualifications?: string | null; howDidYouHear?: string | null;
+    supportNeeded?: string | null; bio?: string | null;
+    joinedAt?: string | null; lastActiveAt?: string | null;
+  };
+  hasActiveAccess: boolean;
+  subscriptions: Array<{ id: number; status: string; source?: string | null; createdAt?: string | null; updatedAt?: string | null; subjectName?: string | null; subjectIcon?: string | null; yearName?: string | null }>;
+  subscriptionRequests: Array<{ id: number; status: string; reviewNotes?: string | null; codeImageUrl?: string | null; submittedAt?: string | null; reviewedAt?: string | null; subjectName?: string | null; yearName?: string | null }>;
+  activity: { watchedLessonsCount: number; completedLessonsCount: number; lastWatchedAt?: string | null; lastWatchedLessonTitle?: string | null; recent: Array<{ lessonTitle?: string | null; subjectName?: string | null; completed: boolean; progressPercent?: number | null; lastWatchedAt?: string | null }> };
+  support: { hasConversation: boolean; status?: string | null; messagesCount: number; unreadCount: number; lastMessageAt?: string | null; lastMessagePreview?: string | null };
+  notifications: { total: number; unread: number };
+  devices: Array<{ id: number; platform: string; deviceName?: string | null; tokenPreview: string; enabled: boolean; lastRegisteredAt?: string | null; lastSeenAt?: string | null }>;
+};
+
+const DETAIL_ROLE_LABELS: Record<string, string> = { student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", moderator: "مشرف", owner: "مالك" };
+const DETAIL_ROLE_COLORS: Record<string, string> = { student: "bg-blue-100 text-blue-700", teacher: "bg-emerald-100 text-emerald-700", parent: "bg-amber-100 text-amber-700", admin: "bg-violet-100 text-violet-700", moderator: "bg-violet-100 text-violet-700", owner: "bg-rose-100 text-rose-700" };
+
+function detailStatusBadge(status?: string | null): { label: string; cls: string } {
+  switch (status) {
+    case "active": return { label: "نشط", cls: "bg-emerald-100 text-emerald-700" };
+    case "approved": return { label: "مقبول", cls: "bg-emerald-100 text-emerald-700" };
+    case "pending": return { label: "قيد المراجعة", cls: "bg-amber-100 text-amber-700" };
+    case "rejected": return { label: "مرفوض", cls: "bg-red-100 text-red-600" };
+    case "suspended": return { label: "موقوف", cls: "bg-red-100 text-red-600" };
+    case "expired": return { label: "منتهٍ", cls: "bg-slate-100 text-slate-600" };
+    case "open": return { label: "مفتوحة", cls: "bg-emerald-100 text-emerald-700" };
+    case "closed": return { label: "مغلقة", cls: "bg-slate-100 text-slate-600" };
+    default: return { label: status || "—", cls: "bg-muted text-muted-foreground" };
+  }
+}
+
+function DetailRow({ label, value, icon: Icon }: { label: string; value?: React.ReactNode; icon?: any }) {
+  const empty = value == null || value === "";
+  return (
+    <div className="flex items-start justify-between gap-3 border-b border-border/40 py-2 last:border-0">
+      <span className="flex shrink-0 items-center gap-1.5 text-xs font-bold text-muted-foreground">
+        {Icon ? <Icon className="h-3.5 w-3.5" /> : null}{label}
+      </span>
+      <span className={`text-left text-sm ${empty ? "text-muted-foreground/60" : "font-semibold text-foreground"}`} dir="auto">
+        {empty ? "—" : value}
+      </span>
+    </div>
+  );
+}
+
+function DetailSection({ title, icon: Icon, children, badge }: { title: string; icon: any; children: React.ReactNode; badge?: React.ReactNode }) {
+  return (
+    <div className="glass-card p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="flex items-center gap-2 text-sm font-black text-foreground"><Icon className="h-4 w-4 text-primary" />{title}</h4>
+        {badge}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function DetailEmpty({ text }: { text: string }) {
+  return <p className="py-2 text-center text-xs text-muted-foreground">{text}</p>;
+}
+
+function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | null; onClose: () => void }) {
+  const open = user != null;
+  const { data, isLoading, isError, refetch } = useQuery<StudentDetailsResponse>({
+    queryKey: ["/api/admin/users", user?.id, "details"],
+    queryFn: () => customFetch<StudentDetailsResponse>(`/api/admin/users/${user!.id}/details`, { method: "GET" }),
+    enabled: open,
+    staleTime: 30_000,
+  });
+
+  const u = data?.user ?? (user ? { ...user } : null);
+  const role = u?.role ?? "";
+  const title = role === "student" || role === "" ? "تفاصيل الطالب" : "تفاصيل المستخدم";
+  const statusInfo = detailStatusBadge(u?.status);
+
+  return (
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          className="fixed inset-0 z-[60] flex justify-start bg-slate-950/45 backdrop-blur-sm"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }}
+            transition={{ type: "tween", duration: 0.22 }}
+            className="h-full w-full max-w-xl overflow-y-auto border-l border-white/60 bg-[#f6f8fc] text-right shadow-2xl dark:border-white/10 dark:bg-[#17181b]"
+            onClick={(e) => e.stopPropagation()}
+            dir="rtl"
+          >
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/50 bg-[#f6f8fc]/90 px-5 py-4 backdrop-blur dark:bg-[#17181b]/90">
+              <h3 className="text-lg font-black text-foreground">{title}</h3>
+              <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground hover:text-foreground" aria-label="إغلاق">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              {/* Header card */}
+              <div className="glass-card flex items-center gap-4 p-4">
+                {u?.avatarUrl ? (
+                  <img src={u.avatarUrl} alt={u.name} className="h-16 w-16 rounded-2xl object-cover" />
+                ) : (
+                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-xl font-black text-primary">
+                    {(u?.name || "?").trim().charAt(0)}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-base font-black text-foreground">{u?.name || "—"}</p>
+                  <p className="truncate text-xs text-muted-foreground" dir="ltr">{u?.email || "—"}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${DETAIL_ROLE_COLORS[role] || "bg-muted text-muted-foreground"}`}>{DETAIL_ROLE_LABELS[role] || role || "—"}</span>
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${statusInfo.cls}`}>{statusInfo.label}</span>
+                    {data ? (
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${data.hasActiveAccess ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                        {data.hasActiveAccess ? "مشترك حاليًا" : "بدون اشتراك"}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              {isLoading ? (
+                <div className="space-y-3">
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="glass-card space-y-3 p-4">
+                      <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
+                      <div className="h-3 w-full animate-pulse rounded bg-muted" />
+                      <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+                    </div>
+                  ))}
+                </div>
+              ) : isError ? (
+                <div className="glass-card p-6 text-center">
+                  <p className="text-sm font-bold text-red-600">تعذّر تحميل تفاصيل المستخدم.</p>
+                  <button onClick={() => refetch()} className="mt-3 rounded-lg bg-muted px-4 py-2 text-xs font-bold hover:bg-muted/80">إعادة المحاولة</button>
+                </div>
+              ) : data ? (
+                <>
+                  {/* Section 1: account info */}
+                  <DetailSection title="بيانات الحساب" icon={ShieldCheck}>
+                    <DetailRow label="معرّف المستخدم" value={`#${data.user.id}`} />
+                    <DetailRow label="الدور" value={DETAIL_ROLE_LABELS[data.user.role] || data.user.role} />
+                    <DetailRow label="الحالة" value={<span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${statusInfo.cls}`}>{statusInfo.label}</span>} />
+                    <DetailRow label="البريد الإلكتروني" icon={Mail} value={<span dir="ltr">{data.user.email}</span>} />
+                    <DetailRow label="رقم الهاتف" icon={Phone} value={data.user.phone ? <span dir="ltr">{data.user.phone}</span> : null} />
+                    <DetailRow label="تاريخ الانضمام" icon={CalendarClock} value={formatAdminDateTime(data.user.joinedAt)} />
+                    <DetailRow label="آخر نشاط" icon={Activity} value={data.user.lastActiveAt ? formatAdminDateTime(data.user.lastActiveAt) : null} />
+                  </DetailSection>
+
+                  {/* Section 2: profile data */}
+                  <DetailSection title="بيانات الطالب" icon={Info}>
+                    {[data.user.parentPhone, data.user.address, data.user.governorate, data.user.age, data.user.specialty, data.user.qualifications, data.user.howDidYouHear, data.user.supportNeeded, data.user.bio].every((v) => v == null || v === "") ? (
+                      <DetailEmpty text="لا توجد بيانات إضافية" />
+                    ) : (
+                      <>
+                        <DetailRow label="هاتف ولي الأمر" icon={Phone} value={data.user.parentPhone ? <span dir="ltr">{data.user.parentPhone}</span> : null} />
+                        <DetailRow label="المحافظة" icon={MapPin} value={data.user.governorate} />
+                        <DetailRow label="العنوان" icon={MapPin} value={data.user.address} />
+                        <DetailRow label="السن" value={data.user.age != null ? String(data.user.age) : null} />
+                        <DetailRow label="التخصص" value={data.user.specialty} />
+                        <DetailRow label="المؤهلات" value={data.user.qualifications} />
+                        <DetailRow label="كيف عرف عنا" value={data.user.howDidYouHear} />
+                        <DetailRow label="الدعم المطلوب" value={data.user.supportNeeded} />
+                        <DetailRow label="نبذة" value={data.user.bio} />
+                      </>
+                    )}
+                  </DetailSection>
+
+                  {/* Section 3: subscriptions */}
+                  <DetailSection title="الاشتراكات" icon={BookMarked}
+                    badge={<span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground">{formatAdminNumber(data.subscriptions.length)}</span>}>
+                    {data.subscriptions.length === 0 ? (
+                      <DetailEmpty text="لا توجد اشتراكات" />
+                    ) : (
+                      <div className="space-y-2">
+                        {data.subscriptions.map((s) => {
+                          const sb = detailStatusBadge(s.status);
+                          return (
+                            <div key={s.id} className="flex items-center justify-between gap-2 rounded-xl bg-muted/40 px-3 py-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-bold text-foreground">{s.subjectIcon ? `${s.subjectIcon} ` : ""}{s.subjectName || "—"}</p>
+                                <p className="text-[11px] text-muted-foreground">{s.yearName || ""} · {formatAdminDateTime(s.createdAt)}</p>
+                              </div>
+                              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${sb.cls}`}>{sb.label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {data.subscriptionRequests.length > 0 ? (
+                      <div className="mt-3 border-t border-border/40 pt-3">
+                        <p className="mb-2 text-xs font-bold text-muted-foreground">طلبات الاشتراك</p>
+                        <div className="space-y-2">
+                          {data.subscriptionRequests.map((r) => {
+                            const rb = detailStatusBadge(r.status);
+                            return (
+                              <div key={r.id} className="rounded-xl bg-muted/40 px-3 py-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="truncate text-sm font-bold text-foreground">{r.subjectName || "—"}</p>
+                                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${rb.cls}`}>{rb.label}</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground">{formatAdminDateTime(r.submittedAt)}</p>
+                                {r.reviewNotes ? <p className="mt-1 text-[11px] text-muted-foreground">ملاحظة: {r.reviewNotes}</p> : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </DetailSection>
+
+                  {/* Section 4: learning activity */}
+                  <DetailSection title="النشاط التعليمي" icon={Activity}>
+                    <div className="mb-3 grid grid-cols-2 gap-2">
+                      <div className="rounded-xl bg-muted/40 p-3 text-center">
+                        <p className="text-lg font-black text-foreground">{formatAdminNumber(data.activity.watchedLessonsCount)}</p>
+                        <p className="text-[11px] text-muted-foreground">دروس تمت مشاهدتها</p>
+                      </div>
+                      <div className="rounded-xl bg-muted/40 p-3 text-center">
+                        <p className="text-lg font-black text-foreground">{formatAdminNumber(data.activity.completedLessonsCount)}</p>
+                        <p className="text-[11px] text-muted-foreground">دروس مكتملة</p>
+                      </div>
+                    </div>
+                    <DetailRow label="آخر درس" value={data.activity.lastWatchedLessonTitle} />
+                    <DetailRow label="آخر مشاهدة" value={data.activity.lastWatchedAt ? formatAdminDateTime(data.activity.lastWatchedAt) : null} />
+                    {data.activity.recent.length === 0 ? (
+                      <DetailEmpty text="لا يوجد نشاط حديث" />
+                    ) : (
+                      <div className="mt-2 space-y-1.5">
+                        {data.activity.recent.map((r, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-3 py-1.5">
+                            <p className="min-w-0 truncate text-xs font-semibold text-foreground">{r.lessonTitle || "—"}</p>
+                            <span className="shrink-0 text-[11px] text-muted-foreground">{r.completed ? "مكتمل" : r.progressPercent != null ? `${r.progressPercent}%` : ""}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </DetailSection>
+
+                  {/* Section 5: support + notifications */}
+                  <DetailSection title="الدعم والرسائل" icon={MessageSquare}
+                    badge={data.support.unreadCount > 0 ? <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-600">{formatAdminNumber(data.support.unreadCount)} غير مقروء</span> : undefined}>
+                    {data.support.hasConversation ? (
+                      <>
+                        <DetailRow label="حالة المحادثة" value={<span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${detailStatusBadge(data.support.status).cls}`}>{detailStatusBadge(data.support.status).label}</span>} />
+                        <DetailRow label="عدد الرسائل" value={formatAdminNumber(data.support.messagesCount)} />
+                        <DetailRow label="آخر رسالة" value={data.support.lastMessageAt ? formatAdminDateTime(data.support.lastMessageAt) : null} />
+                        {data.support.lastMessagePreview ? <DetailRow label="نص آخر رسالة" value={data.support.lastMessagePreview} /> : null}
+                      </>
+                    ) : (
+                      <DetailEmpty text="لا توجد محادثات دعم" />
+                    )}
+                    <div className="mt-2 border-t border-border/40 pt-2">
+                      <DetailRow label="الإشعارات" icon={Bell} value={`${formatAdminNumber(data.notifications.total)} (${formatAdminNumber(data.notifications.unread)} غير مقروء)`} />
+                    </div>
+                  </DetailSection>
+
+                  {/* Section 6: devices + push */}
+                  <DetailSection title="الأجهزة والإشعارات" icon={Smartphone}
+                    badge={<span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground">{formatAdminNumber(data.devices.length)}</span>}>
+                    {data.devices.length === 0 ? (
+                      <DetailEmpty text="لا توجد أجهزة مسجّلة" />
+                    ) : (
+                      <div className="space-y-2">
+                        {data.devices.map((d) => (
+                          <div key={d.id} className="rounded-xl bg-muted/40 px-3 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-bold text-foreground">{d.deviceName || d.platform}</p>
+                              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${d.enabled ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{d.enabled ? "مفعّل" : "معطّل"}</span>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground">{d.platform} · <span dir="ltr">{d.tokenPreview}</span></p>
+                            <p className="text-[11px] text-muted-foreground">آخر ظهور: {formatAdminDateTime(d.lastSeenAt)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </DetailSection>
+                </>
+              ) : null}
+            </div>
+          </motion.div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
 function UsersTab({
   selectedUserIds,
   onSelectedUserIdsChange,
@@ -1135,6 +1430,7 @@ function UsersTab({
   const [activityDaysPreset, setActivityDaysPreset] = useState("7");
   const [customActivityDays, setCustomActivityDays] = useState("");
   const [contactOpen, setContactOpen] = useState(false);
+  const [detailUser, setDetailUser] = useState<AdminUserListItem | null>(null);
 
   const ROLE_COLORS: Record<string, string> = { student: "bg-blue-100 text-blue-700", teacher: "bg-emerald-100 text-emerald-700", parent: "bg-amber-100 text-amber-700", admin: "bg-violet-100 text-violet-700", owner: "bg-rose-100 text-rose-700" };
   const ROLE_LABELS: Record<string, string> = { student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", owner: "مالك" };
@@ -1354,6 +1650,8 @@ function UsersTab({
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex gap-2">
+                      <button onClick={() => setDetailUser(u)} title="تفاصيل الطالب" aria-label="تفاصيل الطالب"
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-all"><Info className="h-3.5 w-3.5" />تفاصيل</button>
                       <button onClick={() => updateUser.mutate({ id: u.id, data: { status: u.status === "active" ? "suspended" : "active" } as any }, { onSuccess: () => refetch() })}
                         className="px-3 py-1.5 rounded-lg text-xs font-bold bg-muted hover:bg-muted/80 transition-all">{u.status === "active" ? "تعليق" : "تفعيل"}</button>
                       <button onClick={() => { if(confirm("هل أنت متأكد؟")) deleteUser.mutate({ id: u.id }, { onSuccess: () => refetch() }); }}
@@ -1439,6 +1737,8 @@ function UsersTab({
           </motion.div>
         ) : null}
       </AnimatePresence>
+
+      <StudentDetailsDrawer user={detailUser} onClose={() => setDetailUser(null)} />
 
     </div>
   );
