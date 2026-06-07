@@ -177,7 +177,7 @@ export default function LoginScreen() {
               style={[
                 styles.fieldLabel,
                 {
-                  alignSelf: isRTL ? "flex-end" : "flex-start",
+                  alignSelf: "stretch",
                   color: colors.textSecondary,
                   textAlign: isRTL ? "right" : "left",
                   writingDirection: direction,
@@ -206,7 +206,7 @@ export default function LoginScreen() {
               style={[
                 styles.fieldLabel,
                 {
-                  alignSelf: isRTL ? "flex-end" : "flex-start",
+                  alignSelf: "stretch",
                   color: colors.textSecondary,
                   textAlign: isRTL ? "right" : "left",
                   writingDirection: direction,

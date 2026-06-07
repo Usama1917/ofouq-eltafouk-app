@@ -43,6 +43,7 @@ function ClassicTabLayout() {
   const isDark = resolvedScheme === "dark";
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
+  const isAndroid = Platform.OS === "android";
   const safeAreaInsets = useSafeAreaInsets();
 
   return (
@@ -57,8 +58,14 @@ function ClassicTabLayout() {
           borderTopWidth: isWeb ? 1 : 0,
           borderTopColor: colors.border,
           elevation: 0,
-          paddingBottom: safeAreaInsets.bottom,
-          ...(isWeb ? { height: 84 } : {}),
+          // Android: lift the bar above the system nav/gesture area and give it
+          // enough height so the labels aren't clipped at the bottom.
+          paddingBottom: isAndroid ? safeAreaInsets.bottom + 12 : safeAreaInsets.bottom,
+          ...(isWeb
+            ? { height: 84 }
+            : isAndroid
+              ? { height: 64 + safeAreaInsets.bottom, paddingTop: 8 }
+              : {}),
         },
         tabBarBackground: () =>
           isIOS ? (

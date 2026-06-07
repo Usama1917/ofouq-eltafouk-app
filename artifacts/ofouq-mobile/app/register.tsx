@@ -602,7 +602,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   field: { gap: 6 },
-  fieldLabel: { ...FONT.semiBold, fontSize: 13, textAlign: "right" },
+  fieldLabel: { ...FONT.semiBold, fontSize: 13, textAlign: "right", alignSelf: "stretch" },
   inputWrapper: { flexDirection: "row", alignItems: "center", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
   input: { flex: 1, ...FONT.regular, fontSize: 15 },
   selectInput: {
