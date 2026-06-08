@@ -304,7 +304,7 @@ export default function SubscribeScreen() {
             <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
               <Ionicons name="key-outline" size={24} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
             </View>
-            <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+            <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
               <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={2}>
                 {toEnglishDigits(yearName ? `اشتراك مادة - ${yearName}` : "طلب اشتراك")}
               </Text>

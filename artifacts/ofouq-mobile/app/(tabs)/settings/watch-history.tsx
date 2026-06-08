@@ -256,7 +256,8 @@ function SubjectHistoryCard({
               style={[
                 styles.subjectHeaderText,
                 {
-                  alignItems: alignStart,
+                  direction: "ltr",
+                  alignItems: isRTL ? "flex-end" : "flex-start",
                   transform: [{ translateX: titleTranslateX }],
                 },
               ]}
@@ -366,7 +367,7 @@ function SubjectHistoryCard({
                       </View>
                     )}
 
-                    <View style={[styles.lessonBody, { alignItems: alignStart }]}>
+                    <View style={[styles.lessonBody, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                       <View style={[styles.lessonTitleLine, { flexDirection: rowDirection, direction }]}>
                         <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
                           {toEnglishDigits(lesson.title)}
@@ -516,7 +517,7 @@ export default function WatchHistoryScreen() {
               color={isDark ? COLORS.darkIconFrame.foreground : COLORS.primary}
             />
           </View>
-          <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+          <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
             <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
               {strings.settings.watchHistoryTitle}
             </Text>
@@ -580,7 +581,7 @@ export default function WatchHistoryScreen() {
               <View style={[styles.summaryIcon, isDark && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
                 <Feather name="bar-chart-2" size={22} color={isDark ? COLORS.darkIconFrame.foreground : COLORS.primary} />
               </View>
-              <View style={[styles.summaryTextBlock, { alignItems: alignStart }]}>
+              <View style={[styles.summaryTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                 <Text style={[styles.summaryTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
                   {strings.settings.subscriptions}
                 </Text>

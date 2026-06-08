@@ -240,7 +240,7 @@ export default function GeneralSettingsScreen() {
               color={isDark ? COLORS.darkIconFrame.foreground : COLORS.primary}
             />
           </View>
-          <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+          <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
             <Animated.Text style={[styles.title, { color: textColor, textAlign, writingDirection: direction }]}>
               {strings.settings.generalSettings}
             </Animated.Text>
@@ -339,7 +339,7 @@ export default function GeneralSettingsScreen() {
                         {option.mark}
                       </Text>
                     </View>
-                    <View style={[styles.optionTextBlock, { alignItems: alignStart }]}>
+                    <View style={[styles.optionTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                       <Text style={[styles.optionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
                         {option.title}
                       </Text>

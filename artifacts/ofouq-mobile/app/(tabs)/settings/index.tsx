@@ -100,7 +100,7 @@ export default function SettingsScreen() {
           <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
             <Feather name="settings" size={24} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
           </View>
-          <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+          <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
             <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
               {strings.settings.title}
             </Text>
@@ -146,7 +146,7 @@ export default function SettingsScreen() {
                   </Text>
                 )}
               </View>
-              <View style={[styles.accountTextBlock, { alignItems: alignStart }]}>
+              <View style={[styles.accountTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                 <Text style={[styles.accountTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
                   {user ? toEnglishDigits(user.name) : strings.common.signIn}
                 </Text>
@@ -198,7 +198,7 @@ export default function SettingsScreen() {
                   color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary}
                 />
               </View>
-              <View style={[styles.contactTextBlock, { alignItems: alignStart }]}>
+              <View style={[styles.contactTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                 <Text style={[styles.contactTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
                   {strings.settings.generalSettings}
                 </Text>
@@ -245,7 +245,7 @@ export default function SettingsScreen() {
               >
                 <Feather name="activity" size={23} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
               </View>
-              <View style={[styles.subscriptionTextBlock, { alignItems: alignStart }]}>
+              <View style={[styles.subscriptionTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                 <Text style={[styles.subscriptionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
                   {strings.settings.subscriptions}
                 </Text>
@@ -300,7 +300,7 @@ export default function SettingsScreen() {
                   <Feather name="phone" size={10} color="#FFFFFF" strokeWidth={2.6} />
                 </View>
               </View>
-              <View style={[styles.contactTextBlock, { alignItems: alignStart }]}>
+              <View style={[styles.contactTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                 <Text style={[styles.contactTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
                   {strings.settings.contactUs}
                 </Text>

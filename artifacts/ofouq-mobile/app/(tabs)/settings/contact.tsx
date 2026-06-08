@@ -73,7 +73,7 @@ function ContactOption({
         >
           <Feather name={icon} size={20} color={isDark ? COLORS.darkIconFrame.foreground : COLORS.primary} />
         </View>
-        <View style={[styles.optionTextBlock, { alignItems: alignStart }]}>
+        <View style={[styles.optionTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
           <Text style={[styles.optionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
             {title}
           </Text>
@@ -207,7 +207,7 @@ export default function ContactScreen() {
               <Feather name="phone" size={12} color="#FFFFFF" strokeWidth={2.6} />
             </View>
           </View>
-          <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+          <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
             <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
               {strings.settings.contactUs}
             </Text>

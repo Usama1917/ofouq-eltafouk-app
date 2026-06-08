@@ -331,7 +331,7 @@ export default function HomeScreen() {
                 <View style={[styles.statIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
                   <Feather name="video" size={21} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
                 </View>
-                <View style={[styles.statTextBlock, { alignItems: alignStart, direction }]}>
+                <View style={[styles.statTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                   <Text style={[styles.statValue, { color: colors.text, textAlign, writingDirection: direction }]}>
                     {isLoading ? "..." : formatNumber(years.length)}
                   </Text>

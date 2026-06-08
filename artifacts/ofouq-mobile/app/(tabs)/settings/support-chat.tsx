@@ -410,7 +410,7 @@ export default function SupportChatScreen() {
             <View style={styles.headerIcon}>
               <Feather name="headphones" size={24} color={COLORS.primary} />
             </View>
-            <View style={[styles.headerTextBlock, { alignItems: alignStart }]}>
+            <View style={[styles.headerTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
               <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
                 {strings.settings.supportChatTitle}
               </Text>

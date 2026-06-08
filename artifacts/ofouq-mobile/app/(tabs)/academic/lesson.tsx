@@ -213,7 +213,7 @@ export default function LessonDetailScreen() {
             </Pressable>
           </View>
 
-          <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+          <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
             <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
               {localizeAcademicText(lesson?.title ?? String(lessonTitle ?? strings.academic.lesson), language, lesson?.titleEn)}
             </Text>
@@ -281,7 +281,7 @@ export default function LessonDetailScreen() {
                       <Feather name="play" size={22} color={COLORS.primary} />
                     </View>
                   )}
-                  <View style={[styles.summaryText, { alignItems: alignStart }]}>
+                  <View style={[styles.summaryText, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                     <Text style={[styles.summaryTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
                       {localizeAcademicText(lesson.video.title, language, lesson.video.titleEn)}
                     </Text>

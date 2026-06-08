@@ -421,7 +421,7 @@ export default function NotificationsScreen() {
           <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
             <Feather name="bell" size={24} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
           </View>
-          <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+          <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
             <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
               {strings.notifications.title}
             </Text>
@@ -445,7 +445,7 @@ export default function NotificationsScreen() {
           <View style={styles.summaryIcon}>
             <Feather name="inbox" size={21} color={COLORS.primary} />
           </View>
-          <View style={[styles.summaryText, { alignItems: alignStart }]}>
+          <View style={[styles.summaryText, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
             <Text style={[styles.summaryNumber, { color: colors.text, textAlign, writingDirection: direction }]}>
               {toEnglishDigits(String(unreadCount))}
             </Text>

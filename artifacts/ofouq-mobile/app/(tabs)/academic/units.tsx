@@ -156,7 +156,7 @@ export default function UnitsScreen() {
                 <Ionicons name="layers-outline" size={24} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
               )}
             </View>
-            <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+            <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
               <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>{displayTitle}</Text>
               <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
                 {unitCopy.choose}
@@ -202,7 +202,7 @@ export default function UnitsScreen() {
                 {toEnglishDigits(index + 1)}
               </Text>
             </View>
-            <View style={[styles.unitBody, { alignItems: alignStart }]}>
+            <View style={[styles.unitBody, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
               <Text style={[styles.unitTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={2}>
                 {localizeAcademicText(item.name, language, item.nameEn)}
               </Text>

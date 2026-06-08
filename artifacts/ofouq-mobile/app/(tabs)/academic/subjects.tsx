@@ -305,7 +305,7 @@ export default function SubjectsScreen() {
             <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
               <Feather name="book-open" size={23} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
             </View>
-            <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+            <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
               <Text
                 style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}
                 numberOfLines={1}

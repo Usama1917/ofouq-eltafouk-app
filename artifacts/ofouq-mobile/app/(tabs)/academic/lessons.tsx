@@ -177,7 +177,7 @@ export default function LessonsScreen() {
             <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
               <Ionicons name="play-circle-outline" size={26} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
             </View>
-            <View style={[styles.titleBlock, { alignItems: alignStart }]}>
+            <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
               <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>{displayTitle}</Text>
               <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
                 {strings.academic.chooseLesson}
@@ -229,7 +229,7 @@ export default function LessonsScreen() {
                   <Ionicons name="play-circle-outline" size={28} color={COLORS.primary} />
                 </View>
               )}
-              <View style={[styles.lessonBody, { alignItems: alignStart }]}>
+              <View style={[styles.lessonBody, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                 <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={2}>
                   {localizeAcademicText(item.title, language, item.titleEn)}
                 </Text>
