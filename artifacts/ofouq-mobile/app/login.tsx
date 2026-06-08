@@ -1,28 +1,21 @@
-import { Feather } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import { FONT } from "@/constants/typography";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
+import {
+  AuthCard,
+  AuthErrorBanner,
+  AuthFooterLink,
+  AuthPasswordField,
+  AuthPrimaryButton,
+  AuthScreenLayout,
+  AuthTextField,
+} from "@/components/auth";
 import { COLORS } from "@/constants/colors";
 import { SHOULD_SHOW_PREVIEW_API_DEBUG, getBaseUrl } from "@/constants/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
-import { type ApiNetworkError, getApiUrl } from "@/lib/api";
+import { type ApiError, type ApiNetworkError, getApiUrl } from "@/lib/api";
 import {
   clearApiBaseUrlOverride,
   resolveApiBaseUrl,
@@ -38,47 +31,69 @@ function debugValue(readValue: () => string) {
 }
 
 export default function LoginScreen() {
-  const { colors, strings, isRTL, textAlign, direction } = usePreferences();
-  const insets = useSafeAreaInsets();
+  const { colors, strings } = usePreferences();
   const { login } = useAuth();
-  const rowDirection = isRTL ? "row" : "row-reverse";
+  const passwordRef = useRef<TextInput>(null);
 
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
+  const [formError, setFormError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Preview-only API base URL override state (kept for on-device LAN testing).
   const [isSavingApiBase, setIsSavingApiBase] = useState(false);
   const [apiBaseInput, setApiBaseInput] = useState("");
   const [apiBaseMessage, setApiBaseMessage] = useState<string | null>(null);
   const [lastNetworkError, setLastNetworkError] = useState<{ name: string; message: string } | null>(null);
-  const [previewApiDebug, setPreviewApiDebug] = useState<{
-    baseUrl: string;
-    loginUrl: string;
-  } | null>(() => {
+  const [previewApiDebug, setPreviewApiDebug] = useState<{ baseUrl: string; loginUrl: string } | null>(() => {
     if (!SHOULD_SHOW_PREVIEW_API_DEBUG) return null;
-
     return {
       baseUrl: debugValue(() => getBaseUrl()),
       loginUrl: debugValue(() => getApiUrl("/api/auth/login")),
     };
   });
 
+  const handleLogin = async () => {
+    const nextErrors: { identifier?: string; password?: string } = {};
+    if (!identifier.trim()) nextErrors.identifier = strings.auth.missingIdentifier;
+    if (!password) nextErrors.password = strings.auth.missingPassword;
+    setErrors(nextErrors);
+    setFormError(null);
+    if (Object.keys(nextErrors).length > 0) return;
+
+    setIsLoading(true);
+    setLastNetworkError(null);
+    try {
+      await login(identifier.trim(), password);
+      router.replace("/(tabs)");
+    } catch (err) {
+      const apiError = err as ApiError & ApiNetworkError;
+      if (SHOULD_SHOW_PREVIEW_API_DEBUG) {
+        setLastNetworkError({
+          name: apiError.networkErrorName ?? apiError.name ?? "Error",
+          message: apiError.networkErrorMessage ?? apiError.message ?? strings.auth.loginFailed,
+        });
+      }
+      const message =
+        apiError.status === 401
+          ? strings.auth.invalidCredentials
+          : apiError.message || strings.auth.loginFailed;
+      setFormError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const refreshPreviewApiDebug = useCallback(async () => {
     if (!SHOULD_SHOW_PREVIEW_API_DEBUG) return;
-
     try {
       const baseUrl = await resolveApiBaseUrl();
-      setPreviewApiDebug({
-        baseUrl,
-        loginUrl: `${baseUrl}/api/auth/login`,
-      });
+      setPreviewApiDebug({ baseUrl, loginUrl: `${baseUrl}/api/auth/login` });
       setApiBaseInput(baseUrl);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setPreviewApiDebug({
-        baseUrl: `Error: ${message}`,
-        loginUrl: `Error: ${message}`,
-      });
+      setPreviewApiDebug({ baseUrl: `Error: ${message}`, loginUrl: `Error: ${message}` });
     }
   }, []);
 
@@ -92,10 +107,7 @@ export default function LoginScreen() {
     try {
       const normalized = await saveApiBaseUrlOverride(apiBaseInput);
       setApiBaseInput(normalized);
-      setPreviewApiDebug({
-        baseUrl: normalized,
-        loginUrl: `${normalized}/api/auth/login`,
-      });
+      setPreviewApiDebug({ baseUrl: normalized, loginUrl: `${normalized}/api/auth/login` });
       setLastNetworkError(null);
       setApiBaseMessage("تم حفظ عنوان الخادم.");
     } catch (err) {
@@ -120,210 +132,116 @@ export default function LoginScreen() {
     }
   };
 
-  const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert(strings.auth.errorTitle, strings.auth.missingLogin);
-      return;
-    }
-    setIsLoading(true);
-    setLastNetworkError(null);
-    try {
-      await login(email.trim(), password.trim());
-      router.replace("/(tabs)");
-    } catch (err: any) {
-      const apiError = err as ApiNetworkError;
-      if (SHOULD_SHOW_PREVIEW_API_DEBUG) {
-        setLastNetworkError({
-          name: apiError.networkErrorName ?? apiError.name ?? "Error",
-          message: apiError.networkErrorMessage ?? apiError.message ?? strings.auth.loginFailed,
-        });
-      }
-      Alert.alert(strings.auth.errorTitle, err.message ?? strings.auth.loginFailed);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    <AuthScreenLayout
+      title={strings.auth.loginTitle}
+      subtitle={strings.auth.loginSubtitle}
+      onClose={() => router.back()}
+      closeAccessibilityLabel={strings.common.close}
+      footer={
+        <AuthFooterLink
+          prompt={strings.auth.noAccount}
+          action={strings.auth.createAccountLink}
+          onPress={() => router.push("/register")}
+        />
+      }
     >
-      <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <Pressable style={styles.closeBtn} onPress={() => router.back()}>
-          <Feather name="x" size={22} color={colors.textSecondary} />
-        </Pressable>
+      <AuthCard>
+        <AuthErrorBanner message={formError} />
 
-        <View style={styles.logoSection}>
-          <Image
-            source={require("../assets/images/login-educational-logo.png")}
-            style={styles.brandLogo}
-            resizeMode="contain"
-            accessibilityLabel={strings.common.appName}
+        <AuthTextField
+          label={strings.auth.identifier}
+          icon="mail"
+          value={identifier}
+          onChangeText={(value) => {
+            setIdentifier(value);
+            if (errors.identifier) setErrors((prev) => ({ ...prev, identifier: undefined }));
+            if (formError) setFormError(null);
+          }}
+          placeholder={strings.auth.identifierPlaceholder}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="username"
+          textContentType="username"
+          returnKeyType="next"
+          error={errors.identifier}
+          onSubmitEditing={() => passwordRef.current?.focus()}
+          submitBehavior="submit"
+        />
+
+        <AuthPasswordField
+          ref={passwordRef}
+          label={strings.auth.password}
+          value={password}
+          onChangeText={(value) => {
+            setPassword(value);
+            if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+            if (formError) setFormError(null);
+          }}
+          placeholder={strings.auth.passwordPlaceholder}
+          autoComplete="password"
+          returnKeyType="done"
+          error={errors.password}
+          onSubmitEditing={handleLogin}
+        />
+
+        <AuthPrimaryButton
+          label={strings.auth.loginButton}
+          onPress={handleLogin}
+          loading={isLoading}
+        />
+      </AuthCard>
+
+      {previewApiDebug ? (
+        <View style={[styles.debugPanel, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+          <Text style={[styles.debugText, { color: colors.textSecondary }]}>API base: {previewApiDebug.baseUrl}</Text>
+          <Text style={[styles.debugText, { color: colors.textSecondary }]}>Login URL: {previewApiDebug.loginUrl}</Text>
+          <TextInput
+            style={[styles.debugInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surface }]}
+            value={apiBaseInput}
+            onChangeText={setApiBaseInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            placeholder="http://192.168.0.40:8080"
+            placeholderTextColor={colors.textTertiary}
+            textAlign="left"
           />
-        </View>
-
-        <View style={[styles.card, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.cardTitle, { color: colors.text, writingDirection: direction }]}>
-            {strings.auth.loginTitle}
-          </Text>
-
-          <View style={styles.field}>
-            <Text
-              style={[
-                styles.fieldLabel,
-                {
-                  alignSelf: "stretch",
-                  color: colors.textSecondary,
-                  textAlign: isRTL ? "right" : "left",
-                  writingDirection: direction,
-                },
-              ]}
+          <View style={styles.debugActions}>
+            <Pressable
+              style={[styles.debugButton, { borderColor: colors.border }]}
+              onPress={handleSaveApiBaseUrl}
+              disabled={isSavingApiBase}
             >
-              {strings.auth.email}
-            </Text>
-            <View style={[styles.inputWrapper, { backgroundColor: colors.surfaceSecondary, flexDirection: rowDirection }]}>
-              <TextInput
-                style={[styles.input, { color: colors.text, writingDirection: direction }]}
-                placeholder="example@email.com"
-                placeholderTextColor={colors.textTertiary}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                textAlign={textAlign}
-              />
-              <Feather name="mail" size={18} color={colors.textTertiary} />
-            </View>
-          </View>
-
-          <View style={styles.field}>
-            <Text
-              style={[
-                styles.fieldLabel,
-                {
-                  alignSelf: "stretch",
-                  color: colors.textSecondary,
-                  textAlign: isRTL ? "right" : "left",
-                  writingDirection: direction,
-                },
-              ]}
+              <Text style={[styles.debugButtonText, { color: COLORS.primary }]}>{isSavingApiBase ? "..." : "حفظ"}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.debugButton, { borderColor: colors.border }]}
+              onPress={handleClearApiBaseUrl}
+              disabled={isSavingApiBase}
             >
-              {strings.auth.password}
-            </Text>
-            <View style={[styles.inputWrapper, { backgroundColor: colors.surfaceSecondary, flexDirection: rowDirection }]}>
-              <Pressable onPress={() => setShowPassword(!showPassword)}>
-                <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.textTertiary} />
-              </Pressable>
-              <TextInput
-                style={[styles.input, { color: colors.text, writingDirection: direction }]}
-                placeholder="••••••••"
-                placeholderTextColor={colors.textTertiary}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                textAlign={textAlign}
-              />
-              <Feather name="lock" size={18} color={colors.textTertiary} />
-            </View>
+              <Text style={[styles.debugButtonText, { color: colors.textSecondary }]}>استعادة</Text>
+            </Pressable>
           </View>
-
-          <Pressable style={styles.loginBtn} onPress={handleLogin} disabled={isLoading}>
-            <LinearGradient colors={[COLORS.primary, COLORS.primaryDark]} style={styles.loginGrad}>
-              {isLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={[styles.loginText, { writingDirection: direction }]}>{strings.auth.loginButton}</Text>
-              )}
-            </LinearGradient>
-          </Pressable>
-
-          {previewApiDebug ? (
-            <View style={[styles.debugPanel, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
-              <Text style={[styles.debugText, { color: colors.textSecondary }]}>API base: {previewApiDebug.baseUrl}</Text>
-              <Text style={[styles.debugText, { color: colors.textSecondary }]}>Login URL: {previewApiDebug.loginUrl}</Text>
-              <TextInput
-                style={[
-                  styles.debugInput,
-                  {
-                    borderColor: colors.border,
-                    color: colors.text,
-                    backgroundColor: colors.surface,
-                  },
-                ]}
-                value={apiBaseInput}
-                onChangeText={setApiBaseInput}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-                placeholder="http://192.168.0.40:8080"
-                placeholderTextColor={colors.textTertiary}
-                textAlign="left"
-              />
-              <View style={styles.debugActions}>
-                <Pressable
-                  style={[styles.debugButton, { borderColor: colors.border }]}
-                  onPress={handleSaveApiBaseUrl}
-                  disabled={isSavingApiBase}
-                >
-                  <Text style={[styles.debugButtonText, { color: COLORS.primary }]}>
-                    {isSavingApiBase ? "..." : "حفظ"}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.debugButton, { borderColor: colors.border }]}
-                  onPress={handleClearApiBaseUrl}
-                  disabled={isSavingApiBase}
-                >
-                  <Text style={[styles.debugButtonText, { color: colors.textSecondary }]}>استعادة</Text>
-                </Pressable>
-              </View>
-              {apiBaseMessage ? (
-                <Text style={[styles.debugMessage, { color: colors.textSecondary }]}>{apiBaseMessage}</Text>
-              ) : null}
-              <Text style={[styles.debugText, { color: colors.textSecondary }]}>
-                Network: {lastNetworkError ? `${lastNetworkError.name}: ${lastNetworkError.message}` : "not tested"}
-              </Text>
-            </View>
+          {apiBaseMessage ? (
+            <Text style={[styles.debugMessage, { color: colors.textSecondary }]}>{apiBaseMessage}</Text>
           ) : null}
-
-          <Pressable style={styles.registerLink} onPress={() => router.push("/register")}>
-            <Text style={[styles.registerLinkText, { color: COLORS.primary }]}>
-              {strings.auth.registerPrompt}
-            </Text>
-          </Pressable>
+          <Text style={[styles.debugText, { color: colors.textSecondary }]}>
+            Network: {lastNetworkError ? `${lastNetworkError.name}: ${lastNetworkError.message}` : "not tested"}
+          </Text>
         </View>
-
-      </ScrollView>
-    </KeyboardAvoidingView>
+      ) : null}
+    </AuthScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { flexGrow: 1, paddingHorizontal: 20, gap: 16 },
-  closeBtn: { alignSelf: "flex-start", padding: 8 },
-  logoSection: { alignItems: "center", paddingVertical: 12 },
-  brandLogo: { width: 260, height: 104 },
-  card: { borderRadius: 24, padding: 24, gap: 16, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
-  cardTitle: { ...FONT.bold, fontSize: 22, textAlign: "center" },
-  field: { gap: 6 },
-  fieldLabel: { ...FONT.semiBold, fontSize: 13 },
-  inputWrapper: { flexDirection: "row", alignItems: "center", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
-  input: { flex: 1, ...FONT.regular, fontSize: 15 },
-  loginBtn: { borderRadius: 16, overflow: "hidden", marginTop: 4 },
-  loginGrad: { paddingVertical: 16, alignItems: "center" },
-  loginText: { ...FONT.bold, fontSize: 17, color: "#fff" },
-  debugPanel: { borderWidth: 1, borderRadius: 10, padding: 10, gap: 4 },
+  debugPanel: { borderWidth: 1, borderRadius: 12, padding: 12, gap: 6 },
   debugText: { fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }), fontSize: 11, lineHeight: 16, textAlign: "left" },
   debugInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }), fontSize: 11 },
   debugActions: { flexDirection: "row", gap: 8 },
   debugButton: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
-  debugButtonText: { ...FONT.bold, fontSize: 12 },
+  debugButtonText: { fontSize: 12, fontWeight: "700" },
   debugMessage: { fontSize: 11, textAlign: "left" },
-  registerLink: { alignItems: "center", paddingVertical: 4 },
-  registerLinkText: { ...FONT.semiBold, fontSize: 14 },
 });

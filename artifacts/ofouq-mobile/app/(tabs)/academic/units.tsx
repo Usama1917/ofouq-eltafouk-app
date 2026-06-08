@@ -27,7 +27,9 @@ import { toEnglishDigits } from "@/lib/format";
 interface Unit {
   id: number;
   name: string;
+  nameEn?: string | null;
   description?: string | null;
+  descriptionEn?: string | null;
 }
 
 function encode(value: string | undefined) {
@@ -202,11 +204,11 @@ export default function UnitsScreen() {
             </View>
             <View style={[styles.unitBody, { alignItems: alignStart }]}>
               <Text style={[styles.unitTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={2}>
-                {localizeAcademicText(item.name, language)}
+                {localizeAcademicText(item.name, language, item.nameEn)}
               </Text>
               {item.description ? (
                 <Text style={[styles.unitDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={2}>
-                  {localizeAcademicText(item.description, language)}
+                  {localizeAcademicText(item.description, language, item.descriptionEn)}
                 </Text>
               ) : null}
             </View>

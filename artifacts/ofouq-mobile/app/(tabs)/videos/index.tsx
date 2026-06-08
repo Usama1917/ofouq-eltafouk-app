@@ -24,7 +24,9 @@ import { localizeAcademicText } from "@/lib/academicContentLocalization";
 type AcademicYear = {
   id: number;
   name: string;
+  nameEn?: string | null;
   description?: string | null;
+  descriptionEn?: string | null;
 };
 
 const YEAR_ACCENTS = [
@@ -35,7 +37,7 @@ const YEAR_ACCENTS = [
 ];
 
 function YearCard({ item, index }: { item: AcademicYear; index: number }) {
-  const { colors, language, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
+  const { colors, language, isRTL, textAlign, direction, rowDirection } = usePreferences();
   const accent = YEAR_ACCENTS[index % YEAR_ACCENTS.length];
   const scale = useRef(new Animated.Value(1)).current;
 
@@ -91,19 +93,19 @@ function YearCard({ item, index }: { item: AcademicYear; index: number }) {
         <View style={[styles.yearIcon, { backgroundColor: accent.bg, borderColor: accent.border }]}>
           <Ionicons name="school-outline" size={26} color={accent.icon} />
         </View>
-        <View style={[styles.yearBody, { alignItems: alignStart }]}>
+        <View style={[styles.yearBody, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
           <Text
             style={[styles.yearTitle, { color: colors.text, textAlign, writingDirection: direction }]}
             numberOfLines={2}
           >
-            {localizeAcademicText(item.name, language)}
+            {localizeAcademicText(item.name, language, item.nameEn)}
           </Text>
           {item.description ? (
             <Text
               style={[styles.yearDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]}
               numberOfLines={2}
             >
-              {localizeAcademicText(item.description, language)}
+              {localizeAcademicText(item.description, language, item.descriptionEn)}
             </Text>
           ) : null}
         </View>
@@ -121,7 +123,7 @@ function YearCard({ item, index }: { item: AcademicYear; index: number }) {
 }
 
 export default function VideosScreen() {
-  const { colors, resolvedScheme, strings, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
+  const { colors, resolvedScheme, strings, isRTL, textAlign, direction, rowDirection } = usePreferences();
   const insets = useSafeAreaInsets();
   const headerOverlayHeight = insets.top + 104;
   const {
@@ -178,7 +180,7 @@ export default function VideosScreen() {
           <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
             <Ionicons name="school-outline" size={26} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
           </View>
-          <View style={[styles.titleTextBlock, { alignItems: alignStart }]}>
+          <View style={[styles.titleTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
             <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
               {strings.videos.title}
             </Text>

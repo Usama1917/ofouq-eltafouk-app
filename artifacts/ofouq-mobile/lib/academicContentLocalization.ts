@@ -59,11 +59,20 @@ function normalizeArabicKey(value: string) {
     .replace(/\s+/g, " ");
 }
 
-export function localizeAcademicText(value: string | null | undefined, language: AppLanguage) {
+export function localizeAcademicText(
+  value: string | null | undefined,
+  language: AppLanguage,
+  english?: string | null,
+) {
   const text = String(value ?? "");
   if (!text) return text;
 
   if (language !== "en") return toEnglishDigits(text);
+
+  // Prefer the admin-provided English value when present; otherwise fall back to the
+  // built-in dictionary (for legacy/demo content), then to the Arabic text.
+  const englishText = typeof english === "string" ? english.trim() : "";
+  if (englishText) return toEnglishDigits(englishText);
 
   const normalized = normalizeArabicKey(toEnglishDigits(text));
   const directTranslation = ENGLISH_ACADEMIC_COPY[normalized];

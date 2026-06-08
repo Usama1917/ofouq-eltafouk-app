@@ -282,6 +282,7 @@ async function resolveAdminNotificationRecipients(filters: AdminAudienceFilters)
         email: usersTable.email,
         role: usersTable.role,
         status: usersTable.status,
+        language: usersTable.language,
         joinedAt: usersTable.joinedAt,
       })
       .from(usersTable)
@@ -617,17 +618,32 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
 
     const title = normalizeText(req.body?.title, 140);
     const body = normalizeText(req.body?.body, 2000);
+    const titleEn = normalizeText(req.body?.titleEn, 140);
+    const bodyEn = normalizeText(req.body?.bodyEn, 2000);
     const tone = normalizeText(req.body?.tone, 24);
     const filters = normalizeAudienceFilters(req.body?.filters ?? {});
 
     if (!title) {
-      res.status(400).json({ error: "عنوان الرسالة مطلوب" });
+      res.status(400).json({ error: "عنوان الرسالة بالعربية مطلوب" });
       return;
     }
     if (!body) {
-      res.status(400).json({ error: "محتوى الرسالة مطلوب" });
+      res.status(400).json({ error: "محتوى الرسالة بالعربية مطلوب" });
       return;
     }
+    if (!titleEn) {
+      res.status(400).json({ error: "عنوان الرسالة بالإنجليزية مطلوب" });
+      return;
+    }
+    if (!bodyEn) {
+      res.status(400).json({ error: "محتوى الرسالة بالإنجليزية مطلوب" });
+      return;
+    }
+
+    // Each recipient is delivered the message in their own app language (English when
+    // their reported language is "en", Arabic otherwise).
+    const resolveText = (language: string | null | undefined) =>
+      language === "en" ? { title: titleEn, body: bodyEn } : { title, body };
 
     const action = await buildAdminNotificationAction(req.body?.action);
     const { recipients, summary } = await resolveAdminNotificationRecipients(filters);
@@ -644,17 +660,21 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
       sentByAdminId: admin.id,
       batchKey,
     };
-    const notificationRows = recipients.map((recipient) => ({
-      userId: recipient.id,
-      type: "admin_broadcast",
-      title,
-      body,
-      tone: tone === "success" || tone === "warning" || tone === "danger" ? tone : "primary",
-      actionUrl: action.actionUrl,
-      data,
-      dedupeKey: `${batchKey}:user:${recipient.id}`,
-      availableAt: now,
-    }));
+    const languageByUserId = new Map(recipients.map((recipient) => [recipient.id, recipient.language]));
+    const notificationRows = recipients.map((recipient) => {
+      const localized = resolveText(recipient.language);
+      return {
+        userId: recipient.id,
+        type: "admin_broadcast",
+        title: localized.title,
+        body: localized.body,
+        tone: tone === "success" || tone === "warning" || tone === "danger" ? tone : "primary",
+        actionUrl: action.actionUrl,
+        data,
+        dedupeKey: `${batchKey}:user:${recipient.id}`,
+        availableAt: now,
+      };
+    });
 
     const inserted: Array<{ id: number; userId: number }> = [];
     for (const batch of chunk(notificationRows, ADMIN_NOTIFICATION_CHUNK_SIZE)) {
@@ -677,8 +697,7 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
         batch.map((notification) =>
           sendPushNotificationToUser({
             userId: notification.userId,
-            title,
-            body,
+            ...resolveText(languageByUserId.get(notification.userId)),
             data: {
               ...data,
               notificationId: notification.id,

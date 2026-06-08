@@ -52,7 +52,7 @@ function compactDisplayName(name: string | undefined) {
 }
 
 function LearningPathCard({ year, index }: { year: AcademicYear; index: number }) {
-  const { colors, strings, isRTL, textAlign, direction, rowDirection, alignStart } = usePreferences();
+  const { colors, strings, isRTL, textAlign, direction, rowDirection } = usePreferences();
   const accent = YEAR_ACCENTS[index % YEAR_ACCENTS.length];
 
   return (
@@ -73,7 +73,7 @@ function LearningPathCard({ year, index }: { year: AcademicYear; index: number }
         <View style={[styles.pathIcon, { backgroundColor: accent.bg, borderColor: accent.border }]}>
           <Ionicons name="school-outline" size={24} color={accent.icon} />
         </View>
-        <View style={[styles.pathBody, { alignItems: alignStart }]}>
+        <View style={[styles.pathBody, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
           <Text
             style={[styles.pathTitle, { color: colors.text, textAlign, writingDirection: direction }]}
             numberOfLines={2}
@@ -295,10 +295,13 @@ export default function HomeScreen() {
               <Text style={[styles.heroBadgeText, { writingDirection: direction }]}>{strings.home.badge}</Text>
             </View>
 
-            <Text style={[styles.heroTitle, { color: colors.text, writingDirection: direction }]}>
-              {strings.home.welcomePrefix} <Text style={styles.heroTitleAccent}>{strings.common.appName}</Text>
-            </Text>
-            <HomeSubtitle />
+            {/* direction:"ltr" wrapper so physical textAlign isn't swapped inside the RTL hero */}
+            <View style={styles.heroTextBlock}>
+              <Text style={[styles.heroTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+                {strings.home.welcomePrefix} <Text style={styles.heroTitleAccent}>{strings.common.appName}</Text>
+              </Text>
+              <HomeSubtitle />
+            </View>
 
             <View style={styles.heroActions}>
               <Pressable
@@ -341,7 +344,8 @@ export default function HomeScreen() {
           </View>
 
           <View style={[styles.sectionHeader, { flexDirection: rowDirection, direction }]}>
-            <View style={[styles.sectionTitleBlock, { alignItems: alignStart }]}>
+            {/* direction:"ltr" + physical align so multi-line Arabic text isn't swapped to the left */}
+            <View style={[styles.sectionTitleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
               <Text style={[styles.sectionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
                 {strings.home.continueLearning}
               </Text>
@@ -538,6 +542,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     color: COLORS.primary,
   },
+  heroTextBlock: { direction: "ltr", width: "100%", alignSelf: "stretch" },
   heroTitle: {
     ...FONT.bold,
     fontSize: 34,
@@ -545,8 +550,7 @@ const styles = StyleSheet.create({
     paddingTop: 5,
     paddingBottom: 2,
     alignSelf: "stretch",
-    textAlign: "center",
-    writingDirection: "rtl",
+    width: "100%",
     includeFontPadding: true,
   },
   heroTitleAccent: { color: COLORS.primary },
@@ -555,8 +559,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 30,
     alignSelf: "stretch",
-    textAlign: "right",
-    writingDirection: "rtl",
     width: "100%",
     includeFontPadding: false,
   },

@@ -35,6 +35,7 @@ type VideoType = "youtube" | "upload";
 export type AcademicVideoSegment = {
   id?: number;
   title: string;
+  titleEn?: string | null;
   startSeconds: number;
   segmentType?: "questions" | "parts" | "topics";
   orderIndex?: number;
@@ -1773,7 +1774,7 @@ export function AcademicVideoPlayer({
                         <Feather name="play" size={15} color="#fff" />
                       </View>
                       <View style={styles.segmentRowBody}>
-                        <Text style={styles.segmentRowTitle} numberOfLines={1}>{localizeAcademicText(segment.title, language)}</Text>
+                        <Text style={styles.segmentRowTitle} numberOfLines={1}>{localizeAcademicText(segment.title, language, segment.titleEn)}</Text>
                         <Text style={styles.segmentRowMeta}>{segmentLabel(segment.segmentType)} · {formatTime(segment.startSeconds)}</Text>
                       </View>
                     </AnimatedPressable>
@@ -1807,7 +1808,7 @@ export function AcademicVideoPlayer({
                   </View>
                 )}
                 <View style={styles.segmentChipText}>
-                  <Text style={styles.segmentChipTitle} numberOfLines={1}>{localizeAcademicText(segment.title, language)}</Text>
+                  <Text style={styles.segmentChipTitle} numberOfLines={1}>{localizeAcademicText(segment.title, language, segment.titleEn)}</Text>
                   <Text style={styles.segmentChipMeta}>{segmentLabel(segment.segmentType)} · {formatTime(segment.startSeconds)}</Text>
                 </View>
               </Pressable>

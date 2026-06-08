@@ -6,6 +6,10 @@ export const videosTable = pgTable("videos", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description").notNull(),
+  // English counterparts (nullable; app falls back to Arabic when absent).
+  titleEn: text("title_en"),
+  descriptionEn: text("description_en"),
+  instructorEn: text("instructor_en"),
   subject: text("subject").notNull(),
   videoUrl: text("video_url").notNull(),
   thumbnailUrl: text("thumbnail_url"),
@@ -21,6 +25,7 @@ export const videoSegmentsTable = pgTable("video_segments", {
   id: serial("id").primaryKey(),
   videoId: integer("video_id").notNull().references(() => videosTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
+  titleEn: text("title_en"),
   startSeconds: integer("start_seconds").notNull().default(0),
   segmentType: text("segment_type").notNull().default("parts"),
   orderIndex: integer("order_index").notNull().default(0),

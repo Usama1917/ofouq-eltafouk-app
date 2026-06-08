@@ -28,16 +28,20 @@ import { resolveMediaUrl } from "@/lib/media";
 interface Lesson {
   id: number;
   title: string;
+  titleEn?: string | null;
   description?: string | null;
+  descriptionEn?: string | null;
   videoId?: number | null;
   video?: {
     id: number;
     title: string;
+    titleEn?: string | null;
     videoUrl: string;
     thumbnailUrl?: string | null;
     posterUrl?: string | null;
     duration: number;
     instructor: string;
+    instructorEn?: string | null;
   } | null;
 }
 
@@ -227,13 +231,13 @@ export default function LessonsScreen() {
               )}
               <View style={[styles.lessonBody, { alignItems: alignStart }]}>
                 <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={2}>
-                  {localizeAcademicText(item.title, language)}
+                  {localizeAcademicText(item.title, language, item.titleEn)}
                 </Text>
                 {item.video ? (
                   <View style={[styles.lessonMeta, { flexDirection: rowDirection, direction }]}>
                     <Feather name="user" size={13} color={colors.textSecondary} />
                     <Text style={[styles.lessonMetaText, { color: colors.textSecondary }]} numberOfLines={1}>
-                      {localizeAcademicText(item.video.instructor, language)}
+                      {localizeAcademicText(item.video.instructor, language, item.video.instructorEn)}
                     </Text>
                     <Feather name="clock" size={13} color={colors.textSecondary} />
                     <Text style={[styles.lessonMetaText, { color: colors.textSecondary }]}>

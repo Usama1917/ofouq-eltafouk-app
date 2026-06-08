@@ -718,22 +718,20 @@ const styles = StyleSheet.create({
   },
   requestRow: {
     borderRadius: 18,
-    paddingTop: 12,
-    paddingBottom: 12,
-    paddingLeft: 12,
-    paddingRight: 0,
-    position: "relative",
+    padding: 14,
     minHeight: 96,
+    // Forced LTR physical context + flex order: status (first child) pinned to the far
+    // left, the request data (second child) fills the rest to the far right.
     flexDirection: "row",
     alignItems: "flex-start",
-    justifyContent: "flex-end",
+    justifyContent: "space-between",
+    gap: 12,
     direction: "ltr",
   },
   requestTextBlock: {
     flex: 1,
-    marginLeft: 92,
     alignItems: "flex-end",
-    direction: "rtl",
+    direction: "ltr",
   },
   requestSubject: {
     ...FONT.bold,
@@ -751,9 +749,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   requestBadge: {
-    position: "absolute",
-    right: 0,
-    top: 12,
     flexShrink: 0,
     borderRadius: 999,
     paddingHorizontal: 9,

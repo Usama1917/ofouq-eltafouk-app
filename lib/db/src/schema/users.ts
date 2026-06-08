@@ -21,6 +21,9 @@ export const usersTable = pgTable("users", {
   supportNeeded: text("support_needed"),
   bio: text("bio"),
   governorate: text("governorate"),
+  // Preferred app language ("ar" | "en"), reported by the mobile app. Used to send
+  // admin broadcasts/notifications in the user's own language.
+  language: text("language"),
   joinedAt: timestamp("joined_at").notNull().defaultNow(),
 });
 

@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { AppState } from "react-native";
 
 import { apiFetch } from "@/lib/api";
+import { LANGUAGE_STORAGE_KEY } from "@/contexts/PreferencesContext";
 import { unregisterCurrentPushToken } from "@/lib/pushNotifications";
 
 export type UserRole = "student" | "teacher" | "parent" | "admin" | "moderator" | "owner";
@@ -81,9 +82,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const now = Date.now();
       if (now - lastPingAt < 60 * 1000) return;
       lastPingAt = now;
+      // Report the current app language so admin broadcasts reach this user in their language.
+      const language = await AsyncStorage.getItem(LANGUAGE_STORAGE_KEY).catch(() => null);
       await apiFetch<{ lastActiveAt: string }>("/api/auth/activity", {
         method: "POST",
         token,
+        body: JSON.stringify({ language: language === "en" ? "en" : "ar" }),
       }).catch(() => undefined);
     };
 

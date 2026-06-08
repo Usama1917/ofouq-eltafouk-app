@@ -110,9 +110,7 @@ function NotificationCard({
   tone,
   isUnread,
   colors,
-  titleDirection,
   direction,
-  alignStart,
   textAlign,
   locale,
   resolvedScheme,
@@ -121,6 +119,7 @@ function NotificationCard({
   onPress,
   onDismiss,
 }: NotificationCardProps) {
+  const isRTL = direction === "rtl";
   const translateX = React.useRef(new Animated.Value(0)).current;
   const [hidden, setHidden] = React.useState(false);
 
@@ -222,11 +221,26 @@ function NotificationCard({
           >
             <Feather name={tone.icon} size={20} color={tone.color} />
           </View>
-          <View style={[styles.notificationBody, { direction: "rtl" }]}>
-            <View style={[styles.notificationHeader, { alignItems: alignStart }]}>
-              <View style={[styles.notificationTitleRow, { flexDirection: titleDirection, direction }]}>
+          {/* direction:"ltr" physical context + directional padding (clears the absolute
+              icon on the start side) so title/body align right in Arabic, left in English */}
+          <View
+            style={[
+              styles.notificationBody,
+              { direction: "ltr", paddingLeft: isRTL ? 14 : 58, paddingRight: isRTL ? 58 : 14 },
+            ]}
+          >
+            <View style={styles.notificationHeader}>
+              <View
+                style={[
+                  styles.notificationTitleRow,
+                  { flexDirection: "row", justifyContent: isRTL ? "flex-end" : "flex-start" },
+                ]}
+              >
                 {isUnread ? <View style={styles.unreadDot} /> : null}
-                <Text style={[styles.notificationTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+                <Text
+                  style={[styles.notificationTitle, { color: colors.text, textAlign, writingDirection: direction }]}
+                  numberOfLines={2}
+                >
                   {item.title}
                 </Text>
               </View>
@@ -235,14 +249,7 @@ function NotificationCard({
               </Text>
             </View>
             <Text
-              style={[
-                styles.notificationText,
-                {
-                  color: colors.textSecondary,
-                  textAlign: "center",
-                  writingDirection: "rtl",
-                },
-              ]}
+              style={[styles.notificationText, { color: colors.textSecondary, textAlign, writingDirection: direction }]}
             >
               {item.body}
             </Text>
@@ -740,18 +747,16 @@ const styles = StyleSheet.create({
   notificationBody: {
     width: "100%",
     minWidth: 0,
-    paddingHorizontal: 58,
-    alignItems: "center",
+    alignItems: "stretch",
     gap: 5,
   },
   notificationHeader: {
     width: "100%",
-    alignItems: "center",
+    alignItems: "stretch",
     gap: 1,
   },
   notificationTitleRow: {
     alignItems: "center",
-    justifyContent: "center",
     gap: 7,
   },
   unreadDot: {
@@ -764,6 +769,7 @@ const styles = StyleSheet.create({
     ...FONT.bold,
     fontSize: 15,
     lineHeight: 24,
+    flexShrink: 1,
   },
   notificationTime: {
     ...FONT.regular,
@@ -773,12 +779,10 @@ const styles = StyleSheet.create({
   notificationText: {
     width: "100%",
     maxWidth: "100%",
-    alignSelf: "center",
+    alignSelf: "stretch",
     ...FONT.regular,
     fontSize: 13,
     lineHeight: 22,
-    textAlign: "center",
-    writingDirection: "rtl",
   },
   emptyCard: {
     minHeight: 260,

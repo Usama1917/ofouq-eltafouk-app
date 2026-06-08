@@ -299,11 +299,20 @@ router.post("/auth/register", async (req, res) => {
 
 // Login
 router.post("/auth/login", async (req, res) => {
-  const { email, password } = (req.body ?? {}) as {
+  const { email, identifier, password } = (req.body ?? {}) as {
     email?: string;
+    identifier?: string;
     password?: string;
   };
-  const normalizedEmail = typeof email === "string" ? normalizeEmail(email) : "";
+  // Accept the login identifier from either `email` (legacy clients, admin dashboard)
+  // or `identifier` (mobile email-or-phone field). Look up by email first so existing
+  // email logins are unchanged, then fall back to phone.
+  const rawIdentifier = typeof identifier === "string" && identifier
+    ? identifier
+    : typeof email === "string"
+      ? email
+      : "";
+  const normalizedEmail = normalizeEmail(rawIdentifier);
   const plainPassword = typeof password === "string" ? password : "";
 
   try {
@@ -311,7 +320,13 @@ router.post("/auth/login", async (req, res) => {
       return res.status(400).json({ error: "البريد الإلكتروني وكلمة المرور مطلوبان" });
     }
 
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.email, normalizedEmail)).limit(1);
+    let [user] = await db.select().from(usersTable).where(eq(usersTable.email, normalizedEmail)).limit(1);
+    if (!user) {
+      const normalizedPhone = normalizePhone(rawIdentifier);
+      if (normalizedPhone) {
+        [user] = await db.select().from(usersTable).where(eq(usersTable.phone, normalizedPhone)).limit(1);
+      }
+    }
     if (!user) return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
     if (!checkPassword(plainPassword, user.password)) return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
     if (user.status === "suspended") return res.status(403).json({ error: "الحساب موقوف" });
@@ -368,6 +383,14 @@ router.post("/auth/activity", async (req, res) => {
       .limit(1);
     if (!user) return res.status(404).json({ error: "المستخدم غير موجود" });
     if (user.status === "suspended") return res.status(403).json({ error: "الحساب موقوف" });
+
+    // The mobile app reports its current language here so admin broadcasts can be
+    // delivered to each user in their own language.
+    const rawLanguage = typeof req.body?.language === "string" ? req.body.language.trim().toLowerCase() : "";
+    const normalizedLanguage = rawLanguage === "ar" || rawLanguage === "en" ? rawLanguage : null;
+    if (normalizedLanguage) {
+      await db.update(usersTable).set({ language: normalizedLanguage }).where(eq(usersTable.id, user.id));
+    }
 
     const activeUser = await touchUserActivity(user.id);
     return res.json({ lastActiveAt: activeUser?.lastActiveAt ?? new Date() });

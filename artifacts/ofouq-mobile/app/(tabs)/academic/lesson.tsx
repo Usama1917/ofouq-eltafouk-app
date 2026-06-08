@@ -32,15 +32,19 @@ const HORIZONTAL_PADDING = 18;
 interface Lesson {
   id: number;
   title: string;
+  titleEn?: string | null;
   description?: string | null;
+  descriptionEn?: string | null;
   video?: {
     id: number;
     title: string;
+    titleEn?: string | null;
     videoUrl: string;
     thumbnailUrl?: string | null;
     posterUrl?: string | null;
     duration: number;
     instructor: string;
+    instructorEn?: string | null;
     videoType: "youtube" | "upload";
     segments?: AcademicVideoSegment[] | null;
   } | null;
@@ -211,10 +215,10 @@ export default function LessonDetailScreen() {
 
           <View style={[styles.titleBlock, { alignItems: alignStart }]}>
             <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
-              {localizeAcademicText(lesson?.title ?? String(lessonTitle ?? strings.academic.lesson), language)}
+              {localizeAcademicText(lesson?.title ?? String(lessonTitle ?? strings.academic.lesson), language, lesson?.titleEn)}
             </Text>
             <Text style={[styles.lessonDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
-              {lesson?.description ? localizeAcademicText(lesson.description, language) : strings.academic.chooseLesson}
+              {lesson?.description ? localizeAcademicText(lesson.description, language, lesson.descriptionEn) : strings.academic.chooseLesson}
             </Text>
           </View>
         </View>
@@ -279,10 +283,10 @@ export default function LessonDetailScreen() {
                   )}
                   <View style={[styles.summaryText, { alignItems: alignStart }]}>
                     <Text style={[styles.summaryTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
-                      {localizeAcademicText(lesson.video.title, language)}
+                      {localizeAcademicText(lesson.video.title, language, lesson.video.titleEn)}
                     </Text>
                     <Text style={[styles.summaryMeta, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                      {localizeAcademicText(lesson.video.instructor, language)} · {formatVideoDuration(lesson.video.duration)}
+                      {localizeAcademicText(lesson.video.instructor, language, lesson.video.instructorEn)} · {formatVideoDuration(lesson.video.duration)}
                     </Text>
                     {user ? (
                       <Text style={[styles.watermarkHint, { color: colors.textTertiary, textAlign, writingDirection: direction }]} numberOfLines={1}>
@@ -299,8 +303,8 @@ export default function LessonDetailScreen() {
                   key={`${lesson.id}:${initialSeekSeconds}:${resumeFromNotification ?? ""}:${notificationId ?? ""}`}
                   videoUrl={lesson.video.videoUrl}
                   videoType={lesson.video.videoType}
-                  title={localizeAcademicText(lesson.video.title, language)}
-                  subtitle={localizeAcademicText(lesson.video.instructor || "", language)}
+                  title={localizeAcademicText(lesson.video.title, language, lesson.video.titleEn)}
+                  subtitle={localizeAcademicText(lesson.video.instructor || "", language, lesson.video.instructorEn)}
                   posterUrl={lesson.video.posterUrl ?? null}
                   thumbnailUrl={lesson.video.thumbnailUrl ?? null}
                   segments={lesson.video.segments ?? []}

@@ -13,7 +13,7 @@ import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { localizeAcademicText } from "@/lib/academicContentLocalization";
 
-interface AcademicYear { id: number; name: string; description: string; }
+interface AcademicYear { id: number; name: string; nameEn?: string | null; description: string; descriptionEn?: string | null; }
 
 export default function AcademicTab() {
   const { colors, language, strings } = usePreferences();
@@ -59,8 +59,8 @@ export default function AcademicTab() {
               <Ionicons name="school" size={26} color={COLORS.primary} />
             </View>
             <View style={styles.cardText}>
-              <Text style={[styles.cardTitle, { color: colors.text }]}>{localizeAcademicText(item.name, language)}</Text>
-              {item.description ? <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>{localizeAcademicText(item.description, language)}</Text> : null}
+              <Text style={[styles.cardTitle, { color: colors.text }]}>{localizeAcademicText(item.name, language, item.nameEn)}</Text>
+              {item.description ? <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>{localizeAcademicText(item.description, language, item.descriptionEn)}</Text> : null}
             </View>
             <Ionicons name="chevron-back" size={20} color={colors.textTertiary} />
           </Pressable>

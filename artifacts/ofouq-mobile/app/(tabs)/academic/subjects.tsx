@@ -29,8 +29,10 @@ type AccessStatus = "none" | "pending" | "approved" | "rejected";
 interface Subject {
   id: number;
   name: string;
+  nameEn?: string | null;
   icon?: string | null;
   description?: string | null;
+  descriptionEn?: string | null;
   unitLabel?: string | null;
   accessStatus?: AccessStatus;
   isLocked?: boolean;
@@ -151,14 +153,14 @@ function SubjectCard({
               style={[styles.subjectTitle, { color: colors.text, textAlign, writingDirection: direction }]}
               numberOfLines={1}
             >
-              {localizeAcademicText(item.name, language)}
+              {localizeAcademicText(item.name, language, item.nameEn)}
             </Text>
             {item.description ? (
               <Text
                 style={[styles.subjectDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]}
                 numberOfLines={1}
               >
-                {localizeAcademicText(item.description, language)}
+                {localizeAcademicText(item.description, language, item.descriptionEn)}
               </Text>
             ) : null}
             {status === "rejected" && item.latestRequest?.reviewNotes ? (

@@ -10,13 +10,38 @@ function isPreviewOrDevelopmentBuild() {
   return API_BUILD_PROFILE !== "production";
 }
 
+/**
+ * A usable API override must point at a real host: localhost, a bare IPv4, or a
+ * dotted domain. This rejects garbage like `exp` (from a mangled `exp://…` Expo URL),
+ * which previously slipped through and pointed the app at the Metro bundler.
+ */
+function isUsableOverrideHost(hostname: string) {
+  const host = hostname.toLowerCase();
+  if (!host) return false;
+  if (host === "localhost") return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true; // IPv4
+  if (host.includes(":")) return true; // IPv6
+  return host.includes("."); // domain
+}
+
 export function normalizeApiBaseUrl(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
     throw new Error("اكتب عنوان الخادم أولا.");
   }
 
-  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  // Drop any non-http(s) scheme (e.g. exp://, exps://) before adding http://, so an
+  // Expo URL pasted by mistake doesn't become `http://exp//…`.
+  const schemeMatch = trimmed.match(/^([a-z][a-z0-9+.-]*):\/\//i);
+  let candidate = trimmed;
+  if (schemeMatch) {
+    const scheme = schemeMatch[1].toLowerCase();
+    if (scheme !== "http" && scheme !== "https") {
+      candidate = trimmed.slice(schemeMatch[0].length);
+    }
+  }
+
+  const withProtocol = /^https?:\/\//i.test(candidate) ? candidate : `http://${candidate}`;
 
   let parsed: URL;
   try {
@@ -27,6 +52,10 @@ export function normalizeApiBaseUrl(value: string) {
 
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("عنوان الخادم يجب أن يبدأ بـ http أو https.");
+  }
+
+  if (!isUsableOverrideHost(parsed.hostname)) {
+    throw new Error("عنوان الخادم غير صحيح.");
   }
 
   parsed.hash = "";
@@ -49,7 +78,24 @@ export async function loadApiBaseUrlOverride() {
   }
 
   const storedValue = await AsyncStorage.getItem(API_BASE_URL_OVERRIDE_KEY);
-  cachedOverride = storedValue ? normalizeApiBaseUrl(storedValue) : null;
+  if (!storedValue) {
+    cachedOverride = null;
+    return null;
+  }
+
+  try {
+    const normalized = normalizeApiBaseUrl(storedValue);
+    // Repair a previously-mangled entry in place so it doesn't resurface.
+    if (normalized !== storedValue) {
+      await AsyncStorage.setItem(API_BASE_URL_OVERRIDE_KEY, normalized);
+    }
+    cachedOverride = normalized;
+  } catch {
+    // Stored override is invalid (e.g. the old `http://exp//…` bug) — drop it and
+    // fall back to the build-time API base URL.
+    await AsyncStorage.removeItem(API_BASE_URL_OVERRIDE_KEY);
+    cachedOverride = null;
+  }
   return cachedOverride;
 }
 

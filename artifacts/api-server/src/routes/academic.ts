@@ -109,6 +109,28 @@ function toText(value: unknown, fallback = "") {
   return String(value).trim();
 }
 
+// English (bilingual) text helper: returns the trimmed string or null when empty,
+// so it maps cleanly onto the nullable `*_en` columns.
+function toTextOrNull(value: unknown): string | null {
+  const text = toText(value);
+  return text.length > 0 ? text : null;
+}
+
+// Validates the bilingual pair for a create request. The English value is required
+// (per product decision); the English description is required only when an Arabic
+// description was provided. Returns an error message string, or null when valid.
+function bilingualCreateError(args: {
+  ar: string;
+  en: string | null;
+  arDesc: string;
+  enDesc: string | null;
+  primaryLabel: string;
+}): string | null {
+  if (!args.en) return `${args.primaryLabel} بالإنجليزية مطلوب`;
+  if (args.arDesc && !args.enDesc) return "الوصف بالإنجليزية مطلوب";
+  return null;
+}
+
 function normalizeSubscriptionCode(value: unknown) {
   return toText(value).replace(/\s+/g, "").toUpperCase();
 }
@@ -801,7 +823,9 @@ async function requireStudentSubjectAccess(req: any, res: any, subjectId: number
 
 type NormalizedVideoInput = {
   title: string;
+  titleEn: string | null;
   description: string;
+  descriptionEn: string | null;
   videoUrl: string;
   thumbnailUrl: string | null;
   posterUrl: string | null;
@@ -809,6 +833,7 @@ type NormalizedVideoInput = {
   hasSegmentsField: boolean;
   duration: number;
   instructor: string;
+  instructorEn: string | null;
   videoType: "youtube" | "upload";
   publishStatus: "draft" | "published";
 };
@@ -817,6 +842,7 @@ type VideoSegmentType = "questions" | "parts" | "topics";
 
 type NormalizedVideoSegmentInput = {
   title: string;
+  titleEn: string | null;
   startSeconds: number;
   segmentType: VideoSegmentType;
   orderIndex: number;
@@ -883,6 +909,7 @@ function normalizeVideoSegments(payload: unknown): NormalizedVideoSegmentInput[]
 
     normalized.push({
       title,
+      titleEn: toTextOrNull(raw.titleEn),
       startSeconds: Math.floor(startSeconds),
       segmentType: normalizeSegmentType(raw.segmentType),
       orderIndex: normalized.length,
@@ -922,8 +949,11 @@ async function normalizeVideoPayload(payload: unknown, defaults: {
   if (!title) {
     throw new Error("عنوان الفيديو مطلوب ويجب إدخاله يدويًا.");
   }
+  const titleEn = toTextOrNull(raw.titleEn);
   const description = toText(raw.description, defaults.fallbackDescription);
+  const descriptionEn = toTextOrNull(raw.descriptionEn);
   const instructor = toText(raw.instructor, "غير محدد") || "غير محدد";
+  const instructorEn = toTextOrNull(raw.instructorEn);
   const hasSegmentsField = Array.isArray(raw.segments);
   const segments = hasSegmentsField ? normalizeVideoSegments(raw.segments) : [];
   const hintedDuration = Math.max(0, toNumber(raw.duration, 0));
@@ -937,7 +967,9 @@ async function normalizeVideoPayload(payload: unknown, defaults: {
 
   return {
     title,
+    titleEn,
     description,
+    descriptionEn,
     videoUrl,
     thumbnailUrl: toText(raw.thumbnailUrl) || null,
     posterUrl: toText(raw.posterUrl) || null,
@@ -945,6 +977,7 @@ async function normalizeVideoPayload(payload: unknown, defaults: {
     hasSegmentsField,
     duration: finalDuration,
     instructor,
+    instructorEn,
     videoType,
     publishStatus,
   } satisfies NormalizedVideoInput;
@@ -972,7 +1005,9 @@ async function getLessonWithVideo(lessonId: number, publishedOnly: boolean) {
       unitId: lessonsTable.unitId,
       subjectId: subjectsTable.id,
       title: lessonsTable.title,
+      titleEn: lessonsTable.titleEn,
       description: lessonsTable.description,
+      descriptionEn: lessonsTable.descriptionEn,
       videoId: lessonsTable.videoId,
       orderIndex: lessonsTable.orderIndex,
       isPublished: lessonsTable.isPublished,
@@ -980,13 +1015,16 @@ async function getLessonWithVideo(lessonId: number, publishedOnly: boolean) {
       video: {
         id: videosTable.id,
         title: videosTable.title,
+        titleEn: videosTable.titleEn,
         description: videosTable.description,
+        descriptionEn: videosTable.descriptionEn,
         subject: videosTable.subject,
         videoUrl: videosTable.videoUrl,
         thumbnailUrl: videosTable.thumbnailUrl,
         posterUrl: videosTable.posterUrl,
         duration: videosTable.duration,
         instructor: videosTable.instructor,
+        instructorEn: videosTable.instructorEn,
         videoType: videosTable.videoType,
         publishStatus: videosTable.publishStatus,
       },
@@ -1011,6 +1049,7 @@ async function getLessonWithVideo(lessonId: number, publishedOnly: boolean) {
     .select({
       id: videoSegmentsTable.id,
       title: videoSegmentsTable.title,
+      titleEn: videoSegmentsTable.titleEn,
       startSeconds: videoSegmentsTable.startSeconds,
       segmentType: videoSegmentsTable.segmentType,
       orderIndex: videoSegmentsTable.orderIndex,
@@ -1834,7 +1873,9 @@ router.get("/academic/subjects/:subjectId/units", async (req, res) => {
         id: unitsTable.id,
         subjectId: unitsTable.subjectId,
         name: unitsTable.name,
+        nameEn: unitsTable.nameEn,
         description: unitsTable.description,
+        descriptionEn: unitsTable.descriptionEn,
         orderIndex: unitsTable.orderIndex,
         isPublished: unitsTable.isPublished,
         createdAt: unitsTable.createdAt,
@@ -1870,7 +1911,9 @@ router.get("/academic/units/:unitId/lessons", async (req, res) => {
         id: lessonsTable.id,
         unitId: lessonsTable.unitId,
         title: lessonsTable.title,
+        titleEn: lessonsTable.titleEn,
         description: lessonsTable.description,
+        descriptionEn: lessonsTable.descriptionEn,
         videoId: lessonsTable.videoId,
         orderIndex: lessonsTable.orderIndex,
         isPublished: lessonsTable.isPublished,
@@ -1878,13 +1921,16 @@ router.get("/academic/units/:unitId/lessons", async (req, res) => {
         video: {
           id: videosTable.id,
           title: videosTable.title,
+          titleEn: videosTable.titleEn,
           description: videosTable.description,
+          descriptionEn: videosTable.descriptionEn,
           subject: videosTable.subject,
           videoUrl: videosTable.videoUrl,
           thumbnailUrl: videosTable.thumbnailUrl,
           posterUrl: videosTable.posterUrl,
           duration: videosTable.duration,
           instructor: videosTable.instructor,
+          instructorEn: videosTable.instructorEn,
           videoType: videosTable.videoType,
           publishStatus: videosTable.publishStatus,
         },
@@ -2125,12 +2171,19 @@ router.post("/admin/academic/years", async (req, res) => {
 
     const name = toText(req.body?.name);
     if (!name) return res.status(400).json({ error: "اسم السنة مطلوب" });
+    const nameEn = toTextOrNull(req.body?.nameEn);
+    const description = toText(req.body?.description);
+    const descriptionEn = toTextOrNull(req.body?.descriptionEn);
+    const bilingualError = bilingualCreateError({ ar: name, en: nameEn, arDesc: description, enDesc: descriptionEn, primaryLabel: "اسم السنة" });
+    if (bilingualError) return res.status(400).json({ error: bilingualError });
 
     const [created] = await db
       .insert(academicYearsTable)
       .values({
         name,
-        description: toText(req.body?.description),
+        nameEn,
+        description,
+        descriptionEn,
         orderIndex: toNumber(req.body?.orderIndex, 0),
         isPublished: toBool(req.body?.isPublished, false),
       })
@@ -2152,7 +2205,9 @@ router.put("/admin/academic/years/:id", async (req, res) => {
 
     const updateData: Record<string, unknown> = {};
     if (req.body?.name !== undefined) updateData.name = toText(req.body.name);
+    if (req.body?.nameEn !== undefined) updateData.nameEn = toTextOrNull(req.body.nameEn);
     if (req.body?.description !== undefined) updateData.description = toText(req.body.description);
+    if (req.body?.descriptionEn !== undefined) updateData.descriptionEn = toTextOrNull(req.body.descriptionEn);
     if (req.body?.orderIndex !== undefined) updateData.orderIndex = toNumber(req.body.orderIndex, 0);
     if (req.body?.isPublished !== undefined) updateData.isPublished = toBool(req.body.isPublished, false);
 
@@ -2232,14 +2287,21 @@ router.post("/admin/academic/years/:yearId/subjects", async (req, res) => {
 
     const name = toText(req.body?.name);
     if (!name) return res.status(400).json({ error: "اسم المادة مطلوب" });
+    const nameEn = toTextOrNull(req.body?.nameEn);
+    const description = toText(req.body?.description);
+    const descriptionEn = toTextOrNull(req.body?.descriptionEn);
+    const bilingualError = bilingualCreateError({ ar: name, en: nameEn, arDesc: description, enDesc: descriptionEn, primaryLabel: "اسم المادة" });
+    if (bilingualError) return res.status(400).json({ error: bilingualError });
 
     const [created] = await db
       .insert(subjectsTable)
       .values({
         yearId,
         name,
+        nameEn,
         icon: toText(req.body?.icon, "📚") || "📚",
-        description: toText(req.body?.description),
+        description,
+        descriptionEn,
         unitLabel: normalizeAcademicUnitLabel(req.body?.unitLabel),
         orderIndex: toNumber(req.body?.orderIndex, 0),
         isPublished: toBool(req.body?.isPublished, false),
@@ -2262,8 +2324,10 @@ router.put("/admin/academic/subjects/:id", async (req, res) => {
 
     const updateData: Record<string, unknown> = {};
     if (req.body?.name !== undefined) updateData.name = toText(req.body.name);
+    if (req.body?.nameEn !== undefined) updateData.nameEn = toTextOrNull(req.body.nameEn);
     if (req.body?.icon !== undefined) updateData.icon = toText(req.body.icon, "📚") || "📚";
     if (req.body?.description !== undefined) updateData.description = toText(req.body.description);
+    if (req.body?.descriptionEn !== undefined) updateData.descriptionEn = toTextOrNull(req.body.descriptionEn);
     if (req.body?.unitLabel !== undefined) updateData.unitLabel = normalizeAcademicUnitLabel(req.body.unitLabel);
     if (req.body?.orderIndex !== undefined) updateData.orderIndex = toNumber(req.body.orderIndex, 0);
     if (req.body?.isPublished !== undefined) updateData.isPublished = toBool(req.body.isPublished, false);
@@ -2344,13 +2408,20 @@ router.post("/admin/academic/subjects/:subjectId/units", async (req, res) => {
 
     const name = toText(req.body?.name);
     if (!name) return res.status(400).json({ error: "اسم الوحدة مطلوب" });
+    const nameEn = toTextOrNull(req.body?.nameEn);
+    const description = toText(req.body?.description);
+    const descriptionEn = toTextOrNull(req.body?.descriptionEn);
+    const bilingualError = bilingualCreateError({ ar: name, en: nameEn, arDesc: description, enDesc: descriptionEn, primaryLabel: "اسم الوحدة" });
+    if (bilingualError) return res.status(400).json({ error: bilingualError });
 
     const [created] = await db
       .insert(unitsTable)
       .values({
         subjectId,
         name,
-        description: toText(req.body?.description),
+        nameEn,
+        description,
+        descriptionEn,
         orderIndex: toNumber(req.body?.orderIndex, 0),
         isPublished: toBool(req.body?.isPublished, false),
       })
@@ -2372,7 +2443,9 @@ router.put("/admin/academic/units/:id", async (req, res) => {
 
     const updateData: Record<string, unknown> = {};
     if (req.body?.name !== undefined) updateData.name = toText(req.body.name);
+    if (req.body?.nameEn !== undefined) updateData.nameEn = toTextOrNull(req.body.nameEn);
     if (req.body?.description !== undefined) updateData.description = toText(req.body.description);
+    if (req.body?.descriptionEn !== undefined) updateData.descriptionEn = toTextOrNull(req.body.descriptionEn);
     if (req.body?.orderIndex !== undefined) updateData.orderIndex = toNumber(req.body.orderIndex, 0);
     if (req.body?.isPublished !== undefined) updateData.isPublished = toBool(req.body.isPublished, false);
 
@@ -2435,7 +2508,9 @@ router.get("/admin/academic/units/:unitId/lessons", async (req, res) => {
         id: lessonsTable.id,
         unitId: lessonsTable.unitId,
         title: lessonsTable.title,
+        titleEn: lessonsTable.titleEn,
         description: lessonsTable.description,
+        descriptionEn: lessonsTable.descriptionEn,
         videoId: lessonsTable.videoId,
         orderIndex: lessonsTable.orderIndex,
         isPublished: lessonsTable.isPublished,
@@ -2443,13 +2518,16 @@ router.get("/admin/academic/units/:unitId/lessons", async (req, res) => {
         video: {
           id: videosTable.id,
           title: videosTable.title,
+          titleEn: videosTable.titleEn,
           description: videosTable.description,
+          descriptionEn: videosTable.descriptionEn,
           subject: videosTable.subject,
           videoUrl: videosTable.videoUrl,
           thumbnailUrl: videosTable.thumbnailUrl,
           posterUrl: videosTable.posterUrl,
           duration: videosTable.duration,
           instructor: videosTable.instructor,
+          instructorEn: videosTable.instructorEn,
           videoType: videosTable.videoType,
           publishStatus: videosTable.publishStatus,
         },
@@ -2472,6 +2550,7 @@ router.get("/admin/academic/units/:unitId/lessons", async (req, res) => {
         id: videoSegmentsTable.id,
         videoId: videoSegmentsTable.videoId,
         title: videoSegmentsTable.title,
+        titleEn: videoSegmentsTable.titleEn,
         startSeconds: videoSegmentsTable.startSeconds,
         segmentType: videoSegmentsTable.segmentType,
         orderIndex: videoSegmentsTable.orderIndex,
@@ -2533,11 +2612,15 @@ router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
 
     const title = toText(req.body?.title);
     if (!title) return res.status(400).json({ error: "عنوان الدرس مطلوب" });
+    const titleEn = toTextOrNull(req.body?.titleEn);
 
     const unitContext = await getUnitContext(unitId);
     if (!unitContext) return res.status(404).json({ error: "الوحدة غير موجودة" });
 
     const description = toText(req.body?.description);
+    const descriptionEn = toTextOrNull(req.body?.descriptionEn);
+    const bilingualError = bilingualCreateError({ ar: title, en: titleEn, arDesc: description, enDesc: descriptionEn, primaryLabel: "عنوان الدرس" });
+    if (bilingualError) return res.status(400).json({ error: bilingualError });
     const isPublished = toBool(req.body?.isPublished, false);
 
     const normalizedVideo = await normalizeVideoPayload(req.body?.video, {
@@ -2553,13 +2636,16 @@ router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
           .insert(videosTable)
           .values({
             title: normalizedVideo.title,
+            titleEn: normalizedVideo.titleEn,
             description: normalizedVideo.description,
+            descriptionEn: normalizedVideo.descriptionEn,
             subject: unitContext.subjectName,
             videoUrl: normalizedVideo.videoUrl,
             thumbnailUrl: normalizedVideo.thumbnailUrl,
             posterUrl: normalizedVideo.posterUrl,
             duration: normalizedVideo.duration,
             instructor: normalizedVideo.instructor,
+            instructorEn: normalizedVideo.instructorEn,
             videoType: normalizedVideo.videoType,
             publishStatus: normalizedVideo.publishStatus,
           })
@@ -2572,6 +2658,7 @@ router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
             normalizedVideo.segments.map((segment, orderIndex) => ({
               videoId: video.id,
               title: segment.title,
+              titleEn: segment.titleEn,
               startSeconds: segment.startSeconds,
               segmentType: segment.segmentType,
               orderIndex,
@@ -2585,7 +2672,9 @@ router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
         .values({
           unitId,
           title,
+          titleEn,
           description,
+          descriptionEn,
           videoId: createdVideoId,
           orderIndex: toNumber(req.body?.orderIndex, 0),
           isPublished,
@@ -2639,7 +2728,9 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
     if (!unitContext) return res.status(404).json({ error: "الوحدة غير موجودة" });
 
     const title = req.body?.title !== undefined ? toText(req.body.title) : undefined;
+    const titleEn = req.body?.titleEn !== undefined ? toTextOrNull(req.body.titleEn) : undefined;
     const description = req.body?.description !== undefined ? toText(req.body.description) : undefined;
+    const descriptionEn = req.body?.descriptionEn !== undefined ? toTextOrNull(req.body.descriptionEn) : undefined;
     const clearVideo = toBool(req.body?.clearVideo, false);
 
     const normalizedVideo = await normalizeVideoPayload(req.body?.video, {
@@ -2650,7 +2741,9 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
     const updated = await db.transaction(async (tx) => {
       const updateData: Record<string, unknown> = {};
       if (title !== undefined) updateData.title = title;
+      if (titleEn !== undefined) updateData.titleEn = titleEn;
       if (description !== undefined) updateData.description = description;
+      if (descriptionEn !== undefined) updateData.descriptionEn = descriptionEn;
       if (req.body?.orderIndex !== undefined) updateData.orderIndex = toNumber(req.body.orderIndex, 0);
       if (req.body?.isPublished !== undefined) updateData.isPublished = toBool(req.body.isPublished, false);
 
@@ -2667,13 +2760,16 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
             .update(videosTable)
             .set({
               title: normalizedVideo.title,
+              titleEn: normalizedVideo.titleEn,
               description: normalizedVideo.description,
+              descriptionEn: normalizedVideo.descriptionEn,
               subject: unitContext.subjectName,
               videoUrl: normalizedVideo.videoUrl,
               thumbnailUrl: normalizedVideo.thumbnailUrl,
               posterUrl: normalizedVideo.posterUrl,
               duration: normalizedVideo.duration,
               instructor: normalizedVideo.instructor,
+              instructorEn: normalizedVideo.instructorEn,
               videoType: normalizedVideo.videoType,
               publishStatus: normalizedVideo.publishStatus,
             })
@@ -2686,6 +2782,7 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
                 normalizedVideo.segments.map((segment, orderIndex) => ({
                   videoId: existing.videoId as number,
                   title: segment.title,
+                  titleEn: segment.titleEn,
                   startSeconds: segment.startSeconds,
                   segmentType: segment.segmentType,
                   orderIndex,
@@ -2833,13 +2930,16 @@ router.get("/admin/academic/videos", async (req, res) => {
       .select({
         id: videosTable.id,
         title: videosTable.title,
+        titleEn: videosTable.titleEn,
         description: videosTable.description,
+        descriptionEn: videosTable.descriptionEn,
         subject: videosTable.subject,
         videoUrl: videosTable.videoUrl,
         thumbnailUrl: videosTable.thumbnailUrl,
         posterUrl: videosTable.posterUrl,
         duration: videosTable.duration,
         instructor: videosTable.instructor,
+        instructorEn: videosTable.instructorEn,
         videoType: videosTable.videoType,
         publishStatus: videosTable.publishStatus,
         createdAt: videosTable.createdAt,

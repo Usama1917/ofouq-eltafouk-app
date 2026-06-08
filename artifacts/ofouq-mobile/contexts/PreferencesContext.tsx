@@ -80,6 +80,12 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
         const nextLanguage = isAppLanguage(storedLanguage) ? storedLanguage : getDeviceLanguage();
         const nextThemePreference = isAppThemePreference(storedThemePreference) ? storedThemePreference : "system";
 
+        // Persist the resolved language so other parts of the app (e.g. the activity ping
+        // that reports language to the server) always read the real current language.
+        if (storedLanguage !== nextLanguage) {
+          await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage).catch(() => undefined);
+        }
+
         applyNativeDirection(nextLanguage);
 
         if (isMounted) {

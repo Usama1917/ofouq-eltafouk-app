@@ -2866,6 +2866,8 @@ function BroadcastMessagesTab({
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<number[]>([]);
   const [messageTitle, setMessageTitle] = useState("");
   const [messageBody, setMessageBody] = useState("");
+  const [messageTitleEn, setMessageTitleEn] = useState("");
+  const [messageBodyEn, setMessageBodyEn] = useState("");
   const [tone, setTone] = useState<"primary" | "success" | "warning" | "danger">("primary");
   const [actionType, setActionType] = useState<BroadcastActionType>("none");
   const [externalUrl, setExternalUrl] = useState("");
@@ -3048,7 +3050,11 @@ function BroadcastMessagesTab({
   async function sendBroadcast() {
     if (!token || sending) return;
     if (!messageTitle.trim() || !messageBody.trim()) {
-      setError("اكتب عنوان الرسالة ومحتواها قبل الإرسال");
+      setError("اكتب عنوان الرسالة ومحتواها بالعربية قبل الإرسال");
+      return;
+    }
+    if (!messageTitleEn.trim() || !messageBodyEn.trim()) {
+      setError("اكتب عنوان الرسالة ومحتواها بالإنجليزية قبل الإرسال");
       return;
     }
     if (actionType === "external_link" && !/^https?:\/\//i.test(externalUrl.trim())) {
@@ -3078,6 +3084,8 @@ function BroadcastMessagesTab({
         body: JSON.stringify({
           title: messageTitle.trim(),
           body: messageBody.trim(),
+          titleEn: messageTitleEn.trim(),
+          bodyEn: messageBodyEn.trim(),
           tone,
           filters: buildFilters(),
           action: buildAction(),
@@ -3103,6 +3111,8 @@ function BroadcastMessagesTab({
       );
       setMessageTitle("");
       setMessageBody("");
+      setMessageTitleEn("");
+      setMessageBodyEn("");
       await loadPreview();
     } catch (err: any) {
       setError(err?.message || "تعذر إرسال الرسالة");
@@ -3137,23 +3147,51 @@ function BroadcastMessagesTab({
             <h3 className="font-display font-bold text-lg">محتوى الرسالة</h3>
           </div>
 
+          <p className="rounded-xl border border-primary/15 bg-primary/5 px-3 py-2 text-[11px] font-bold text-primary">
+            تُرسَل الرسالة لكل مستخدم بلغته: من لغة جهازه عربية تصله النسخة العربية، ومن لغته إنجليزية تصله النسخة الإنجليزية.
+          </p>
+
           <label className="space-y-1.5 block">
-            <span className="text-xs font-bold text-muted-foreground">عنوان الرسالة</span>
+            <span className="text-xs font-bold text-muted-foreground">عنوان الرسالة (عربي)</span>
             <input
               value={messageTitle}
               onChange={(event) => setMessageTitle(event.target.value)}
+              dir="rtl"
               className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold outline-none focus:border-primary"
               placeholder="مثال: تنبيه مهم بخصوص مادة الأحياء"
             />
           </label>
 
           <label className="space-y-1.5 block">
-            <span className="text-xs font-bold text-muted-foreground">محتوى الرسالة</span>
+            <span className="text-xs font-bold text-muted-foreground">Message title (English)</span>
+            <input
+              value={messageTitleEn}
+              onChange={(event) => setMessageTitleEn(event.target.value)}
+              dir="ltr"
+              className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold outline-none focus:border-primary"
+              placeholder="e.g. Important notice about Biology"
+            />
+          </label>
+
+          <label className="space-y-1.5 block">
+            <span className="text-xs font-bold text-muted-foreground">محتوى الرسالة (عربي)</span>
             <textarea
               value={messageBody}
               onChange={(event) => setMessageBody(event.target.value)}
+              dir="rtl"
               className="min-h-[140px] w-full resize-y rounded-2xl border border-border bg-background px-4 py-3 text-sm leading-7 outline-none focus:border-primary"
               placeholder="اكتب محتوى الرسالة الذي سيظهر للمستخدم في صفحة الإشعارات وعلى إشعار الجهاز..."
+            />
+          </label>
+
+          <label className="space-y-1.5 block">
+            <span className="text-xs font-bold text-muted-foreground">Message body (English)</span>
+            <textarea
+              value={messageBodyEn}
+              onChange={(event) => setMessageBodyEn(event.target.value)}
+              dir="ltr"
+              className="min-h-[140px] w-full resize-y rounded-2xl border border-border bg-background px-4 py-3 text-sm leading-7 outline-none focus:border-primary"
+              placeholder="Write the message shown in the notifications screen and the device push..."
             />
           </label>
 
@@ -3235,7 +3273,7 @@ function BroadcastMessagesTab({
 
           <button
             onClick={() => void sendBroadcast()}
-            disabled={sending || !messageTitle.trim() || !messageBody.trim() || (preview?.total ?? 0) <= 0}
+            disabled={sending || !messageTitle.trim() || !messageBody.trim() || !messageTitleEn.trim() || !messageBodyEn.trim() || (preview?.total ?? 0) <= 0}
             className="w-full rounded-2xl bg-primary px-5 py-3.5 text-sm font-black text-white shadow-lg shadow-primary/25 transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {sending ? "جاري الإرسال..." : `إرسال إلى ${formatAdminNumber(preview?.total ?? 0)} مستخدم`}

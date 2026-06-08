@@ -34,7 +34,9 @@ type Breadcrumb = {
 interface AcademicYear {
   id: number;
   name: string;
+  nameEn?: string | null;
   description: string;
+  descriptionEn?: string | null;
   orderIndex: number;
   isPublished: boolean;
 }
@@ -43,8 +45,10 @@ interface Subject {
   id: number;
   yearId: number;
   name: string;
+  nameEn?: string | null;
   icon: string;
   description: string;
+  descriptionEn?: string | null;
   unitLabel?: AcademicUnitLabel;
   orderIndex: number;
   isPublished: boolean;
@@ -54,7 +58,9 @@ interface Unit {
   id: number;
   subjectId: number;
   name: string;
+  nameEn?: string | null;
   description: string;
+  descriptionEn?: string | null;
   orderIndex: number;
   isPublished: boolean;
 }
@@ -63,24 +69,30 @@ interface Lesson {
   id: number;
   unitId: number;
   title: string;
+  titleEn?: string | null;
   description: string;
+  descriptionEn?: string | null;
   videoId?: number;
   orderIndex: number;
   isPublished: boolean;
   video?: {
     id: number;
     title: string;
+    titleEn?: string | null;
     description: string;
+    descriptionEn?: string | null;
     videoUrl: string;
     thumbnailUrl?: string;
     posterUrl?: string;
     duration: number;
     instructor: string;
+    instructorEn?: string | null;
     videoType: "youtube" | "upload";
     publishStatus: "draft" | "published";
     segments?: {
       id: number;
       title: string;
+      titleEn?: string | null;
       startSeconds: number;
       segmentType: "questions" | "parts" | "topics";
       orderIndex: number;
@@ -94,6 +106,7 @@ type VideoSegmentType = "questions" | "parts" | "topics";
 type LessonSegmentFormItem = {
   id: string;
   title: string;
+  titleEn: string;
   segmentType: VideoSegmentType;
   hours: string;
   minutes: string;
@@ -180,6 +193,7 @@ function createSegmentRow(): LessonSegmentFormItem {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     title: "",
+    titleEn: "",
     segmentType: "parts",
     hours: "",
     minutes: "",
@@ -476,25 +490,36 @@ export function AcademicTab() {
   const [crumbs, setCrumbs] = useState<Breadcrumb[]>([{ level: "years", label: "السنوات الدراسية" }]);
   const [showAdd, setShowAdd] = useState(false);
 
-  const [yearForm, setYearForm] = useState({ name: "", description: "" });
+  const [yearForm, setYearForm] = useState({ name: "", nameEn: "", description: "", descriptionEn: "" });
+  const [yearFormMode, setYearFormMode] = useState<"create" | "edit">("create");
+  const [editingYearId, setEditingYearId] = useState<number | null>(null);
   const [subjectForm, setSubjectForm] = useState({
     name: "",
+    nameEn: "",
     icon: "📚",
     description: "",
+    descriptionEn: "",
     unitLabel: "unit" as AcademicUnitLabel,
   });
   const [subjectFormMode, setSubjectFormMode] = useState<"create" | "edit">("create");
   const [editingSubjectId, setEditingSubjectId] = useState<number | null>(null);
-  const [unitForm, setUnitForm] = useState({ name: "", description: "" });
+  const [unitForm, setUnitForm] = useState({ name: "", nameEn: "", description: "", descriptionEn: "" });
+  const [unitFormMode, setUnitFormMode] = useState<"create" | "edit">("create");
+  const [editingUnitId, setEditingUnitId] = useState<number | null>(null);
   const [lessonForm, setLessonForm] = useState({
     title: "",
+    titleEn: "",
     description: "",
+    descriptionEn: "",
     isPublished: true,
     videoType: "youtube" as "youtube" | "upload",
     videoUrl: "",
     videoTitle: "",
+    videoTitleEn: "",
     videoDescription: "",
+    videoDescriptionEn: "",
     instructor: "",
+    instructorEn: "",
     publishStatus: "published" as "draft" | "published",
     thumbnailUrl: "",
     posterUrl: "",
@@ -595,8 +620,10 @@ export function AcademicTab() {
   function resetSubjectForm() {
     setSubjectForm({
       name: "",
+      nameEn: "",
       icon: "📚",
       description: "",
+      descriptionEn: "",
       unitLabel: "unit",
     });
     setSubjectFormMode("create");
@@ -606,8 +633,10 @@ export function AcademicTab() {
   function openSubjectEditor(subject: Subject) {
     setSubjectForm({
       name: subject.name,
+      nameEn: subject.nameEn ?? "",
       icon: subject.icon || "📚",
       description: subject.description,
+      descriptionEn: subject.descriptionEn ?? "",
       unitLabel: normalizeUnitLabel(subject.unitLabel),
     });
     setSubjectFormMode("edit");
@@ -615,16 +644,57 @@ export function AcademicTab() {
     setShowAdd(true);
   }
 
+  function resetYearForm() {
+    setYearForm({ name: "", nameEn: "", description: "", descriptionEn: "" });
+    setYearFormMode("create");
+    setEditingYearId(null);
+  }
+
+  function openYearEditor(year: AcademicYear) {
+    setYearForm({
+      name: year.name,
+      nameEn: year.nameEn ?? "",
+      description: year.description,
+      descriptionEn: year.descriptionEn ?? "",
+    });
+    setYearFormMode("edit");
+    setEditingYearId(year.id);
+    setShowAdd(true);
+  }
+
+  function resetUnitForm() {
+    setUnitForm({ name: "", nameEn: "", description: "", descriptionEn: "" });
+    setUnitFormMode("create");
+    setEditingUnitId(null);
+  }
+
+  function openUnitEditor(unit: Unit) {
+    setUnitForm({
+      name: unit.name,
+      nameEn: unit.nameEn ?? "",
+      description: unit.description,
+      descriptionEn: unit.descriptionEn ?? "",
+    });
+    setUnitFormMode("edit");
+    setEditingUnitId(unit.id);
+    setShowAdd(true);
+  }
+
   function resetLessonForm() {
     setLessonForm({
       title: "",
+      titleEn: "",
       description: "",
+      descriptionEn: "",
       isPublished: true,
       videoType: "youtube",
       videoUrl: "",
       videoTitle: "",
+      videoTitleEn: "",
       videoDescription: "",
+      videoDescriptionEn: "",
       instructor: "",
+      instructorEn: "",
       publishStatus: "published",
       thumbnailUrl: "",
       posterUrl: "",
@@ -651,13 +721,18 @@ export function AcademicTab() {
 
     setLessonForm({
       title: lesson.title,
+      titleEn: lesson.titleEn ?? "",
       description: lesson.description,
+      descriptionEn: lesson.descriptionEn ?? "",
       isPublished: lesson.isPublished,
       videoType: lesson.video?.videoType ?? "youtube",
       videoUrl: lesson.video?.videoUrl ?? "",
       videoTitle: lesson.video?.title ?? "",
+      videoTitleEn: lesson.video?.titleEn ?? "",
       videoDescription: lesson.video?.description ?? lesson.description,
+      videoDescriptionEn: lesson.video?.descriptionEn ?? "",
       instructor: lesson.video?.instructor ?? "",
+      instructorEn: lesson.video?.instructorEn ?? "",
       publishStatus: lesson.video?.publishStatus ?? (lesson.isPublished ? "published" : "draft"),
       thumbnailUrl: lesson.video?.thumbnailUrl ?? "",
       posterUrl: lesson.video?.posterUrl ?? "",
@@ -671,6 +746,7 @@ export function AcademicTab() {
         return {
           id: `${segment.id}-${segment.orderIndex}`,
           title: segment.title,
+          titleEn: segment.titleEn ?? "",
           segmentType: segment.segmentType,
           hours: hh > 0 ? String(hh) : "",
           minutes: String(mm),
@@ -761,7 +837,15 @@ export function AcademicTab() {
   async function submitLesson() {
     if (!current.unitId) return;
     if (!lessonForm.title.trim()) {
-      alert("عنوان الدرس مطلوب");
+      alert("عنوان الدرس بالعربية مطلوب");
+      return;
+    }
+    if (!lessonForm.titleEn.trim()) {
+      alert("عنوان الدرس بالإنجليزية مطلوب");
+      return;
+    }
+    if (!lessonForm.videoTitleEn.trim()) {
+      alert("عنوان الفيديو بالإنجليزية مطلوب");
       return;
     }
 
@@ -820,6 +904,7 @@ export function AcademicTab() {
 
           return [{
             title,
+            titleEn: segment.titleEn.trim() || undefined,
             segmentType: segment.segmentType,
             startSeconds: (hours * 3600) + (minutes * 60) + seconds,
           }];
@@ -832,17 +917,22 @@ export function AcademicTab() {
 
       const payload: Record<string, unknown> = {
         title: lessonForm.title.trim(),
+        titleEn: lessonForm.titleEn.trim(),
         description: lessonForm.description.trim(),
+        descriptionEn: lessonForm.descriptionEn.trim(),
         isPublished: lessonForm.isPublished,
         video: {
           title: manualVideoTitle,
+          titleEn: lessonForm.videoTitleEn.trim(),
           description: lessonForm.videoDescription.trim() || lessonForm.description.trim(),
+          descriptionEn: lessonForm.videoDescriptionEn.trim() || lessonForm.descriptionEn.trim(),
           videoType: lessonForm.videoType,
           videoUrl,
           thumbnailUrl: thumbnailUrl || undefined,
           posterUrl: posterUrl || undefined,
           segments,
           instructor: lessonForm.instructor.trim() || "غير محدد",
+          instructorEn: lessonForm.instructorEn.trim() || undefined,
           duration: autoDuration,
           publishStatus: lessonForm.publishStatus,
         },
@@ -908,8 +998,14 @@ export function AcademicTab() {
           onClick={() => {
             setShowAdd((open) => {
               const next = !open;
+              if (next && current.level === "years") {
+                resetYearForm();
+              }
               if (next && current.level === "subjects") {
                 resetSubjectForm();
+              }
+              if (next && current.level === "units") {
+                resetUnitForm();
               }
               if (next && current.level === "lessons") {
                 resetLessonForm();
@@ -934,37 +1030,64 @@ export function AcademicTab() {
           >
             {current.level === "years" ? (
               <>
-                <h3 className="font-bold text-foreground">إضافة سنة جديدة</h3>
+                <h3 className="font-bold text-foreground">{yearFormMode === "edit" ? "تعديل السنة" : "إضافة سنة جديدة"}</h3>
                 <input
                   value={yearForm.name}
                   onChange={(e) => setYearForm((p) => ({ ...p, name: e.target.value }))}
-                  placeholder="اسم السنة"
+                  placeholder="اسم السنة (عربي)"
+                  dir="rtl"
+                  className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
+                />
+                <input
+                  value={yearForm.nameEn}
+                  onChange={(e) => setYearForm((p) => ({ ...p, nameEn: e.target.value }))}
+                  placeholder="Year name (English)"
+                  dir="ltr"
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                 />
                 <input
                   value={yearForm.description}
                   onChange={(e) => setYearForm((p) => ({ ...p, description: e.target.value }))}
-                  placeholder="الوصف"
+                  placeholder="الوصف (عربي)"
+                  dir="rtl"
+                  className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
+                />
+                <input
+                  value={yearForm.descriptionEn}
+                  onChange={(e) => setYearForm((p) => ({ ...p, descriptionEn: e.target.value }))}
+                  placeholder="Description (English)"
+                  dir="ltr"
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                 />
                 <button
                   onClick={async () => {
-                    if (!yearForm.name.trim()) return alert("اسم السنة مطلوب");
-                    await apiFetch(token, "/admin/academic/years", {
-                      method: "POST",
-                      body: JSON.stringify({
+                    if (!yearForm.name.trim()) return alert("اسم السنة بالعربية مطلوب");
+                    if (!yearForm.nameEn.trim()) return alert("اسم السنة بالإنجليزية مطلوب");
+                    try {
+                      const body = JSON.stringify({
                         name: yearForm.name.trim(),
+                        nameEn: yearForm.nameEn.trim(),
                         description: yearForm.description.trim(),
-                        isPublished: false,
-                      }),
-                    });
-                    setYearForm({ name: "", description: "" });
-                    setShowAdd(false);
-                    invalidateAcademic();
+                        descriptionEn: yearForm.descriptionEn.trim(),
+                      });
+                      if (yearFormMode === "edit" && editingYearId) {
+                        await apiFetch(token, `/admin/academic/years/${editingYearId}`, { method: "PUT", body });
+                      } else {
+                        await apiFetch(token, "/admin/academic/years", {
+                          method: "POST",
+                          body: JSON.stringify({ ...JSON.parse(body), isPublished: false }),
+                        });
+                      }
+                      resetYearForm();
+                      setShowAdd(false);
+                      invalidateAcademic();
+                    } catch (err) {
+                      alert(err instanceof Error ? err.message : "تعذر حفظ السنة");
+                    }
                   }}
                   className="btn-primary text-sm py-2 px-5"
                 >
-                  حفظ السنة
+                  {yearFormMode === "edit" ? "حفظ تعديل السنة" : "حفظ السنة"}
                 </button>
               </>
             ) : null}
@@ -977,7 +1100,15 @@ export function AcademicTab() {
                 <input
                   value={subjectForm.name}
                   onChange={(e) => setSubjectForm((p) => ({ ...p, name: e.target.value }))}
-                  placeholder="اسم المادة"
+                  placeholder="اسم المادة (عربي)"
+                  dir="rtl"
+                  className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
+                />
+                <input
+                  value={subjectForm.nameEn}
+                  onChange={(e) => setSubjectForm((p) => ({ ...p, nameEn: e.target.value }))}
+                  placeholder="Subject name (English)"
+                  dir="ltr"
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                 />
                 <input
@@ -1011,17 +1142,28 @@ export function AcademicTab() {
                 <input
                   value={subjectForm.description}
                   onChange={(e) => setSubjectForm((p) => ({ ...p, description: e.target.value }))}
-                  placeholder="الوصف"
+                  placeholder="الوصف (عربي)"
+                  dir="rtl"
+                  className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
+                />
+                <input
+                  value={subjectForm.descriptionEn}
+                  onChange={(e) => setSubjectForm((p) => ({ ...p, descriptionEn: e.target.value }))}
+                  placeholder="Description (English)"
+                  dir="ltr"
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                 />
                 <button
                   onClick={async () => {
-                    if (!subjectForm.name.trim()) return alert("اسم المادة مطلوب");
+                    if (!subjectForm.name.trim()) return alert("اسم المادة بالعربية مطلوب");
+                    if (!subjectForm.nameEn.trim()) return alert("اسم المادة بالإنجليزية مطلوب");
                     try {
                       const payload = {
                         name: subjectForm.name.trim(),
+                        nameEn: subjectForm.nameEn.trim(),
                         icon: subjectForm.icon.trim() || "📚",
                         description: subjectForm.description.trim(),
+                        descriptionEn: subjectForm.descriptionEn.trim(),
                         unitLabel: subjectForm.unitLabel,
                       };
 
@@ -1058,37 +1200,64 @@ export function AcademicTab() {
 
             {current.level === "units" && current.subjectId ? (
               <>
-                <h3 className="font-bold text-foreground">{currentUnitCopy.createTitle}</h3>
+                <h3 className="font-bold text-foreground">{unitFormMode === "edit" ? `تعديل ${currentUnitCopy.singular}` : currentUnitCopy.createTitle}</h3>
                 <input
                   value={unitForm.name}
                   onChange={(e) => setUnitForm((p) => ({ ...p, name: e.target.value }))}
-                  placeholder={currentUnitCopy.namePlaceholder}
+                  placeholder={`${currentUnitCopy.namePlaceholder} (عربي)`}
+                  dir="rtl"
+                  className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
+                />
+                <input
+                  value={unitForm.nameEn}
+                  onChange={(e) => setUnitForm((p) => ({ ...p, nameEn: e.target.value }))}
+                  placeholder="Name (English)"
+                  dir="ltr"
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                 />
                 <input
                   value={unitForm.description}
                   onChange={(e) => setUnitForm((p) => ({ ...p, description: e.target.value }))}
-                  placeholder="الوصف"
+                  placeholder="الوصف (عربي)"
+                  dir="rtl"
+                  className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
+                />
+                <input
+                  value={unitForm.descriptionEn}
+                  onChange={(e) => setUnitForm((p) => ({ ...p, descriptionEn: e.target.value }))}
+                  placeholder="Description (English)"
+                  dir="ltr"
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                 />
                 <button
                   onClick={async () => {
-                    if (!unitForm.name.trim()) return alert(`${currentUnitCopy.namePlaceholder} مطلوب`);
-                    await apiFetch(token, `/admin/academic/subjects/${current.subjectId}/units`, {
-                      method: "POST",
-                      body: JSON.stringify({
+                    if (!unitForm.name.trim()) return alert(`${currentUnitCopy.namePlaceholder} بالعربية مطلوب`);
+                    if (!unitForm.nameEn.trim()) return alert("الاسم بالإنجليزية مطلوب");
+                    try {
+                      const body = JSON.stringify({
                         name: unitForm.name.trim(),
+                        nameEn: unitForm.nameEn.trim(),
                         description: unitForm.description.trim(),
-                        isPublished: false,
-                      }),
-                    });
-                    setUnitForm({ name: "", description: "" });
-                    setShowAdd(false);
-                    invalidateAcademic();
+                        descriptionEn: unitForm.descriptionEn.trim(),
+                      });
+                      if (unitFormMode === "edit" && editingUnitId) {
+                        await apiFetch(token, `/admin/academic/units/${editingUnitId}`, { method: "PUT", body });
+                      } else {
+                        await apiFetch(token, `/admin/academic/subjects/${current.subjectId}/units`, {
+                          method: "POST",
+                          body: JSON.stringify({ ...JSON.parse(body), isPublished: false }),
+                        });
+                      }
+                      resetUnitForm();
+                      setShowAdd(false);
+                      invalidateAcademic();
+                    } catch (err) {
+                      alert(err instanceof Error ? err.message : "تعذر حفظ الوحدة");
+                    }
                   }}
                   className="btn-primary text-sm py-2 px-5"
                 >
-                  حفظ {currentUnitCopy.singular}
+                  {unitFormMode === "edit" ? `حفظ تعديل ${currentUnitCopy.singular}` : `حفظ ${currentUnitCopy.singular}`}
                 </button>
               </>
             ) : null}
@@ -1112,13 +1281,29 @@ export function AcademicTab() {
                   <input
                     value={lessonForm.title}
                     onChange={(e) => setLessonForm((p) => ({ ...p, title: e.target.value }))}
-                    placeholder="عنوان الدرس"
+                    placeholder="عنوان الدرس (عربي)"
+                    dir="rtl"
+                    className="px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
+                  />
+                  <input
+                    value={lessonForm.titleEn}
+                    onChange={(e) => setLessonForm((p) => ({ ...p, titleEn: e.target.value }))}
+                    placeholder="Lesson title (English)"
+                    dir="ltr"
                     className="px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                   />
                   <input
                     value={lessonForm.description}
                     onChange={(e) => setLessonForm((p) => ({ ...p, description: e.target.value }))}
-                    placeholder="وصف الدرس"
+                    placeholder="وصف الدرس (عربي)"
+                    dir="rtl"
+                    className="px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
+                  />
+                  <input
+                    value={lessonForm.descriptionEn}
+                    onChange={(e) => setLessonForm((p) => ({ ...p, descriptionEn: e.target.value }))}
+                    placeholder="Lesson description (English)"
+                    dir="ltr"
                     className="px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                   />
                 </div>
@@ -1162,13 +1347,29 @@ export function AcademicTab() {
                   <input
                     value={lessonForm.videoTitle}
                     onChange={(e) => setLessonForm((p) => ({ ...p, videoTitle: e.target.value }))}
-                    placeholder="عنوان الفيديو (مطلوب)"
+                    placeholder="عنوان الفيديو (عربي - مطلوب)"
+                    dir="rtl"
+                    className="px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
+                  />
+                  <input
+                    value={lessonForm.videoTitleEn}
+                    onChange={(e) => setLessonForm((p) => ({ ...p, videoTitleEn: e.target.value }))}
+                    placeholder="Video title (English)"
+                    dir="ltr"
                     className="px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                   />
                   <input
                     value={lessonForm.instructor}
                     onChange={(e) => setLessonForm((p) => ({ ...p, instructor: e.target.value }))}
-                    placeholder="اسم المدرس"
+                    placeholder="اسم المدرس (عربي)"
+                    dir="rtl"
+                    className="px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
+                  />
+                  <input
+                    value={lessonForm.instructorEn}
+                    onChange={(e) => setLessonForm((p) => ({ ...p, instructorEn: e.target.value }))}
+                    placeholder="Instructor name (English)"
+                    dir="ltr"
                     className="px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none"
                   />
                   <div className="rounded-xl border border-white/70 bg-white/70 px-3 py-2.5 text-sm">
@@ -1197,7 +1398,15 @@ export function AcademicTab() {
                 <textarea
                   value={lessonForm.videoDescription}
                   onChange={(e) => setLessonForm((p) => ({ ...p, videoDescription: e.target.value }))}
-                  placeholder="وصف الفيديو"
+                  placeholder="وصف الفيديو (عربي)"
+                  dir="rtl"
+                  className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none min-h-[90px]"
+                />
+                <textarea
+                  value={lessonForm.videoDescriptionEn}
+                  onChange={(e) => setLessonForm((p) => ({ ...p, videoDescriptionEn: e.target.value }))}
+                  placeholder="Video description (English)"
+                  dir="ltr"
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none min-h-[90px]"
                 />
 
@@ -1241,7 +1450,19 @@ export function AcademicTab() {
                                 prev.map((item) => (item.id === segment.id ? { ...item, title: e.target.value } : item)),
                               )
                             }
-                            placeholder="عنوان التقسيمة"
+                            placeholder="عنوان التقسيمة (عربي)"
+                            dir="rtl"
+                            className="w-full px-3 py-2 rounded-lg bg-white border border-white/70 text-sm outline-none"
+                          />
+                          <input
+                            value={segment.titleEn}
+                            onChange={(e) =>
+                              setLessonSegments((prev) =>
+                                prev.map((item) => (item.id === segment.id ? { ...item, titleEn: e.target.value } : item)),
+                              )
+                            }
+                            placeholder="Section title (English)"
+                            dir="ltr"
                             className="w-full px-3 py-2 rounded-lg bg-white border border-white/70 text-sm outline-none"
                           />
 
@@ -1394,15 +1615,7 @@ export function AcademicTab() {
                   containerClassName="border-white/70"
                   iconWrapperClassName={tone.iconWrapper}
                   topAccentClassName={tone.top}
-                  onRename={async () => {
-                    const name = prompt("اسم السنة", year.name);
-                    if (name === null) return;
-                    await apiFetch(token, `/admin/academic/years/${year.id}`, {
-                      method: "PUT",
-                      body: JSON.stringify({ name: name.trim() || year.name }),
-                    });
-                    invalidateAcademic();
-                  }}
+                  onRename={() => openYearEditor(year)}
                   onTogglePublish={async () => {
                     await apiFetch(token, `/admin/academic/years/${year.id}`, {
                       method: "PUT",
@@ -1485,15 +1698,7 @@ export function AcademicTab() {
                 title={unit.name}
                 description={unit.description}
                 isPublished={unit.isPublished}
-                onRename={async () => {
-                  const name = prompt("اسم الوحدة", unit.name);
-                  if (name === null) return;
-                  await apiFetch(token, `/admin/academic/units/${unit.id}`, {
-                    method: "PUT",
-                    body: JSON.stringify({ name: name.trim() || unit.name }),
-                  });
-                  invalidateAcademic();
-                }}
+                onRename={() => openUnitEditor(unit)}
                 onTogglePublish={async () => {
                   await apiFetch(token, `/admin/academic/units/${unit.id}`, {
                     method: "PUT",
@@ -1557,15 +1762,7 @@ export function AcademicTab() {
                     </span>
                   </>
                 }
-                onRename={async () => {
-                  const title = prompt("عنوان الدرس", lesson.title);
-                  if (title === null) return;
-                  await apiFetch(token, `/admin/academic/lessons/${lesson.id}`, {
-                    method: "PUT",
-                    body: JSON.stringify({ title: title.trim() || lesson.title }),
-                  });
-                  invalidateAcademic();
-                }}
+                onRename={() => openLessonEditor(lesson)}
                 onTogglePublish={async () => {
                   await apiFetch(token, `/admin/academic/lessons/${lesson.id}`, {
                     method: "PUT",

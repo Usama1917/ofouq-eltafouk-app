@@ -7,6 +7,10 @@ export const academicYearsTable = pgTable("academic_years", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
+  // English counterparts. Nullable so existing rows keep working (the app falls back to
+  // the Arabic value). Admin create/update requires them going forward.
+  nameEn: text("name_en"),
+  descriptionEn: text("description_en"),
   orderIndex: integer("order_index").notNull().default(0),
   isPublished: boolean("is_published").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -18,6 +22,8 @@ export const subjectsTable = pgTable("subjects", {
   name: text("name").notNull(),
   icon: text("icon").notNull().default("📚"),
   description: text("description").notNull().default(""),
+  nameEn: text("name_en"),
+  descriptionEn: text("description_en"),
   unitLabel: text("unit_label").notNull().default("unit"),
   orderIndex: integer("order_index").notNull().default(0),
   isPublished: boolean("is_published").notNull().default(false),
@@ -29,6 +35,8 @@ export const unitsTable = pgTable("units", {
   subjectId: integer("subject_id").notNull().references(() => subjectsTable.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
+  nameEn: text("name_en"),
+  descriptionEn: text("description_en"),
   orderIndex: integer("order_index").notNull().default(0),
   isPublished: boolean("is_published").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -39,6 +47,8 @@ export const lessonsTable = pgTable("lessons", {
   unitId: integer("unit_id").notNull().references(() => unitsTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description").notNull().default(""),
+  titleEn: text("title_en"),
+  descriptionEn: text("description_en"),
   // Nullable by design: lesson can be created first, then media attached.
   videoId: integer("video_id").references(() => videosTable.id, { onDelete: "set null" }),
   orderIndex: integer("order_index").notNull().default(0),
