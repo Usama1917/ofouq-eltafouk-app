@@ -2,6 +2,8 @@ import { Feather } from "@expo/vector-icons";
 import { AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
+import * as NavigationBar from "expo-navigation-bar";
+import * as ScreenCapture from "expo-screen-capture";
 import * as ScreenOrientation from "expo-screen-orientation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -14,6 +16,7 @@ import {
   Pressable,
   PressableProps,
   ScrollView,
+  StatusBar,
   StyleSheet,
   StyleProp,
   Text,
@@ -22,6 +25,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { FONT } from "@/constants/typography";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
 
 import { COLORS } from "@/constants/colors";
@@ -92,6 +96,8 @@ function PlayerHost({
       visible
       animationType="fade"
       presentationStyle="fullScreen"
+      statusBarTranslucent
+      navigationBarTranslucent
       supportedOrientations={["portrait", "landscape", "landscape-left", "landscape-right"]}
       onRequestClose={onRequestClose}
     >
@@ -358,8 +364,21 @@ export function AcademicVideoPlayer({
   autoPlayOnLoad = false,
   onProgressUpdate,
 }: AcademicVideoPlayerProps) {
-  const { colors, language, strings } = usePreferences();
+  const { colors, language, strings, isRTL, direction, textAlign, rowDirection } = usePreferences();
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+
+  // Block screenshots and screen recording while the lesson video player is on
+  // screen, on both Android and iOS. Android: applies FLAG_SECURE (screenshots
+  // blocked, screen recordings capture a black frame). iOS: the protected
+  // content is blanked out while the screen is being recorded. The unique tag
+  // keeps prevent/allow balanced so other screens stay unaffected.
+  useEffect(() => {
+    ScreenCapture.preventScreenCaptureAsync("academic-video-player").catch(() => undefined);
+    return () => {
+      ScreenCapture.allowScreenCaptureAsync("academic-video-player").catch(() => undefined);
+    };
+  }, []);
   const videoRef = useRef<Video>(null);
   const webViewRef = useRef<WebView>(null);
   const segmentButtonRef = useRef<View>(null);
@@ -669,6 +688,25 @@ export function AcademicVideoPlayer({
       void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
     };
   }, []);
+
+  // Immersive fullscreen: while the player is in fullscreen, hide the OS status
+  // and navigation bars so the video truly takes over the whole screen. This
+  // stops the Android system buttons from covering the controls / close button
+  // and stops the underlying page from peeking around the video.
+  useEffect(() => {
+    if (!isFullscreen) return;
+    StatusBar.setHidden(true, "fade");
+    if (IS_ANDROID) {
+      void NavigationBar.setVisibilityAsync("hidden").catch(() => undefined);
+      void NavigationBar.setBehaviorAsync("overlay-swipe").catch(() => undefined);
+    }
+    return () => {
+      StatusBar.setHidden(false, "fade");
+      if (IS_ANDROID) {
+        void NavigationBar.setVisibilityAsync("visible").catch(() => undefined);
+      }
+    };
+  }, [isFullscreen]);
 
   useEffect(() => {
     if (!isFullscreen || !showControls) return;
@@ -1355,8 +1393,6 @@ export function AcademicVideoPlayer({
           <>
             <View pointerEvents="none" style={styles.brandGuardTop} />
             <View pointerEvents="none" style={styles.brandGuardBottom} />
-            <View pointerEvents="none" style={styles.brandGuardLeft} />
-            <View pointerEvents="none" style={styles.brandGuardRight} />
           </>
         ) : null}
 
@@ -1367,6 +1403,7 @@ export function AcademicVideoPlayer({
               styles.watermark,
               isFullscreen ? styles.watermarkFullscreen : null,
               portraitVideoWatermarkStyle,
+              isLandscapeFullscreen ? { top: insets.top + 12, left: insets.left + 14, maxWidth: 240 } : null,
             ]}
           >
             <Text style={styles.watermarkText} numberOfLines={1}>{toEnglishDigits(watermarkLabel)}</Text>
@@ -1392,7 +1429,11 @@ export function AcademicVideoPlayer({
         {isFullscreen ? (
           <Animated.View
             pointerEvents={showControls ? "auto" : "none"}
-            style={[styles.fullscreenCloseButtonLayer, closeButtonAnimatedStyle]}
+            style={[
+              styles.fullscreenCloseButtonLayer,
+              { top: insets.top + 14, right: insets.right + 16 },
+              closeButtonAnimatedStyle,
+            ]}
           >
             <AnimatedPressable style={styles.fullscreenCloseButton} onPress={closeFullscreen} pressedScale={0.9}>
               <Feather name="x" size={24} color="#fff" />
@@ -1407,7 +1448,8 @@ export function AcademicVideoPlayer({
               styles.controls,
               isCompactControls ? styles.controlsCompact : null,
               isPortraitFullscreen ? styles.controlsPortrait : null,
-              isLandscapeFullscreen ? [styles.controlsLandscape, { left: landscapeControlInset, right: landscapeControlInset }] : null,
+              isLandscapeFullscreen ? [styles.controlsLandscape, { left: landscapeControlInset + insets.left, right: landscapeControlInset + insets.right }] : null,
+              { bottom: insets.bottom + (isLandscapeFullscreen ? 12 : 16) },
               controlsAnimatedStyle,
             ]}
           >
@@ -1469,11 +1511,16 @@ export function AcademicVideoPlayer({
                 </AnimatedPressable>
               </View>
 
+              {/* Logical order is [back -10, play, forward +10]. We force the
+                  flex direction per language so the VISUAL order is always the
+                  same: left button rewinds 10s, right button skips 10s forward —
+                  in both Arabic (RTL) and English (LTR). */}
               <View
                 style={[
                   styles.transportRow,
                   isPortraitFullscreen ? styles.transportRowPortrait : null,
                   isLandscapeFullscreen ? styles.transportRowLandscape : null,
+                  { flexDirection: isRTL ? "row-reverse" : "row" },
                 ]}
               >
                 <AnimatedPressable
@@ -1482,10 +1529,10 @@ export function AcademicVideoPlayer({
                     isPortraitFullscreen ? styles.seekTenButtonPortrait : null,
                     isLandscapeFullscreen ? styles.seekTenButtonLandscape : null,
                   ]}
-                  onPress={() => seekBy(10)}
+                  onPress={() => seekBy(-10)}
                   pressedScale={0.88}
                 >
-                  <Feather name="rotate-cw" size={isLandscapeFullscreen ? 22 : isPortraitFullscreen ? 23 : 26} color="#E5E7EB" />
+                  <Feather name="rotate-ccw" size={isLandscapeFullscreen ? 22 : isPortraitFullscreen ? 23 : 26} color="#E5E7EB" />
                   <Text style={styles.seekTenText}>10</Text>
                 </AnimatedPressable>
                 <AnimatedPressable
@@ -1506,10 +1553,10 @@ export function AcademicVideoPlayer({
                     isPortraitFullscreen ? styles.seekTenButtonPortrait : null,
                     isLandscapeFullscreen ? styles.seekTenButtonLandscape : null,
                   ]}
-                  onPress={() => seekBy(-10)}
+                  onPress={() => seekBy(10)}
                   pressedScale={0.88}
                 >
-                  <Feather name="rotate-ccw" size={isLandscapeFullscreen ? 22 : isPortraitFullscreen ? 23 : 26} color="#E5E7EB" />
+                  <Feather name="rotate-cw" size={isLandscapeFullscreen ? 22 : isPortraitFullscreen ? 23 : 26} color="#E5E7EB" />
                   <Text style={styles.seekTenText}>10</Text>
                 </AnimatedPressable>
               </View>
@@ -1789,7 +1836,7 @@ export function AcademicVideoPlayer({
 
       {normalizedSegments.length > 0 ? (
         <View style={styles.externalSegments}>
-          <View style={styles.segmentHeader}>
+          <View style={[styles.segmentHeader, { direction }]}>
             <Text style={[styles.segmentHeaderTitle, { color: colors.text }]}>{strings.academic.lessonSegments}</Text>
             <Text style={[styles.segmentHeaderMeta, { color: colors.textSecondary }]}>{segmentCountLabel}</Text>
           </View>
@@ -1798,7 +1845,19 @@ export function AcademicVideoPlayer({
               <Pressable
                 key={`${segment.id}-${segment.startSeconds}`}
                 onPress={() => void seekTo(segment.startSeconds, true)}
-                style={({ pressed }) => [styles.segmentChip, { width: playerWidth, opacity: pressed ? 0.72 : 1 }]}
+                style={({ pressed }) => [
+                  styles.segmentChip,
+                  {
+                    width: playerWidth,
+                    // Force a physical LTR box so RN's automatic RTL flip can't
+                    // double-flip this row. We then place things explicitly:
+                    // Arabic -> play on the right, Engish -> play on the left.
+                    direction: "ltr",
+                    flexDirection: isRTL ? "row-reverse" : "row",
+                    justifyContent: "flex-start",
+                    opacity: pressed ? 0.72 : 1,
+                  },
+                ]}
               >
                 {segment.thumbnailUrl ? (
                   <Image source={{ uri: segment.thumbnailUrl }} style={styles.segmentThumb} contentFit="cover" />
@@ -1807,9 +1866,9 @@ export function AcademicVideoPlayer({
                     <Feather name="play" size={15} color="#fff" />
                   </View>
                 )}
-                <View style={styles.segmentChipText}>
-                  <Text style={styles.segmentChipTitle} numberOfLines={1}>{localizeAcademicText(segment.title, language, segment.titleEn)}</Text>
-                  <Text style={styles.segmentChipMeta}>{segmentLabel(segment.segmentType)} · {formatTime(segment.startSeconds)}</Text>
+                <View style={[styles.segmentChipText, { direction: "ltr" }]}>
+                  <Text style={[styles.segmentChipTitle, { textAlign: isRTL ? "right" : "left", writingDirection: direction, width: "100%" }]} numberOfLines={1}>{localizeAcademicText(segment.title, language, segment.titleEn)}</Text>
+                  <Text style={[styles.segmentChipMeta, { textAlign: isRTL ? "right" : "left", writingDirection: direction, width: "100%" }]}>{segmentLabel(segment.segmentType)} · {formatTime(segment.startSeconds)}</Text>
                 </View>
               </Pressable>
             ))}
@@ -1889,12 +1948,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   segmentChipText: {
-    flexGrow: 0,
-    flexShrink: 1,
+    flex: 1,
     minWidth: 0,
-    maxWidth: "64%",
-    alignItems: "flex-end",
-    direction: "rtl",
   },
   segmentChipTitle: {
     ...FONT.bold,
@@ -2031,13 +2086,13 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 42,
     left: 12,
-    maxWidth: "72%",
-    borderRadius: 12,
+    maxWidth: "60%",
+    borderRadius: 9,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    backgroundColor: "rgba(2,6,23,0.48)",
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(2,6,23,0.4)",
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
   },
   watermarkFullscreen: {
     top: 64,
@@ -2045,8 +2100,8 @@ const styles = StyleSheet.create({
   },
   watermarkText: {
     ...FONT.bold,
-    fontSize: 10,
-    color: "rgba(255,255,255,0.88)",
+    fontSize: 8,
+    color: "rgba(255,255,255,0.78)",
   },
   seekToast: {
     position: "absolute",
@@ -2119,8 +2174,8 @@ const styles = StyleSheet.create({
     borderRadius: 34,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    backgroundColor: "rgba(10,13,18,0.9)",
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(12,16,24,0.78)",
   },
   controlsSurfacePortrait: {
     borderRadius: 28,
@@ -2246,8 +2301,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.1)",
   },
   controlIconPortrait: {
     width: 40,
@@ -2292,8 +2347,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.1)",
   },
   seekTenButtonPortrait: {
     width: 42,
@@ -2318,10 +2373,10 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.95)",
+    backgroundColor: "rgba(255,255,255,0.97)",
     shadowColor: "#000",
-    shadowOpacity: 0.24,
-    shadowRadius: 16,
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },
   },
   playButtonPortrait: {
@@ -2413,7 +2468,7 @@ const styles = StyleSheet.create({
     top: 15,
     height: 4,
     borderRadius: 999,
-    backgroundColor: "rgba(148,163,184,0.46)",
+    backgroundColor: "rgba(255,255,255,0.24)",
   },
   progressBaseLinePortrait: {
     top: 12,
@@ -2495,8 +2550,8 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.1)",
   },
   controlChipAnchor: {
     position: "relative",

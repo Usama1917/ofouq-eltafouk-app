@@ -3,9 +3,12 @@ import { toEnglishDigits } from "@/lib/format";
 export type WatchHistoryLesson = {
   id: number;
   title: string;
+  titleEn?: string | null;
   description?: string | null;
+  descriptionEn?: string | null;
   unitId: number;
   unitName: string;
+  unitNameEn?: string | null;
   videoId?: number | null;
   videoTitle?: string | null;
   thumbnailUrl?: string | null;
@@ -21,6 +24,7 @@ export type WatchHistoryLesson = {
 export type WatchHistoryUnit = {
   id: number;
   name: string;
+  nameEn?: string | null;
   lessonCount: number;
   watchedLessons: number;
   completedLessons: number;
@@ -36,8 +40,8 @@ export type WatchHistorySubject = {
   source: string;
   createdAt: string;
   updatedAt: string;
-  year: { id: number; name: string };
-  subject: { id: number; name: string; icon: string; description: string; unitLabel: string };
+  year: { id: number; name: string; nameEn?: string | null };
+  subject: { id: number; name: string; nameEn?: string | null; icon: string; description: string; descriptionEn?: string | null; unitLabel: string };
   lessonCount: number;
   watchedLessons: number;
   completedLessons: number;

@@ -100,7 +100,7 @@ export default function ContactScreen() {
   } = usePreferences();
   const { user, token } = useAuth();
   const insets = useSafeAreaInsets();
-  const headerOverlayHeight = insets.top + 104;
+  const headerOverlayHeight = insets.top + 130;
   const { data: supportUnreadSummary, refetch: refetchSupportUnreadCount } = useQuery<SupportUnreadCountResponse>({
     queryKey: ["support", "me", "unread-count", token],
     queryFn: () => apiFetch("/api/support/me/unread-count", { token }),
@@ -128,10 +128,16 @@ export default function ContactScreen() {
     void Linking.openURL("tel:17057");
   }
 
-  function openWhatsApp() {
-    Linking.openURL("whatsapp://send?phone=201080080076").catch(() => {
-      void Linking.openURL("https://wa.me/201080080076");
-    });
+  async function openWhatsApp() {
+    // wa.me is a universal link: opens the WhatsApp app if installed, otherwise
+    // the web chat. It is far more reliable than the whatsapp:// scheme, which
+    // needs an Info.plist allow-list that Expo Go does not provide.
+    const webUrl = "https://wa.me/201080080076";
+    try {
+      await Linking.openURL(webUrl);
+    } catch {
+      void Linking.openURL("whatsapp://send?phone=201080080076").catch(() => undefined);
+    }
   }
 
   function openSupportChat() {
@@ -157,12 +163,14 @@ export default function ContactScreen() {
             {
               backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
               borderColor: colors.border,
+              flexDirection: "row",
+              direction: "ltr",
             },
           ]}
           accessibilityRole="button"
           accessibilityLabel={strings.common.back}
         >
-          <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={20} color={colors.textSecondary} />
+          <Feather name="arrow-left" size={20} color={colors.textSecondary} />
           <Text style={[styles.pageBackText, { color: colors.text, writingDirection: direction }]}>
             {strings.common.back}
           </Text>
@@ -174,7 +182,7 @@ export default function ContactScreen() {
           styles.topBar,
           {
             height: headerOverlayHeight,
-            paddingTop: insets.top + 34,
+            paddingTop: insets.top + 60,
             flexDirection: rowDirection,
             direction,
           },

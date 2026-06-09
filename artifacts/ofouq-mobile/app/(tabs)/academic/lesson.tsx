@@ -4,13 +4,18 @@ import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams, useNavigation, usePathname } from "expo-router";
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
+  LayoutAnimation,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  UIManager,
   View,
 } from "react-native";
 import { FONT } from "@/constants/typography";
@@ -29,6 +34,10 @@ import { resolveMediaUrl } from "@/lib/media";
 
 const HORIZONTAL_PADDING = 18;
 
+if (Platform.OS === "android") {
+  UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
+
 interface Lesson {
   id: number;
   title: string;
@@ -39,6 +48,8 @@ interface Lesson {
     id: number;
     title: string;
     titleEn?: string | null;
+    description?: string | null;
+    descriptionEn?: string | null;
     videoUrl: string;
     thumbnailUrl?: string | null;
     posterUrl?: string | null;
@@ -71,15 +82,44 @@ export default function LessonDetailScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const routeBase = getAcademicRouteBase(usePathname());
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const summaryChevron = useRef(new Animated.Value(0)).current;
+
+  const toggleSummary = useCallback(() => {
+    if (Platform.OS !== "web") {
+      // Springy "stretch open" for the height change so the card feels like it
+      // expands/unfolds to reveal its content.
+      LayoutAnimation.configureNext({
+        duration: 360,
+        update: { type: LayoutAnimation.Types.spring, springDamping: 0.78 },
+        create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+        delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      });
+    }
+    setSummaryExpanded((value) => {
+      const next = !value;
+      Animated.spring(summaryChevron, {
+        toValue: next ? 1 : 0,
+        useNativeDriver: true,
+        speed: 12,
+        bounciness: 6,
+      }).start();
+      return next;
+    });
+  }, [summaryChevron]);
   const {
     lessonId,
     lessonTitle,
+    lessonTitleEn,
     yearId,
     yearName,
+    yearNameEn,
     subjectId,
     subjectName,
+    subjectNameEn,
     unitId,
     unitName,
+    unitNameEn,
     unitLabel,
     seekSeconds,
     resumeFromNotification,
@@ -87,12 +127,16 @@ export default function LessonDetailScreen() {
   } = useLocalSearchParams<{
     lessonId: string;
     lessonTitle: string;
+    lessonTitleEn?: string;
     yearId?: string;
     yearName?: string;
+    yearNameEn?: string;
     subjectId?: string;
     subjectName?: string;
+    subjectNameEn?: string;
     unitId?: string;
     unitName?: string;
+    unitNameEn?: string;
     unitLabel?: string;
     seekSeconds?: string;
     resumeFromNotification?: string;
@@ -100,8 +144,8 @@ export default function LessonDetailScreen() {
   }>();
 
   useEffect(() => {
-    navigation.setOptions({ title: localizeAcademicText(String(lessonTitle ?? strings.academic.lesson), language) });
-  }, [language, lessonTitle, navigation, strings.academic.lesson]);
+    navigation.setOptions({ title: localizeAcademicText(String(lessonTitle ?? strings.academic.lesson), language, lessonTitleEn ? String(lessonTitleEn) : undefined) });
+  }, [language, lessonTitle, lessonTitleEn, navigation, strings.academic.lesson]);
 
   const {
     data: lesson,
@@ -117,14 +161,14 @@ export default function LessonDetailScreen() {
   });
 
   const backToLessons =
-    `${academicRoute(routeBase, "lessons")}?yearId=${yearId ?? ""}&yearName=${encode(String(yearName ?? ""))}` +
-    `&subjectId=${subjectId ?? ""}&subjectName=${encode(String(subjectName ?? ""))}` +
-    `&unitId=${unitId ?? ""}&unitName=${encode(String(unitName ?? ""))}` +
+    `${academicRoute(routeBase, "lessons")}?yearId=${yearId ?? ""}&yearName=${encode(String(yearName ?? ""))}&yearNameEn=${encode(String(yearNameEn ?? ""))}` +
+    `&subjectId=${subjectId ?? ""}&subjectName=${encode(String(subjectName ?? ""))}&subjectNameEn=${encode(String(subjectNameEn ?? ""))}` +
+    `&unitId=${unitId ?? ""}&unitName=${encode(String(unitName ?? ""))}&unitNameEn=${encode(String(unitNameEn ?? ""))}` +
     `&unitLabel=${encode(normalizeAcademicUnitLabel(unitLabel))}`;
 
   const subscribePath =
-    `${academicRoute(routeBase, "subscribe")}?yearId=${yearId ?? ""}&yearName=${encode(String(yearName ?? ""))}` +
-    `&subjectId=${subjectId ?? ""}&subjectName=${encode(String(subjectName ?? ""))}`;
+    `${academicRoute(routeBase, "subscribe")}?yearId=${yearId ?? ""}&yearName=${encode(String(yearName ?? ""))}&yearNameEn=${encode(String(yearNameEn ?? ""))}` +
+    `&subjectId=${subjectId ?? ""}&subjectName=${encode(String(subjectName ?? ""))}&subjectNameEn=${encode(String(subjectNameEn ?? ""))}`;
   const summaryThumbnailUrl = resolveMediaUrl(lesson?.video?.thumbnailUrl ?? lesson?.video?.posterUrl);
   const initialSeekSeconds = Math.max(0, Math.floor(Number(seekSeconds) || 0));
   const shouldAutoResume = resumeFromNotification === "1" && initialSeekSeconds > 0;
@@ -268,36 +312,82 @@ export default function LessonDetailScreen() {
           <>
             {lesson.video ? (
               <>
-                <View
-                  style={[
+                <Pressable
+                  onPress={toggleSummary}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: summaryExpanded }}
+                  style={({ pressed }) => [
                     styles.videoSummary,
-                    { backgroundColor: colors.card, borderColor: colors.border, flexDirection: rowDirection, direction },
+                    { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.94 : 1 },
                   ]}
                 >
-                  {summaryThumbnailUrl ? (
-                    <Image source={{ uri: summaryThumbnailUrl }} style={styles.summaryThumb} contentFit="cover" />
-                  ) : (
-                    <View style={styles.summaryThumbFallback}>
-                      <Feather name="play" size={22} color={COLORS.primary} />
-                    </View>
-                  )}
-                  <View style={[styles.summaryText, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-                    <Text style={[styles.summaryTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
-                      {localizeAcademicText(lesson.video.title, language, lesson.video.titleEn)}
-                    </Text>
-                    <Text style={[styles.summaryMeta, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                      {localizeAcademicText(lesson.video.instructor, language, lesson.video.instructorEn)} · {formatVideoDuration(lesson.video.duration)}
-                    </Text>
-                    {user ? (
-                      <Text style={[styles.watermarkHint, { color: colors.textTertiary, textAlign, writingDirection: direction }]} numberOfLines={1}>
-                        {localizeAcademicText(user.name, language)} - {toEnglishDigits(user.email)}
+                  <View style={[styles.summaryRow, { flexDirection: rowDirection, direction }]}>
+                    {summaryThumbnailUrl ? (
+                      <Image source={{ uri: summaryThumbnailUrl }} style={styles.summaryThumb} contentFit="cover" />
+                    ) : (
+                      <View style={styles.summaryThumbFallback}>
+                        <Feather name="play" size={22} color={COLORS.primary} />
+                      </View>
+                    )}
+                    <View style={[styles.summaryText, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                      <Text style={[styles.summaryTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
+                        {localizeAcademicText(lesson.video.title, language, lesson.video.titleEn)}
                       </Text>
-                    ) : null}
+                      <Text style={[styles.summaryMeta, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                        {localizeAcademicText(lesson.video.instructor, language, lesson.video.instructorEn)} · {formatVideoDuration(lesson.video.duration)}
+                      </Text>
+                      {user ? (
+                        <Text style={[styles.watermarkHint, { color: colors.textTertiary, textAlign, writingDirection: direction }]} numberOfLines={1}>
+                          {localizeAcademicText(user.name, language)} - {toEnglishDigits(user.email)}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Animated.View
+                      style={[
+                        styles.summaryToggle,
+                        { transform: [{ rotate: summaryChevron.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "180deg"] }) }] },
+                      ]}
+                    >
+                      <Feather name="chevron-down" size={20} color="#fff" />
+                    </Animated.View>
                   </View>
-                  <View style={styles.summaryPlay}>
-                    <Feather name="play" size={18} color="#fff" />
-                  </View>
-                </View>
+
+                  {summaryExpanded ? (
+                    <Animated.View
+                      style={[
+                        styles.summaryExpanded,
+                        {
+                          borderTopColor: colors.border,
+                          opacity: summaryChevron,
+                          transform: [{ translateY: summaryChevron.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }],
+                        },
+                      ]}
+                    >
+                      {summaryThumbnailUrl ? (
+                        <Image source={{ uri: summaryThumbnailUrl }} style={styles.summaryExpandedImage} contentFit="cover" />
+                      ) : null}
+                      <View style={[styles.summaryChips, { flexDirection: rowDirection, direction }]}>
+                        <View style={[styles.summaryChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                          <Feather name="clock" size={13} color={COLORS.primary} />
+                          <Text style={[styles.summaryChipText, { color: colors.textSecondary }]}>{formatVideoDuration(lesson.video.duration)}</Text>
+                        </View>
+                        {lesson.video.segments && lesson.video.segments.length > 0 ? (
+                          <View style={[styles.summaryChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                            <Feather name="list" size={13} color={COLORS.primary} />
+                            <Text style={[styles.summaryChipText, { color: colors.textSecondary }]}>
+                              {toEnglishDigits(String(lesson.video.segments.length))} {strings.academic.lessonSegments}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      {lesson.video.description ? (
+                        <Text style={[styles.summaryDescription, { color: colors.textSecondary, width: "100%", textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+                          {localizeAcademicText(lesson.video.description, language, lesson.video.descriptionEn)}
+                        </Text>
+                      ) : null}
+                    </Animated.View>
+                  ) : null}
+                </Pressable>
 
                 <AcademicVideoPlayer
                   key={`${lesson.id}:${initialSeekSeconds}:${resumeFromNotification ?? ""}:${notificationId ?? ""}`}
@@ -308,7 +398,9 @@ export default function LessonDetailScreen() {
                   posterUrl={lesson.video.posterUrl ?? null}
                   thumbnailUrl={lesson.video.thumbnailUrl ?? null}
                   segments={lesson.video.segments ?? []}
-                  watermarkText={user ? `${localizeAcademicText(user.name, language)} - ${toEnglishDigits(user.email)}` : undefined}
+                  watermarkText={user
+                    ? `${localizeAcademicText(user.name, language).trim().split(/\s+/)[0]} · ${toEnglishDigits(user.phone || user.email)}`
+                    : undefined}
                   initialSeekSeconds={initialSeekSeconds}
                   autoPlayOnLoad={shouldAutoResume}
                   onProgressUpdate={reportLessonProgress}
@@ -386,9 +478,55 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     padding: 14,
-    flexDirection: "row-reverse",
+  },
+  summaryRow: {
     alignItems: "center",
     gap: 12,
+  },
+  summaryToggle: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primary,
+  },
+  summaryExpanded: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    gap: 12,
+  },
+  summaryExpandedImage: {
+    width: "100%",
+    height: 168,
+    borderRadius: 18,
+    backgroundColor: "#E2E8F0",
+  },
+  summaryChips: {
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  summaryChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+  },
+  summaryChipText: {
+    ...FONT.semiBold,
+    fontSize: 12,
+    lineHeight: 16,
+    includeFontPadding: false,
+  },
+  summaryDescription: {
+    ...FONT.regular,
+    fontSize: 14,
+    lineHeight: 23,
   },
   summaryThumb: {
     width: 82,

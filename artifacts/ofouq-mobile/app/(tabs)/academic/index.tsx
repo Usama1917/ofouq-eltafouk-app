@@ -53,7 +53,7 @@ export default function AcademicTab() {
         renderItem={({ item }) => (
           <Pressable
             style={({ pressed }) => [styles.card, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.8 : 1 }]}
-            onPress={() => router.push(`./subjects?yearId=${item.id}&yearName=${encodeURIComponent(item.name)}`)}
+            onPress={() => router.push(`./subjects?yearId=${item.id}&yearName=${encodeURIComponent(item.name)}&yearNameEn=${encodeURIComponent(item.nameEn ?? "")}`)}
           >
             <View style={[styles.cardIcon, { backgroundColor: COLORS.primary + "18" }]}>
               <Ionicons name="school" size={26} color={COLORS.primary} />

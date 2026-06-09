@@ -4,6 +4,7 @@ import { useFonts } from "expo-font";
 import * as ScreenOrientation from "expo-screen-orientation";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
+import * as SystemUI from "expo-system-ui";
 import React, { useEffect } from "react";
 import { I18nManager, Text, TextInput } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -50,9 +51,19 @@ applyDefaultFont(Text as unknown as FontComponent);
 applyDefaultFont(TextInput as unknown as FontComponent);
 
 function RootLayoutNav() {
+  const { colors } = usePreferences();
+
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        // Paint every screen's scene with the theme background so there is no
+        // white flash under screens during navigation transitions (Android).
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="login" options={{ headerShown: false, presentation: "modal" }} />
       <Stack.Screen name="register" options={{ headerShown: false, presentation: "modal" }} />
     </Stack>
@@ -69,6 +80,18 @@ function AppStatusBar() {
       translucent
     />
   );
+}
+
+// Keep the native window/root background in sync with the theme so navigation
+// transitions never reveal a white backdrop (notably Android dark mode).
+function SystemBackground() {
+  const { colors } = usePreferences();
+
+  useEffect(() => {
+    void SystemUI.setBackgroundColorAsync(colors.background).catch(() => undefined);
+  }, [colors.background]);
+
+  return null;
 }
 
 function PushNotificationsBootstrap() {
@@ -107,6 +130,7 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <PreferencesProvider>
             <AppStatusBar />
+            <SystemBackground />
             <AuthProvider>
               <GestureHandlerRootView style={{ flex: 1 }}>
                 <KeyboardProvider>

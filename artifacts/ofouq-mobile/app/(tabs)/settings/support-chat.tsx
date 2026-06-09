@@ -218,7 +218,7 @@ export default function SupportChatScreen() {
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [quickQuestionsDismissed, setQuickQuestionsDismissed] = useState(false);
   const quickQuestions = language === "ar" ? QUICK_QUESTIONS_AR : QUICK_QUESTIONS_EN;
-  const headerOverlayHeight = insets.top + 104;
+  const headerOverlayHeight = insets.top + 150;
   const inputTextFlow = getTextFlow(message, direction);
 
   const queryKey = ["support", "me", token] as const;
@@ -366,12 +366,14 @@ export default function SupportChatScreen() {
             {
               backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
               borderColor: colors.border,
+              flexDirection: "row",
+              direction: "ltr",
             },
           ]}
           accessibilityRole="button"
           accessibilityLabel={strings.common.back}
         >
-          <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={20} color={colors.textSecondary} />
+          <Feather name="arrow-left" size={20} color={colors.textSecondary} />
           <Text style={[styles.pageBackText, { color: colors.text, writingDirection: direction }]}>
             {strings.common.back}
           </Text>
@@ -384,7 +386,7 @@ export default function SupportChatScreen() {
             styles.header,
             {
               height: headerOverlayHeight,
-              paddingTop: insets.top + 34,
+              paddingTop: insets.top + 60,
               flexDirection: rowDirection,
               direction,
             },

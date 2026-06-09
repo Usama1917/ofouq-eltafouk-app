@@ -191,7 +191,8 @@ export default function GeneralSettingsScreen() {
             {
               backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
               borderColor: colors.border,
-              flexDirection: isRTL ? "row-reverse" : "row",
+              flexDirection: "row",
+              direction: "ltr",
             },
           ]}
           accessibilityRole="button"

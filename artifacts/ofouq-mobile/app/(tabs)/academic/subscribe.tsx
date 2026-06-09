@@ -24,6 +24,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
+import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import { formatShortDate, toEnglishDigits } from "@/lib/format";
 import {
   createImageFormDataFile,
@@ -36,6 +37,7 @@ type AccessStatus = "none" | "pending" | "approved" | "rejected";
 interface Subject {
   id: number;
   name: string;
+  nameEn?: string | null;
   icon?: string | null;
   accessStatus?: AccessStatus;
   isLocked?: boolean;
@@ -47,15 +49,8 @@ interface StudentSubscriptionRequest {
   status: AccessStatus;
   submittedAt: string;
   reviewNotes?: string | null;
-  year: { id: number; name: string };
-  subject: { id: number; name: string };
-}
-
-function accessLabel(status: AccessStatus) {
-  if (status === "approved") return "مقبول";
-  if (status === "pending") return "قيد المراجعة";
-  if (status === "rejected") return "مرفوض";
-  return "غير مشترك";
+  year: { id: number; name: string; nameEn?: string | null };
+  subject: { id: number; name: string; nameEn?: string | null };
 }
 
 function accessColors(status: AccessStatus) {
@@ -70,17 +65,32 @@ function encode(value: string | undefined) {
 }
 
 export default function SubscribeScreen() {
-  const { colors, resolvedScheme, strings, isRTL, direction, textAlign, rowDirection, alignStart } = usePreferences();
+  const { colors, resolvedScheme, strings, language, isRTL, direction, textAlign, rowDirection, alignStart } = usePreferences();
   const { token } = useAuth();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const routeBase = getAcademicRouteBase(usePathname());
-  const { yearId, yearName, subjectId, subjectName } = useLocalSearchParams<{
+  const tr = strings.academic.subscribe;
+  const statusLabel = (status: AccessStatus) =>
+    status === "approved"
+      ? strings.academic.approved
+      : status === "pending"
+        ? strings.academic.pending
+        : status === "rejected"
+          ? strings.academic.rejected
+          : strings.academic.notSubscribed;
+  const { yearId, yearName, yearNameEn, subjectId, subjectName } = useLocalSearchParams<{
     yearId: string;
     yearName: string;
+    yearNameEn?: string;
     subjectId?: string;
     subjectName?: string;
   }>();
+  const localizedYearName = localizeAcademicText(
+    String(yearName ?? ""),
+    language,
+    yearNameEn ? String(yearNameEn) : undefined,
+  );
 
   const [selectedSubjectId, setSelectedSubjectId] = useState<number>(
     Number.parseInt(String(subjectId ?? "0"), 10) || 0,
@@ -91,8 +101,8 @@ export default function SubscribeScreen() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    navigation.setOptions({ title: "طلب اشتراك" });
-  }, [navigation]);
+    navigation.setOptions({ title: tr.navTitle });
+  }, [navigation, tr.navTitle]);
 
   useEffect(() => {
     if (!token) router.replace("/login");
@@ -180,23 +190,23 @@ export default function SubscribeScreen() {
     }
     const finalCode = code.trim();
     if (!selectedSubject) {
-      setMessage({ type: "error", text: "اختر المادة أولًا." });
+      setMessage({ type: "error", text: tr.selectSubjectFirst });
       return;
     }
     if (selectedStatus === "approved") {
-      setMessage({ type: "error", text: "أنت مشترك بالفعل في هذه المادة." });
+      setMessage({ type: "error", text: tr.alreadySubscribedMsg });
       return;
     }
     if (selectedStatus === "pending") {
-      setMessage({ type: "error", text: "لديك طلب اشتراك قيد المراجعة لهذه المادة." });
+      setMessage({ type: "error", text: tr.pendingMsg });
       return;
     }
     if (!finalCode) {
-      setMessage({ type: "error", text: "اكتب كود الاشتراك أولًا." });
+      setMessage({ type: "error", text: tr.enterCodeFirst });
       return;
     }
     if (!image) {
-      setMessage({ type: "error", text: "صورة كود الاشتراك مطلوبة." });
+      setMessage({ type: "error", text: tr.imageRequired });
       return;
     }
 
@@ -229,14 +239,12 @@ export default function SubscribeScreen() {
       setImage(null);
       setMessage({
         type: "success",
-        text:
-          result.message ??
-          "تم إرسال طلبك بنجاح وهو الآن قيد المراجعة. سيتم مراجعته خلال يوم عمل واحد كحد أقصى.",
+        text: result.message ?? tr.successMsg,
       });
       await refetchRequests();
     } catch (err) {
       logImageUploadDebug("subscription-code", "upload_error", image);
-      setMessage({ type: "error", text: err instanceof Error ? err.message : "تعذر إرسال الطلب." });
+      setMessage({ type: "error", text: err instanceof Error ? err.message : tr.submitError });
     } finally {
       setSubmitting(false);
     }
@@ -296,7 +304,7 @@ export default function SubscribeScreen() {
               ]}
             >
               <Feather name="arrow-left" size={20} color={colors.textSecondary} />
-              <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>المواد</Text>
+              <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>{tr.backToSubjects}</Text>
             </Pressable>
           </View>
 
@@ -306,10 +314,10 @@ export default function SubscribeScreen() {
             </View>
             <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
               <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={2}>
-                {toEnglishDigits(yearName ? `اشتراك مادة - ${yearName}` : "طلب اشتراك")}
+                {localizedYearName ? `${tr.headerTitlePrefix} - ${localizedYearName}` : tr.navTitle}
               </Text>
               <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                أدخل كود الاشتراك وارفع صورته لإرسال الطلب.
+                {tr.subtitle}
               </Text>
             </View>
           </View>
@@ -327,14 +335,14 @@ export default function SubscribeScreen() {
         }}
       >
         <View style={[styles.formCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
-            المادة
+          <Text style={[styles.fieldLabel, { color: colors.textSecondary, alignSelf: rtlAlign, textAlign, writingDirection: direction }]}>
+            {tr.subjectLabel}
           </Text>
           {subjectsLoading ? (
             <View style={[styles.loadingRow, { flexDirection: isRTL ? "row-reverse" : "row", justifyContent: rtlAlign }]}>
               <ActivityIndicator color={COLORS.primary} />
               <Text style={[styles.loadingText, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                جاري تحميل المواد...
+                {tr.loadingSubjects}
               </Text>
             </View>
           ) : (
@@ -363,7 +371,7 @@ export default function SubscribeScreen() {
                       ]}
                       numberOfLines={1}
                     >
-                      {toEnglishDigits(subject.name)}
+                      {localizeAcademicText(subject.name, language, subject.nameEn)}
                     </Text>
                   </Pressable>
                 );
@@ -374,18 +382,18 @@ export default function SubscribeScreen() {
           {selectedSubject || subjectName ? (
             <View style={[styles.statusLine, { backgroundColor: statusStyle.bg }]}>
               <Text style={[styles.statusLineText, { color: statusStyle.text, textAlign: "center", writingDirection: direction }]}>
-                حالة المادة: {accessLabel(selectedStatus)}
+                {tr.subjectStatus} {statusLabel(selectedStatus)}
               </Text>
             </View>
           ) : null}
 
-          <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
-            كود الاشتراك <Text style={styles.fieldHint}>(يوجد على ظهر غلاف الكتاب من الداخل)</Text>
+          <Text style={[styles.fieldLabel, { color: colors.textSecondary, alignSelf: rtlAlign, textAlign, writingDirection: direction }]}>
+            {tr.codeLabel} <Text style={styles.fieldHint}>{tr.codeHint}</Text>
           </Text>
           <TextInput
             value={code}
             onChangeText={setCode}
-            placeholder="مثال: 1106092724"
+            placeholder={tr.codePlaceholder}
             placeholderTextColor={colors.textTertiary}
             style={[
               styles.input,
@@ -397,12 +405,12 @@ export default function SubscribeScreen() {
                 writingDirection: direction,
               },
             ]}
-            textAlign="right"
+            textAlign={isRTL ? "right" : "left"}
             keyboardType="default"
           />
 
-          <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
-            صورة كود الاشتراك
+          <Text style={[styles.fieldLabel, { color: colors.textSecondary, alignSelf: rtlAlign, textAlign, writingDirection: direction }]}>
+            {tr.codeImageLabel}
           </Text>
           <Pressable
             onPress={pickImage}
@@ -416,7 +424,7 @@ export default function SubscribeScreen() {
           >
             <Feather name="image" size={18} color={COLORS.primary} />
             <Text style={styles.imagePickerText}>
-              {image ? toEnglishDigits(image.fileName ?? "تم اختيار صورة") : "اختيار صورة الكود"}
+              {image ? toEnglishDigits(image.fileName ?? tr.imageSelected) : tr.pickImage}
             </Text>
           </Pressable>
 
@@ -427,7 +435,7 @@ export default function SubscribeScreen() {
                 message.type === "success" ? styles.successBox : styles.errorBox,
               ]}
             >
-              <Text style={message.type === "success" ? styles.successText : styles.errorText}>
+              <Text style={[message.type === "success" ? styles.successText : styles.errorText, { textAlign, writingDirection: direction }]}>
                 {toEnglishDigits(message.text)}
               </Text>
             </View>
@@ -441,41 +449,41 @@ export default function SubscribeScreen() {
             {submitting ? <ActivityIndicator color="#fff" /> : <Feather name="send" size={17} color="#fff" />}
             <Text style={styles.submitText}>
               {submitting
-                ? "جاري إرسال الطلب..."
+                ? tr.submitting
                 : selectedStatus === "pending"
-                ? "الطلب قيد المراجعة"
+                ? tr.underReview
                 : selectedStatus === "approved"
-                ? "أنت مشترك بالفعل"
-                : "إرسال طلب الاشتراك"}
+                ? tr.alreadySubscribed
+                : tr.submit}
             </Text>
           </Pressable>
         </View>
 
         <View style={[styles.requestsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.requestsTitle, { color: colors.text }]}>طلباتك السابقة</Text>
+          <Text style={[styles.requestsTitle, { color: colors.text, alignSelf: rtlAlign, textAlign, writingDirection: direction }]}>{tr.pastRequests}</Text>
           {requestsLoading ? (
             <ActivityIndicator color={COLORS.primary} />
           ) : requests.length === 0 ? (
-            <Text style={[styles.emptyRequests, { color: colors.textSecondary }]}>لا توجد طلبات حتى الآن.</Text>
+            <Text style={[styles.emptyRequests, { color: colors.textSecondary, alignSelf: rtlAlign, textAlign, writingDirection: direction }]}>{tr.noRequests}</Text>
           ) : (
             requests.map((request) => {
               const requestBadge = accessColors(request.status);
               return (
-                <View key={request.id} style={[styles.requestRow, { backgroundColor: colors.surface }]}>
+                <View key={request.id} style={[styles.requestRow, { backgroundColor: colors.surface, flexDirection: isRTL ? "row" : "row-reverse" }]}>
                   <View style={[styles.requestBadge, { backgroundColor: requestBadge.bg }]}>
                     <Text style={[styles.requestBadgeText, { color: requestBadge.text }]}>
-                      {accessLabel(request.status)}
+                      {statusLabel(request.status)}
                     </Text>
                   </View>
-                  <View style={styles.requestTextBlock}>
-                    <Text style={[styles.requestSubject, { color: colors.text }]} numberOfLines={1}>
-                      {toEnglishDigits(request.subject.name)}
+                  <View style={[styles.requestTextBlock, { alignItems: rtlAlign }]}>
+                    <Text style={[styles.requestSubject, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
+                      {localizeAcademicText(request.subject.name, language, request.subject.nameEn)}
                     </Text>
-                    <Text style={[styles.requestMeta, { color: colors.textSecondary }]}>
-                      {toEnglishDigits(request.year.name)} · {formatShortDate(request.submittedAt, strings.locale)}
+                    <Text style={[styles.requestMeta, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                      {localizeAcademicText(request.year.name, language, request.year.nameEn)} · {formatShortDate(request.submittedAt, strings.locale)}
                     </Text>
-                    <Text style={[styles.requestMeta, { color: colors.textSecondary }]}>
-                      الكود: {toEnglishDigits(request.code)}
+                    <Text style={[styles.requestMeta, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                      {tr.codePrefix} {toEnglishDigits(request.code)}
                     </Text>
                   </View>
                 </View>

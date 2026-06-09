@@ -22,6 +22,7 @@ export interface User {
   avatarUrl?: string;
   joinedAt?: string;
   lastActiveAt?: string | null;
+  onboardingCompleted?: boolean;
 }
 
 interface AuthContextValue {

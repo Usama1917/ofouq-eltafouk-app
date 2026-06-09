@@ -25,6 +25,7 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
+import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import { toEnglishDigits } from "@/lib/format";
 import { resolveMediaUrl } from "@/lib/media";
 import {
@@ -77,15 +78,17 @@ function openLesson(subject: WatchHistorySubject, lesson: WatchHistoryLesson) {
 function animateSubjectAccordion() {
   if (Platform.OS === "web") return;
 
+  // easeInEaseOut (no spring overshoot) — a spring update keeps re-laying-out the
+  // shadowed card, which Android re-rasterizes every frame and looks "pixelated"
+  // for a moment. A plain ease curve stays crisp and smooth.
   LayoutAnimation.configureNext({
-    duration: 340,
+    duration: 280,
     create: {
       type: LayoutAnimation.Types.easeInEaseOut,
       property: LayoutAnimation.Properties.opacity,
     },
     update: {
-      type: LayoutAnimation.Types.spring,
-      springDamping: 0.86,
+      type: LayoutAnimation.Types.easeInEaseOut,
     },
     delete: {
       type: LayoutAnimation.Types.easeInEaseOut,
@@ -263,10 +266,10 @@ function SubjectHistoryCard({
               ]}
             >
               <Text style={[styles.subjectTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
-                {toEnglishDigits(subject.subject.name)}
+                {localizeAcademicText(subject.subject.name, language, subject.subject.nameEn)}
               </Text>
               <Text style={[styles.subjectMeta, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
-                {toEnglishDigits(subject.year.name)} • {formatStudyDuration(subject.watchedSeconds, language)} / {formatStudyDuration(subject.totalSeconds, language)}
+                {localizeAcademicText(subject.year.name, language, subject.year.nameEn)} • {formatStudyDuration(subject.watchedSeconds, language)} / {formatStudyDuration(subject.totalSeconds, language)}
               </Text>
             </Animated.View>
             <Animated.Text
@@ -294,16 +297,22 @@ function SubjectHistoryCard({
           ]}
         >
           <View style={[styles.subjectMetrics, { flexDirection: rowDirection, direction }]}>
-            <Text style={[styles.subjectMetricText, { color: colors.textSecondary }]}>
-              {toEnglishDigits(`${subject.watchedLessons}/${subject.lessonCount}`)} دروس بدأت
-            </Text>
-            <Text style={[styles.subjectMetricText, { color: colors.textSecondary }]}>
-              {toEnglishDigits(String(subject.completedLessons))} مكتملة
-            </Text>
-            {subject.lastWatchedAt ? (
+            <View style={styles.subjectMetricPill}>
               <Text style={[styles.subjectMetricText, { color: colors.textSecondary }]}>
-                آخر مرة {formatHistoryDate(subject.lastWatchedAt, strings.locale)}
+                {toEnglishDigits(`${subject.watchedLessons}/${subject.lessonCount}`)} {strings.settings.watchHistoryLessonsStarted}
               </Text>
+            </View>
+            <View style={styles.subjectMetricPill}>
+              <Text style={[styles.subjectMetricText, { color: colors.textSecondary }]}>
+                {toEnglishDigits(String(subject.completedLessons))} {strings.settings.watchHistoryCompletedCount}
+              </Text>
+            </View>
+            {subject.lastWatchedAt ? (
+              <View style={styles.subjectMetricPill}>
+                <Text style={[styles.subjectMetricText, { color: colors.textSecondary }]}>
+                  {strings.settings.watchHistoryLastTime} {formatHistoryDate(subject.lastWatchedAt, strings.locale)}
+                </Text>
+              </View>
             ) : null}
           </View>
 
@@ -355,8 +364,9 @@ function SubjectHistoryCard({
                     ]}
                   >
                     <View style={styles.timelineRail}>
+                      <View style={[styles.timelineConnector, styles.timelineConnectorTop, index === 0 ? styles.timelineConnectorHidden : null]} />
                       <View style={[styles.timelineDot, lesson.completed ? styles.timelineDotDone : null]} />
-                      {index < watchedLessons.length - 1 ? <View style={styles.timelineLine} /> : null}
+                      <View style={[styles.timelineConnector, styles.timelineConnectorBottom, index === watchedLessons.length - 1 ? styles.timelineConnectorHidden : null]} />
                     </View>
 
                     {thumbnailUri ? (
@@ -370,14 +380,14 @@ function SubjectHistoryCard({
                     <View style={[styles.lessonBody, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                       <View style={[styles.lessonTitleLine, { flexDirection: rowDirection, direction }]}>
                         <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
-                          {toEnglishDigits(lesson.title)}
+                          {localizeAcademicText(lesson.title, language, lesson.titleEn)}
                         </Text>
                         <Text style={[styles.lessonStatus, lesson.completed ? styles.lessonStatusDone : null]}>
                           {statusLabel}
                         </Text>
                       </View>
                       <Text style={[styles.lessonMeta, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
-                        {toEnglishDigits(lesson.unitName)} • {formatClockDuration(lesson.currentSeconds)} / {formatClockDuration(lesson.durationSeconds)}
+                        {localizeAcademicText(lesson.unitName, language, lesson.unitNameEn)} • {formatClockDuration(lesson.currentSeconds)} / {formatClockDuration(lesson.durationSeconds)}
                       </Text>
                       <View style={[styles.lessonTrack, { backgroundColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(15,23,42,0.08)" }]}>
                         <View
@@ -417,7 +427,9 @@ export default function WatchHistoryScreen() {
   const { user, token } = useAuth();
   const insets = useSafeAreaInsets();
   const isDark = resolvedScheme === "dark";
-  const headerOverlayHeight = insets.top + 124;
+  // Extra top room so the floating back button never overlaps the page title
+  // (in LTR the title is left-aligned and would otherwise sit under the button).
+  const headerOverlayHeight = insets.top + 150;
   const [expandedSubjectId, setExpandedSubjectId] = React.useState<number | null>(null);
   const {
     data,
@@ -474,12 +486,14 @@ export default function WatchHistoryScreen() {
             {
               backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
               borderColor: colors.border,
+              flexDirection: "row",
+              direction: "ltr",
             },
           ]}
           accessibilityRole="button"
           accessibilityLabel={strings.common.back}
         >
-          <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={20} color={colors.textSecondary} />
+          <Feather name="arrow-left" size={20} color={colors.textSecondary} />
           <Text style={[styles.pageBackText, { color: colors.text, writingDirection: direction }]}>
             {strings.common.back}
           </Text>
@@ -491,7 +505,7 @@ export default function WatchHistoryScreen() {
           styles.topBar,
           {
             height: headerOverlayHeight,
-            paddingTop: insets.top + 34,
+            paddingTop: insets.top + 60,
             flexDirection: rowDirection,
             direction,
           },
@@ -588,7 +602,7 @@ export default function WatchHistoryScreen() {
                 <Text style={[styles.summarySubtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
                   {subjects.length === 0
                     ? strings.settings.watchHistoryEmptyTitle
-                    : `${toEnglishDigits(String(totals?.subscriptionCount ?? subjects.length))} مواد نشطة`}
+                    : `${toEnglishDigits(String(totals?.subscriptionCount ?? subjects.length))} ${strings.settings.watchHistoryActiveSubjects}`}
                 </Text>
               </View>
               <Text style={styles.summaryPercent}>{formatProgressPercent(totalProgress)}</Text>
@@ -598,19 +612,19 @@ export default function WatchHistoryScreen() {
                 <Text style={[styles.summaryMetricValue, { color: colors.text }]}>
                   {formatStudyDuration(totals?.watchedSeconds ?? 0, language)}
                 </Text>
-                <Text style={[styles.summaryMetricLabel, { color: colors.textSecondary }]}>استمعت</Text>
+                <Text style={[styles.summaryMetricLabel, { color: colors.textSecondary }]}>{strings.settings.watchHistoryStatWatched}</Text>
               </View>
               <View style={styles.summaryMetric}>
                 <Text style={[styles.summaryMetricValue, { color: colors.text }]}>
                   {formatStudyDuration(totals?.totalSeconds ?? 0, language)}
                 </Text>
-                <Text style={[styles.summaryMetricLabel, { color: colors.textSecondary }]}>المحتوى</Text>
+                <Text style={[styles.summaryMetricLabel, { color: colors.textSecondary }]}>{strings.settings.watchHistoryStatContent}</Text>
               </View>
               <View style={styles.summaryMetric}>
                 <Text style={[styles.summaryMetricValue, { color: colors.text }]}>
                   {toEnglishDigits(String(totals?.completedLessons ?? 0))}
                 </Text>
-                <Text style={[styles.summaryMetricLabel, { color: colors.textSecondary }]}>مكتمل</Text>
+                <Text style={[styles.summaryMetricLabel, { color: colors.textSecondary }]}>{strings.settings.watchHistoryCompleted}</Text>
               </View>
             </View>
           </View>
@@ -929,15 +943,21 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
-  subjectMetricText: {
+  subjectMetricPill: {
     borderRadius: 999,
     overflow: "hidden",
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     backgroundColor: "rgba(148,163,184,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  subjectMetricText: {
     ...FONT.semiBold,
     fontSize: 11,
-    lineHeight: 17,
+    lineHeight: 15,
+    includeFontPadding: false,
+    textAlignVertical: "center",
   },
   lessonTimeline: {
     gap: 10,
@@ -965,17 +985,30 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.primary,
     backgroundColor: "#FFFFFF",
-    marginTop: 21,
+    zIndex: 1,
   },
   timelineDotDone: {
     backgroundColor: COLORS.success,
     borderColor: COLORS.success,
   },
-  timelineLine: {
-    width: 2,
+  // Two segments (above + below the dot). Only the BOTTOM segment overshoots the
+  // row gap (marginBottom) so it meets the next row's top segment exactly at the
+  // row boundary — one continuous line with no doubling/overlap.
+  timelineConnector: {
+    width: 3,
+    borderRadius: 999,
+    backgroundColor: "rgba(96,165,250,0.55)",
+  },
+  timelineConnectorTop: {
+    height: 21,
+  },
+  timelineConnectorBottom: {
     flex: 1,
-    minHeight: 34,
-    backgroundColor: "rgba(59,130,246,0.22)",
+    minHeight: 16,
+    marginBottom: -10,
+  },
+  timelineConnectorHidden: {
+    backgroundColor: "transparent",
   },
   lessonThumb: {
     width: 54,

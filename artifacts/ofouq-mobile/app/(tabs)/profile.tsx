@@ -86,17 +86,14 @@ function FieldDisplay({
   const rtlValueTokens = displayValue.split(/\s+/).filter(Boolean);
 
   return (
-    <View
-      style={[
-        styles.infoTile,
-        { backgroundColor: colors.surface, flexDirection: rowDirection, direction },
-      ]}
-    >
-      <Feather name={icon} size={17} color={colors.textSecondary} />
+    <View style={[styles.infoTile, { backgroundColor: colors.surface, direction: "ltr" }]}>
       <View style={[styles.infoTextBlock, { direction: "ltr" }]}>
-        <Text style={[styles.infoLabel, { color: colors.textSecondary, writingDirection: direction }]}>
-          {label}
-        </Text>
+        <View style={styles.infoLabelRow}>
+          <Text style={[styles.infoLabel, { color: colors.textSecondary, writingDirection: direction }]} numberOfLines={1}>
+            {label}
+          </Text>
+          <Feather name={icon} size={15} color={colors.textSecondary} />
+        </View>
         <View style={styles.infoValueRow}>
           {wrapRtlValue ? (
             <View style={styles.infoRtlValueWrap}>
@@ -353,6 +350,8 @@ export default function ProfileScreen() {
             {
               backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
               borderColor: colors.border,
+              flexDirection: "row",
+              direction: "ltr",
             },
           ]}
           accessibilityRole="button"
@@ -983,11 +982,15 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 11,
   },
-  infoTextBlock: { flex: 1, alignItems: "stretch", minWidth: 0 },
+  infoTextBlock: { width: "100%", alignItems: "flex-end", gap: 3 },
+  infoLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
   infoLabel: {
     ...FONT.semiBold,
     fontSize: 12,
-    width: "100%",
     textAlign: "right",
   },
   infoValueRow: {

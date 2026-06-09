@@ -1,16 +1,21 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurView } from "expo-blur";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
-import { Tabs } from "expo-router";
+import { router, Tabs } from "expo-router";
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { Feather, Ionicons } from "@expo/vector-icons";
-import React from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
 import { FONT } from "@/constants/typography";
+import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
+import { apiFetch } from "@/lib/api";
+
+const onboardingDoneKey = (userId: number | string) => `ofouq_onboarding_done_${userId}`;
 
 function NativeTabLayout() {
   const { strings, language } = usePreferences();
@@ -153,6 +158,61 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
+  const { user, token } = useAuth();
+  const { colors } = usePreferences();
+  // Gate the main app behind first-time onboarding for students only. Backend is
+  // the source of truth; a local flag avoids re-fetching/flicker after completion.
+  const [gateReady, setGateReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function check() {
+      // Guests, admins, teachers, owners, etc. are never gated.
+      if (!user || !token || user.role !== "student" || user.onboardingCompleted) {
+        if (!cancelled) setGateReady(true);
+        return;
+      }
+      try {
+        const flag = await AsyncStorage.getItem(onboardingDoneKey(user.id));
+        if (cancelled) return;
+        if (flag === "1") {
+          setGateReady(true);
+          return;
+        }
+      } catch {
+        // ignore cache errors
+      }
+      try {
+        const data = await apiFetch<{ completed: boolean }>("/api/student/onboarding", { token });
+        if (cancelled) return;
+        if (data?.completed) {
+          await AsyncStorage.setItem(onboardingDoneKey(user.id), "1").catch(() => undefined);
+          setGateReady(true);
+        } else {
+          router.replace("/onboarding");
+        }
+      } catch {
+        // Network/server issue — don't hard-block the app.
+        if (!cancelled) setGateReady(true);
+      }
+    }
+
+    setGateReady(false);
+    void check();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.role, user?.onboardingCompleted, token]);
+
+  if (!gateReady) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator color={COLORS.primary} />
+      </View>
+    );
+  }
+
   if (isLiquidGlassAvailable()) {
     return <NativeTabLayout />;
   }

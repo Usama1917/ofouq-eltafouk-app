@@ -7,7 +7,7 @@ import {
   supportMessagesTable,
   usersTable,
 } from "@workspace/db";
-import { and, asc, count, desc, eq, ilike, inArray, isNull, lte } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNull, lte, not, sql } from "drizzle-orm";
 import { sendPushNotificationToUser } from "../lib/push-notifications";
 import { logger } from "../lib/logger";
 
@@ -95,6 +95,15 @@ async function getOrCreateConversation(userId: number) {
 
 function normalizeMessageBody(value: unknown) {
   return String(value ?? "").trim().slice(0, 2000);
+}
+
+// Strip everything but digits, converting Arabic-Indic / Persian numerals to
+// ASCII so a phone search like "٠١٠" matches a stored "+2010..." number.
+function digitsOnly(value: unknown) {
+  return String(value ?? "")
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
+    .replace(/[^0-9]/g, "");
 }
 
 function notificationPreview(value: string) {
@@ -466,6 +475,7 @@ router.get("/admin/support/conversations", async (req, res) => {
 
     const searchTerm = normalizeMessageBody(req.query?.q).slice(0, 160);
     const normalizedSearchTerm = searchTerm.toLowerCase();
+    const searchDigits = digitsOnly(searchTerm);
     const matchingMessageConversationIds = new Set<number>();
 
     if (searchTerm) {
@@ -480,6 +490,9 @@ router.get("/admin/support/conversations", async (req, res) => {
       }
     }
 
+    // Start from users (LEFT JOIN conversations) so every app user always has a
+    // chat thread in the list — even those who never sent a message. Staff
+    // accounts (admin/owner) are excluded since they aren't support contacts.
     let conversations = await db
       .select({
         id: supportConversationsTable.id,
@@ -492,23 +505,38 @@ router.get("/admin/support/conversations", async (req, res) => {
           name: usersTable.name,
           email: usersTable.email,
           role: usersTable.role,
+          phone: usersTable.phone,
           avatarUrl: usersTable.avatarUrl,
         },
       })
-      .from(supportConversationsTable)
-      .innerJoin(usersTable, eq(supportConversationsTable.userId, usersTable.id))
-      .orderBy(desc(supportConversationsTable.lastMessageAt), desc(supportConversationsTable.id));
+      .from(usersTable)
+      .leftJoin(supportConversationsTable, eq(supportConversationsTable.userId, usersTable.id))
+      .where(not(inArray(usersTable.role, ["admin", "owner"])))
+      .orderBy(
+        sql`${supportConversationsTable.lastMessageAt} desc nulls last`,
+        asc(usersTable.name),
+      );
 
     if (searchTerm) {
       conversations = conversations.filter((conversation) => (
         conversation.user.name.toLowerCase().includes(normalizedSearchTerm)
         || conversation.user.email.toLowerCase().includes(normalizedSearchTerm)
-        || matchingMessageConversationIds.has(conversation.id)
+        || (conversation.user.phone
+          ? conversation.user.phone.toLowerCase().includes(normalizedSearchTerm)
+          : false)
+        || (searchDigits.length > 0 && digitsOnly(conversation.user.phone).includes(searchDigits))
+        || (conversation.id != null && matchingMessageConversationIds.has(conversation.id))
       ));
     }
 
     const enriched = await Promise.all(
       conversations.map(async (conversation) => {
+        // Users without a materialized conversation yet have no messages.
+        if (conversation.id == null) {
+          return { ...conversation, lastMessage: null, unreadCount: 0 };
+        }
+
+        const conversationId = conversation.id;
         const [lastMessage] = await db
           .select({
             id: supportMessagesTable.id,
@@ -519,7 +547,7 @@ router.get("/admin/support/conversations", async (req, res) => {
             createdAt: supportMessagesTable.createdAt,
           })
           .from(supportMessagesTable)
-          .where(eq(supportMessagesTable.conversationId, conversation.id))
+          .where(eq(supportMessagesTable.conversationId, conversationId))
           .orderBy(desc(supportMessagesTable.createdAt), desc(supportMessagesTable.id))
           .limit(1);
 
@@ -528,7 +556,7 @@ router.get("/admin/support/conversations", async (req, res) => {
           .from(supportMessagesTable)
           .where(
             and(
-              eq(supportMessagesTable.conversationId, conversation.id),
+              eq(supportMessagesTable.conversationId, conversationId),
               eq(supportMessagesTable.senderRole, "user"),
               isNull(supportMessagesTable.readAt),
             ),

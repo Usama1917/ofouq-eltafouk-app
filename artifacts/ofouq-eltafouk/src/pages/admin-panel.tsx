@@ -34,14 +34,15 @@ type SubjectInsightItem = {
   watchedSeconds: number;
 };
 type SupportConversationItem = {
-  id: number;
+  id: number | null;
   status: string;
-  lastMessageAt: string;
+  lastMessageAt: string | null;
   user: {
     id: number;
     name: string;
     email: string;
     role: string;
+    phone?: string | null;
     avatarUrl?: string | null;
   };
   lastMessage?: {
@@ -1130,7 +1131,33 @@ type StudentDetailsResponse = {
   support: { hasConversation: boolean; status?: string | null; messagesCount: number; unreadCount: number; lastMessageAt?: string | null; lastMessagePreview?: string | null };
   notifications: { total: number; unread: number };
   devices: Array<{ id: number; platform: string; deviceName?: string | null; tokenPreview: string; enabled: boolean; lastRegisteredAt?: string | null; lastSeenAt?: string | null }>;
+  onboarding?: {
+    completed: boolean;
+    completedAt?: string | null;
+    heardAboutUs?: string | null;
+    gradeLevel?: string | null;
+    interestedSubjects?: string[] | null;
+    mainGoal?: string | null;
+    currentLevel?: string | null;
+    learningPreference?: string | null;
+    preferredStudyTime?: string | null;
+  } | null;
 };
+
+// Maps stable onboarding option keys -> Arabic labels for the dashboard.
+const ONBOARDING_LABELS: Record<string, Record<string, string>> = {
+  heardAboutUs: { facebook: "فيسبوك", instagram: "إنستجرام", tiktok: "تيك توك", youtube: "يوتيوب", friend: "صديق / قريب", teacher: "مدرس / سنتر", sponsored_ad: "إعلان ممول", google: "بحث جوجل", other: "أخرى" },
+  gradeLevel: { secondary_1: "الصف الأول الثانوي", secondary_2: "الصف الثاني الثانوي", secondary_3: "الصف الثالث الثانوي" },
+  interestedSubjects: { physics: "الفيزياء", chemistry: "الكيمياء", biology: "الأحياء" },
+  mainGoal: { follow_lessons: "متابعة شرح الدروس", more_exercises: "حل تدريبات أكثر", exam_review: "مراجعة قبل الامتحان", improve_level: "تحسين المستوى", catch_up: "تعويض دروس فاتته", organize_study: "تنظيم المذاكرة" },
+  currentLevel: { excellent: "ممتاز", good: "جيد", average: "متوسط", need_help: "محتاج مساعدة" },
+  learningPreference: { short_videos: "فيديوهات قصيرة", detailed_long: "شرح تفصيلي طويل", summaries: "ملخصات ومراجعات", questions_exercises: "أسئلة وتدريبات", live_sessions: "بث مباشر / حصص مباشرة", mix: "خليط من كل ده" },
+  preferredStudyTime: { morning: "صباحًا", afternoon: "بعد الظهر", evening: "مساءً", night: "ليلًا", not_sure: "غير محدد" },
+};
+function onboardingLabel(group: string, key?: string | null) {
+  if (!key) return null;
+  return ONBOARDING_LABELS[group]?.[key] ?? key;
+}
 
 const DETAIL_ROLE_LABELS: Record<string, string> = { student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", moderator: "مشرف", owner: "مالك" };
 const DETAIL_ROLE_COLORS: Record<string, string> = { student: "bg-blue-100 text-blue-700", teacher: "bg-emerald-100 text-emerald-700", parent: "bg-amber-100 text-amber-700", admin: "bg-violet-100 text-violet-700", moderator: "bg-violet-100 text-violet-700", owner: "bg-rose-100 text-rose-700" };
@@ -1284,6 +1311,32 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
                         <DetailRow label="الدعم المطلوب" value={data.user.supportNeeded} />
                         <DetailRow label="نبذة" value={data.user.bio} />
                       </>
+                    )}
+                  </DetailSection>
+
+                  {/* Onboarding / Student Preferences */}
+                  <DetailSection title="بيانات الانترو / تفضيلات الطالب" icon={GraduationCap}>
+                    {data.onboarding ? (
+                      <>
+                        <DetailRow label="كيف عرف عنا" value={onboardingLabel("heardAboutUs", data.onboarding.heardAboutUs)} />
+                        <DetailRow label="الصف الدراسي" value={onboardingLabel("gradeLevel", data.onboarding.gradeLevel)} />
+                        <DetailRow
+                          label="المواد المهتم بها"
+                          value={
+                            (data.onboarding.interestedSubjects ?? [])
+                              .map((k) => onboardingLabel("interestedSubjects", k))
+                              .filter(Boolean)
+                              .join("، ") || null
+                          }
+                        />
+                        <DetailRow label="الهدف الأساسي" value={onboardingLabel("mainGoal", data.onboarding.mainGoal)} />
+                        <DetailRow label="المستوى الحالي" value={onboardingLabel("currentLevel", data.onboarding.currentLevel)} />
+                        <DetailRow label="طريقة التعلم المفضلة" value={onboardingLabel("learningPreference", data.onboarding.learningPreference)} />
+                        <DetailRow label="وقت المذاكرة المفضل" value={onboardingLabel("preferredStudyTime", data.onboarding.preferredStudyTime)} />
+                        <DetailRow label="تاريخ إكمال الانترو" icon={CalendarClock} value={data.onboarding.completedAt ? formatAdminDateTime(data.onboarding.completedAt) : null} />
+                      </>
+                    ) : (
+                      <DetailEmpty text="لم يكمل الطالب بيانات الانترو بعد" />
                     )}
                   </DetailSection>
 
@@ -1650,13 +1703,15 @@ function UsersTab({
                     </div>
                   </td>
                   <td className="px-5 py-3.5">
-                    <div className="flex gap-2">
+                    <div dir="ltr" className="flex flex-nowrap items-center justify-between gap-2 whitespace-nowrap">
                       <button onClick={() => setDetailUser(u)} title="تفاصيل الطالب" aria-label="تفاصيل الطالب"
                         className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-all"><Info className="h-3.5 w-3.5" />تفاصيل</button>
-                      <button onClick={() => updateUser.mutate({ id: u.id, data: { status: u.status === "active" ? "suspended" : "active" } as any }, { onSuccess: () => refetch() })}
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-muted hover:bg-muted/80 transition-all">{u.status === "active" ? "تعليق" : "تفعيل"}</button>
-                      <button onClick={() => { if(confirm("هل أنت متأكد؟")) deleteUser.mutate({ id: u.id }, { onSuccess: () => refetch() }); }}
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all">حذف</button>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => updateUser.mutate({ id: u.id, data: { status: u.status === "active" ? "suspended" : "active" } as any }, { onSuccess: () => refetch() })}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-muted hover:bg-muted/80 transition-all">{u.status === "active" ? "تعليق" : "تفعيل"}</button>
+                        <button onClick={() => { if(confirm("هل أنت متأكد؟")) deleteUser.mutate({ id: u.id }, { onSuccess: () => refetch() }); }}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all">حذف</button>
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -3723,15 +3778,51 @@ function SupportMessagesTab({
     }
   }, [quickReplies]);
 
-  const handleSelectConversation = async (conversationId: number) => {
+  const selectConversationById = async (conversationId: number) => {
     setSelectedId(conversationId);
     await loadConversations(conversationId);
+  };
+
+  const handleSelectConversation = async (conversation: SupportConversationItem) => {
+    // Existing conversation — open it directly.
+    if (conversation.id != null) {
+      await selectConversationById(conversation.id);
+      return;
+    }
+
+    // User has no conversation yet — materialize one on demand so the admin can
+    // start chatting even though nothing was exchanged before.
+    if (!token) return;
+    try {
+      setMessagesLoading(true);
+      const res = await fetch(apiPath("/api/admin/support/conversations/open"), {
+        method: "POST",
+        headers: {
+          ...authHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userId: conversation.user.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as any)?.error || "تعذر فتح محادثة المستخدم");
+      }
+      const conversationId = Number((data as any)?.conversation?.id);
+      if (!Number.isFinite(conversationId) || conversationId <= 0) {
+        throw new Error("استجابة غير متوقعة من الخادم");
+      }
+      await selectConversationById(conversationId);
+    } catch (err: any) {
+      setError(err?.message || "تعذر فتح محادثة المستخدم");
+    } finally {
+      setMessagesLoading(false);
+    }
   };
 
   const handleOpenAutomaticReportChat = async (item: AutomaticSupportMessageReportItem) => {
     if (!item.conversationId) return;
     setAutomaticReportOpen(false);
-    await handleSelectConversation(item.conversationId);
+    await selectConversationById(item.conversationId);
   };
 
   const handleSendReply = async () => {
@@ -3928,7 +4019,7 @@ function SupportMessagesTab({
             <input
               value={conversationSearchTerm}
               onChange={(event) => setConversationSearchTerm(event.target.value)}
-              placeholder="بحث باسم المستخدم أو الإيميل أو محتوى الرسالة"
+              placeholder="بحث باسم المستخدم أو الإيميل أو رقم الهاتف أو محتوى الرسالة"
               className="h-11 w-full rounded-2xl border border-border bg-white/70 py-2 pl-10 pr-10 text-sm font-semibold text-foreground outline-none transition-all placeholder:text-muted-foreground focus:border-primary/50 focus:bg-white focus:ring-2 focus:ring-primary/10 dark:bg-white/10 dark:focus:bg-white/15"
               dir="rtl"
             />
@@ -4020,14 +4111,14 @@ function SupportMessagesTab({
           </div>
           <div className="space-y-2 max-h-[520px] overflow-y-auto overscroll-contain hide-scrollbar xl:max-h-none xl:min-h-0 xl:flex-1">
             {conversations.map((conversation) => {
-              const active = conversation.id === selectedId;
+              const active = conversation.id != null && conversation.id === selectedId;
               const lastText = conversation.lastMessage?.body ?? "لا توجد رسائل بعد";
               const automaticLastMessage = isAutomaticSupportMessage(conversation.lastMessage);
               const directLastMessage = isDirectAdminSupportMessage(conversation.lastMessage);
               return (
                 <button
-                  key={conversation.id}
-                  onClick={() => void handleSelectConversation(conversation.id)}
+                  key={conversation.id ?? `user-${conversation.user.id}`}
+                  onClick={() => void handleSelectConversation(conversation)}
                   className={`w-full text-right rounded-2xl p-3 transition-all border ${
                     automaticLastMessage
                       ? active
@@ -4069,9 +4160,11 @@ function SupportMessagesTab({
                         </span>
                       ) : null}
                       <p className="text-xs text-muted-foreground truncate mt-2">{lastText}</p>
-                      <p className="text-[11px] text-muted-foreground mt-2">
-                        {formatAdminDateTime(conversation.lastMessageAt)}
-                      </p>
+                      {conversation.lastMessageAt ? (
+                        <p className="text-[11px] text-muted-foreground mt-2">
+                          {formatAdminDateTime(conversation.lastMessageAt)}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 </button>
@@ -4080,7 +4173,7 @@ function SupportMessagesTab({
 
             {!loading && conversations.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                لا توجد محادثات دعم حتى الآن.
+                {activeConversationSearchTerm ? "لا توجد نتائج مطابقة للبحث." : "لا يوجد مستخدمون بعد."}
               </div>
             ) : null}
           </div>

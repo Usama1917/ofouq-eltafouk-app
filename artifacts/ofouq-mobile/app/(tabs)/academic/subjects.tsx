@@ -59,12 +59,14 @@ function SubjectCard({
   item,
   yearId,
   yearName,
+  yearNameEn,
   routeBase,
   openSubscribe,
 }: {
   item: Subject;
   yearId: string;
   yearName: string;
+  yearNameEn: string;
   routeBase: ReturnType<typeof getAcademicRouteBase>;
   openSubscribe: (subject?: Subject) => void;
 }) {
@@ -110,8 +112,8 @@ function SubjectCard({
     }
 
     router.push(
-      (`${academicRoute(routeBase, "units")}?yearId=${yearId}&yearName=${encode(yearName)}` +
-        `&subjectId=${item.id}&subjectName=${encode(item.name)}&subjectIcon=${encode(subjectIcon)}` +
+      (`${academicRoute(routeBase, "units")}?yearId=${yearId}&yearName=${encode(yearName)}&yearNameEn=${encode(yearNameEn)}` +
+        `&subjectId=${item.id}&subjectName=${encode(item.name)}&subjectNameEn=${encode(item.nameEn ?? "")}&subjectIcon=${encode(subjectIcon)}` +
         `&unitLabel=${encode(normalizeAcademicUnitLabel(item.unitLabel))}`) as any,
     );
   }
@@ -201,9 +203,9 @@ export default function SubjectsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const routeBase = getAcademicRouteBase(usePathname());
-  const { yearId, yearName } = useLocalSearchParams<{ yearId: string; yearName: string }>();
+  const { yearId, yearName, yearNameEn } = useLocalSearchParams<{ yearId: string; yearName: string; yearNameEn?: string }>();
   const title = String(yearName ?? strings.academic.subjects);
-  const displayTitle = localizeAcademicText(title, language);
+  const displayTitle = localizeAcademicText(title, language, yearNameEn ? String(yearNameEn) : undefined);
   const headerOverlayHeight = insets.top + 134;
 
   useEffect(() => {
@@ -230,10 +232,10 @@ export default function SubjectsScreen() {
     }
 
     const subjectQuery = subject
-      ? `&subjectId=${subject.id}&subjectName=${encode(subject.name)}`
+      ? `&subjectId=${subject.id}&subjectName=${encode(subject.name)}&subjectNameEn=${encode(subject.nameEn ?? "")}`
       : "";
     router.push(
-      (`${academicRoute(routeBase, "subscribe")}?yearId=${yearId}&yearName=${encode(title)}${subjectQuery}`) as any,
+      (`${academicRoute(routeBase, "subscribe")}?yearId=${yearId}&yearName=${encode(title)}&yearNameEn=${encode(String(yearNameEn ?? ""))}${subjectQuery}`) as any,
     );
   }
 
@@ -337,6 +339,7 @@ export default function SubjectsScreen() {
             item={item}
             yearId={String(yearId ?? "")}
             yearName={title}
+            yearNameEn={String(yearNameEn ?? "")}
             routeBase={routeBase}
             openSubscribe={openSubscribe}
           />

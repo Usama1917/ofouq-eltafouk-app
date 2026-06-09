@@ -66,18 +66,21 @@ export default function LessonsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const routeBase = getAcademicRouteBase(usePathname());
-  const { unitId, unitName, yearId, yearName, subjectId, subjectName, unitLabel } = useLocalSearchParams<{
+  const { unitId, unitName, unitNameEn, yearId, yearName, yearNameEn, subjectId, subjectName, subjectNameEn, unitLabel } = useLocalSearchParams<{
     unitId: string;
     unitName: string;
+    unitNameEn?: string;
     yearId: string;
     yearName: string;
+    yearNameEn?: string;
     subjectId: string;
     subjectName: string;
+    subjectNameEn?: string;
     unitLabel?: string;
   }>();
 
   const title = String(unitName ?? strings.academic.lessons);
-  const displayTitle = localizeAcademicText(title, language);
+  const displayTitle = localizeAcademicText(title, language, unitNameEn ? String(unitNameEn) : undefined);
   const unitCopy = getAcademicUnitLabelCopy(unitLabel, strings.locale);
   const headerOverlayHeight = insets.top + 134;
 
@@ -99,8 +102,8 @@ export default function LessonsScreen() {
   });
 
   const subscribePath =
-    `${academicRoute(routeBase, "subscribe")}?yearId=${yearId}&yearName=${encode(String(yearName))}` +
-    `&subjectId=${subjectId}&subjectName=${encode(String(subjectName))}`;
+    `${academicRoute(routeBase, "subscribe")}?yearId=${yearId}&yearName=${encode(String(yearName))}&yearNameEn=${encode(String(yearNameEn ?? ""))}` +
+    `&subjectId=${subjectId}&subjectName=${encode(String(subjectName))}&subjectNameEn=${encode(String(subjectNameEn ?? ""))}`;
 
   function backToUnits() {
     const stackNavigation = navigation as {
@@ -119,8 +122,8 @@ export default function LessonsScreen() {
     }
 
     router.replace(
-      (`${academicRoute(routeBase, "units")}?yearId=${yearId}&yearName=${encode(String(yearName))}` +
-        `&subjectId=${subjectId}&subjectName=${encode(String(subjectName))}&unitLabel=${encode(unitCopy.value)}`) as any,
+      (`${academicRoute(routeBase, "units")}?yearId=${yearId}&yearName=${encode(String(yearName))}&yearNameEn=${encode(String(yearNameEn ?? ""))}` +
+        `&subjectId=${subjectId}&subjectName=${encode(String(subjectName))}&subjectNameEn=${encode(String(subjectNameEn ?? ""))}&unitLabel=${encode(unitCopy.value)}`) as any,
     );
   }
 
@@ -205,10 +208,10 @@ export default function LessonsScreen() {
             <Pressable
               onPress={() =>
                 router.push(
-                  (`${academicRoute(routeBase, "lesson")}?lessonId=${item.id}&lessonTitle=${encode(item.title)}` +
-                    `&yearId=${yearId}&yearName=${encode(String(yearName))}` +
-                    `&subjectId=${subjectId}&subjectName=${encode(String(subjectName))}` +
-                    `&unitId=${unitId}&unitName=${encode(title)}&unitLabel=${encode(unitCopy.value)}`) as any,
+                  (`${academicRoute(routeBase, "lesson")}?lessonId=${item.id}&lessonTitle=${encode(item.title)}&lessonTitleEn=${encode(item.titleEn ?? "")}` +
+                    `&yearId=${yearId}&yearName=${encode(String(yearName))}&yearNameEn=${encode(String(yearNameEn ?? ""))}` +
+                    `&subjectId=${subjectId}&subjectName=${encode(String(subjectName))}&subjectNameEn=${encode(String(subjectNameEn ?? ""))}` +
+                    `&unitId=${unitId}&unitName=${encode(title)}&unitNameEn=${encode(String(unitNameEn ?? ""))}&unitLabel=${encode(unitCopy.value)}`) as any,
                 )
               }
               style={({ pressed }) => [

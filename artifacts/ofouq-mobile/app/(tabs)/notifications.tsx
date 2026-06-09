@@ -6,6 +6,8 @@ import React from "react";
 import {
   ActivityIndicator,
   Animated,
+  Dimensions,
+  Easing,
   PanResponder,
   Pressable,
   ScrollView,
@@ -30,6 +32,8 @@ import {
   notificationsQueryKey,
   openNotificationTarget,
 } from "@/lib/notifications";
+
+const SCREEN_WIDTH = Dimensions.get("window").width;
 
 type NotificationTone = "primary" | "success" | "warning" | "danger";
 
@@ -100,9 +104,11 @@ type NotificationCardProps = {
   locale: string;
   resolvedScheme: string;
   deleteLabel: string;
+  markReadLabel: string;
   deleting: boolean;
   onPress: (item: AppNotification) => void;
   onDismiss: (item: AppNotification) => Promise<void>;
+  onMarkRead: (item: AppNotification) => Promise<void>;
 };
 
 function NotificationCard({
@@ -115,68 +121,137 @@ function NotificationCard({
   locale,
   resolvedScheme,
   deleteLabel,
+  markReadLabel,
   deleting,
   onPress,
   onDismiss,
+  onMarkRead,
 }: NotificationCardProps) {
   const isRTL = direction === "rtl";
   const translateX = React.useRef(new Animated.Value(0)).current;
   const [hidden, setHidden] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+  const offsetRef = React.useRef(0);
+  const actionIsDelete = !isUnread;
 
-  const resetPosition = React.useCallback(() => {
-    Animated.spring(translateX, {
-      toValue: 0,
-      useNativeDriver: true,
-      speed: 20,
-      bounciness: 0,
-    }).start();
-  }, [translateX]);
+  // iOS-Mail-style swipe: ALWAYS swipe right-to-left (push left). A short swipe
+  // snaps the row open to reveal one action button (green "mark read" for unread,
+  // red "delete" for read) which can be tapped; a strong/long swipe performs the
+  // action immediately.
+  const OPEN_SNAP = -118;
+  const FULL_SWIPE = -Math.min(260, SCREEN_WIDTH * 0.5);
+
+  const snapTo = React.useCallback(
+    (value: number, nextOpen: boolean) => {
+      offsetRef.current = value;
+      setOpen(nextOpen);
+      Animated.spring(translateX, {
+        toValue: value,
+        // JS-driven so the action button's animated width (a layout prop) can
+        // track the swipe in lock-step.
+        useNativeDriver: false,
+        speed: 20,
+        bounciness: 4,
+      }).start();
+    },
+    [translateX],
+  );
 
   const dismissCard = React.useCallback(() => {
     if (deleting) return;
-
+    offsetRef.current = -SCREEN_WIDTH;
     Animated.timing(translateX, {
-      toValue: -420,
-      duration: 180,
-      useNativeDriver: true,
+      toValue: -SCREEN_WIDTH,
+      duration: 230,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: false,
     }).start(({ finished }) => {
       if (!finished) return;
-
       setHidden(true);
       void onDismiss(item).catch(() => {
         setHidden(false);
-        resetPosition();
+        snapTo(0, false);
       });
     });
-  }, [deleting, item, onDismiss, resetPosition, translateX]);
+  }, [deleting, item, onDismiss, snapTo, translateX]);
+
+  const markReadCard = React.useCallback(() => {
+    offsetRef.current = -SCREEN_WIDTH;
+    Animated.timing(translateX, {
+      toValue: -SCREEN_WIDTH,
+      duration: 230,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: false,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      // Hide immediately; the refetch re-renders a fresh card in the "Read" section.
+      setHidden(true);
+      void onMarkRead(item).catch(() => {
+        setHidden(false);
+        snapTo(0, false);
+      });
+    });
+  }, [item, onMarkRead, snapTo, translateX]);
+
+  const performAction = React.useCallback(() => {
+    if (actionIsDelete) dismissCard();
+    else markReadCard();
+  }, [actionIsDelete, dismissCard, markReadCard]);
 
   const panResponder = React.useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gesture) =>
-          !deleting && gesture.dx < -8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.25,
+          !deleting &&
+          Math.abs(gesture.dx) > 6 &&
+          Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
+        onPanResponderGrant: () => {
+          translateX.stopAnimation((value) => {
+            offsetRef.current = value;
+          });
+        },
         onPanResponderMove: (_, gesture) => {
-          translateX.setValue(Math.max(-116, Math.min(0, gesture.dx)));
+          let next = offsetRef.current + gesture.dx;
+          next = Math.min(0, Math.max(-SCREEN_WIDTH, next));
+          // gentle rubber-band past the open snap so it feels springy, not stuck
+          if (next < OPEN_SNAP) next = OPEN_SNAP + (next - OPEN_SNAP) * 0.65;
+          translateX.setValue(next);
         },
         onPanResponderRelease: (_, gesture) => {
-          if (gesture.dx <= -74 || gesture.vx <= -0.72) {
-            dismissCard();
+          const pos = offsetRef.current + gesture.dx;
+          if (pos <= FULL_SWIPE || gesture.vx <= -1.1) {
+            performAction();
             return;
           }
-          resetPosition();
+          if (pos <= OPEN_SNAP / 2 || (gesture.vx < -0.35 && pos < -12)) {
+            snapTo(OPEN_SNAP, true);
+            return;
+          }
+          snapTo(0, false);
         },
-        onPanResponderTerminate: resetPosition,
+        onPanResponderTerminate: () => snapTo(0, false),
       }),
-    [deleting, dismissCard, resetPosition, translateX],
+    [FULL_SWIPE, OPEN_SNAP, deleting, performAction, snapTo, translateX],
   );
 
   React.useEffect(() => {
     if (!deleting) setHidden(false);
   }, [deleting]);
 
-  const deleteActionOpacity = translateX.interpolate({
-    inputRange: [-116, -32, 0],
-    outputRange: [1, 0.36, 0],
+  // Action button visibility is tied to the swipe so it stays fully hidden behind
+  // the card when closed (no bleed-through), fades in as you open it, then on a
+  // full swipe it stretches and quickly dissolves as the action fires.
+  const actionOpacity = translateX.interpolate({
+    inputRange: [-SCREEN_WIDTH, FULL_SWIPE, OPEN_SNAP, -10, 0],
+    outputRange: [0, 1, 1, 0, 0],
+    extrapolate: "clamp",
+  });
+  // The button is anchored to the right; as the swipe deepens past the open snap
+  // it stretches in WIDTH toward the notification (growing leftward), keeping a
+  // constant gap from the card. Height stays fixed.
+  const actionWidth = translateX.interpolate({
+    inputRange: [-SCREEN_WIDTH, OPEN_SNAP, 0],
+    outputRange: [SCREEN_WIDTH - 16, -OPEN_SNAP - 16, -OPEN_SNAP - 16],
     extrapolate: "clamp",
   });
 
@@ -185,23 +260,35 @@ function NotificationCard({
   return (
     <View style={styles.swipeFrame}>
       <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.deleteAction,
-          {
-            backgroundColor: resolvedScheme === "dark" ? "rgba(239,68,68,0.18)" : "rgba(239,68,68,0.1)",
-            borderColor: resolvedScheme === "dark" ? "rgba(248,113,113,0.32)" : "rgba(239,68,68,0.18)",
-            opacity: deleteActionOpacity,
-          },
-        ]}
+        style={[styles.swipeActionWrap, { width: actionWidth, opacity: actionOpacity }]}
       >
-        <Feather name="trash-2" size={19} color={COLORS.error} />
-        <Text style={styles.deleteText}>{deleteLabel}</Text>
+        <Pressable
+          disabled={deleting}
+          onPress={performAction}
+          accessibilityRole="button"
+          accessibilityLabel={actionIsDelete ? deleteLabel : markReadLabel}
+          style={({ pressed }) => [
+            styles.swipeActionButton,
+            {
+              backgroundColor: actionIsDelete ? COLORS.error : COLORS.success,
+              opacity: pressed ? 0.82 : 1,
+            },
+          ]}
+        >
+          <Feather name={actionIsDelete ? "trash-2" : "check-circle"} size={20} color="#FFFFFF" />
+          <Text style={styles.swipeActionText}>{actionIsDelete ? deleteLabel : markReadLabel}</Text>
+        </Pressable>
       </Animated.View>
       <Animated.View style={{ transform: [{ translateX }] }} {...panResponder.panHandlers}>
         <Pressable
           disabled={deleting}
-          onPress={() => void onPress(item)}
+          onPress={() => {
+            if (open) {
+              snapTo(0, false);
+              return;
+            }
+            void onPress(item);
+          }}
           style={({ pressed }) => [
             styles.notificationCard,
             {
@@ -340,6 +427,16 @@ export default function NotificationsScreen() {
     }
   }
 
+  async function markReadNotification(item: AppNotification) {
+    if (!token || item.readAt) return;
+    try {
+      await markNotificationRead(item.id, token);
+      await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+    } catch {
+      await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+    }
+  }
+
   async function clearReadNotifications() {
     if (!token || isClearingRead || readNotifications.length === 0) return;
 
@@ -371,9 +468,11 @@ export default function NotificationsScreen() {
           locale={strings.locale}
           resolvedScheme={resolvedScheme}
           deleteLabel={strings.notifications.delete}
+          markReadLabel={strings.notifications.markAsRead}
           deleting={deletingIds.has(item.id)}
           onPress={openNotification}
           onDismiss={dismissNotification}
+          onMarkRead={markReadNotification}
         />
       );
     });
@@ -713,6 +812,46 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
     color: COLORS.error,
+  },
+  markReadAction: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    bottom: 0,
+    width: 104,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  markReadText: {
+    ...FONT.bold,
+    fontSize: 11,
+    lineHeight: 16,
+    color: COLORS.success,
+  },
+  swipeActionWrap: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 24,
+    overflow: "hidden",
+  },
+  swipeActionButton: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 6,
+  },
+  swipeActionText: {
+    ...FONT.bold,
+    fontSize: 11,
+    lineHeight: 16,
+    color: "#FFFFFF",
+    textAlign: "center",
   },
   notificationCard: {
     position: "relative",

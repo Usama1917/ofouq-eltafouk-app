@@ -1201,10 +1201,12 @@ router.get("/academic/subscription-requests/me", async (req, res) => {
         year: {
           id: academicYearsTable.id,
           name: academicYearsTable.name,
+          nameEn: academicYearsTable.nameEn,
         },
         subject: {
           id: subjectsTable.id,
           name: subjectsTable.name,
+          nameEn: subjectsTable.nameEn,
         },
       })
       .from(subjectSubscriptionRequestsTable)
@@ -1271,12 +1273,15 @@ router.get("/academic/watch-history/me", async (req, res) => {
         year: {
           id: academicYearsTable.id,
           name: academicYearsTable.name,
+          nameEn: academicYearsTable.nameEn,
         },
         subject: {
           id: subjectsTable.id,
           name: subjectsTable.name,
+          nameEn: subjectsTable.nameEn,
           icon: subjectsTable.icon,
           description: subjectsTable.description,
+          descriptionEn: subjectsTable.descriptionEn,
           unitLabel: subjectsTable.unitLabel,
         },
       })
@@ -1308,10 +1313,13 @@ router.get("/academic/watch-history/me", async (req, res) => {
         subjectId: subjectsTable.id,
         unitId: unitsTable.id,
         unitName: unitsTable.name,
+        unitNameEn: unitsTable.nameEn,
         unitOrderIndex: unitsTable.orderIndex,
         lessonId: lessonsTable.id,
         lessonTitle: lessonsTable.title,
+        lessonTitleEn: lessonsTable.titleEn,
         lessonDescription: lessonsTable.description,
+        lessonDescriptionEn: lessonsTable.descriptionEn,
         lessonOrderIndex: lessonsTable.orderIndex,
         videoId: videosTable.id,
         videoTitle: videosTable.title,
@@ -1342,9 +1350,12 @@ router.get("/academic/watch-history/me", async (req, res) => {
     type WatchLesson = {
       id: number;
       title: string;
+      titleEn: string | null;
       description: string;
+      descriptionEn: string | null;
       unitId: number;
       unitName: string;
+      unitNameEn: string | null;
       videoId: number | null;
       videoTitle: string | null;
       thumbnailUrl: string | null;
@@ -1359,6 +1370,7 @@ router.get("/academic/watch-history/me", async (req, res) => {
     type WatchUnit = {
       id: number;
       name: string;
+      nameEn: string | null;
       orderIndex: number;
       lessonCount: number;
       watchedLessons: number;
@@ -1374,8 +1386,8 @@ router.get("/academic/watch-history/me", async (req, res) => {
       source: string;
       createdAt: Date;
       updatedAt: Date;
-      year: { id: number; name: string };
-      subject: { id: number; name: string; icon: string; description: string; unitLabel: string };
+      year: { id: number; name: string; nameEn: string | null };
+      subject: { id: number; name: string; nameEn: string | null; icon: string; description: string; descriptionEn: string | null; unitLabel: string };
       lessonCount: number;
       watchedLessons: number;
       completedLessons: number;
@@ -1427,9 +1439,12 @@ router.get("/academic/watch-history/me", async (req, res) => {
       const lesson: WatchLesson = {
         id: row.lessonId,
         title: row.lessonTitle,
+        titleEn: row.lessonTitleEn,
         description: row.lessonDescription,
+        descriptionEn: row.lessonDescriptionEn,
         unitId: row.unitId,
         unitName: row.unitName,
+        unitNameEn: row.unitNameEn,
         videoId: row.videoId,
         videoTitle: row.videoTitle,
         thumbnailUrl: row.thumbnailUrl,
@@ -1447,6 +1462,7 @@ router.get("/academic/watch-history/me", async (req, res) => {
         unit = {
           id: row.unitId,
           name: row.unitName,
+          nameEn: row.unitNameEn,
           orderIndex: row.unitOrderIndex,
           lessonCount: 0,
           watchedLessons: 0,

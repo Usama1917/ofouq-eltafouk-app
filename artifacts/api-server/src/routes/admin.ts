@@ -30,6 +30,7 @@ import {
   pushNotificationTokensTable,
   supportConversationsTable,
   supportMessagesTable,
+  studentOnboardingResponsesTable,
 } from "@workspace/db";
 import { eq, ne, and, count, sql, desc, asc, or } from "drizzle-orm";
 
@@ -444,6 +445,26 @@ router.get("/admin/users/:userId/details", async (req, res) => {
       lastSeenAt: row.lastSeenAt,
     }));
 
+    // First-time onboarding/intro answers (stored as stable option keys).
+    const [onboardingRow] = await db
+      .select()
+      .from(studentOnboardingResponsesTable)
+      .where(eq(studentOnboardingResponsesTable.userId, userId))
+      .limit(1);
+    const onboarding = onboardingRow?.onboardingCompleted
+      ? {
+          completed: true,
+          completedAt: onboardingRow.onboardingCompletedAt,
+          heardAboutUs: onboardingRow.heardAboutUs,
+          gradeLevel: onboardingRow.gradeLevel,
+          interestedSubjects: Array.isArray(onboardingRow.interestedSubjects) ? onboardingRow.interestedSubjects : [],
+          mainGoal: onboardingRow.mainGoal,
+          currentLevel: onboardingRow.currentLevel,
+          learningPreference: onboardingRow.learningPreference,
+          preferredStudyTime: onboardingRow.preferredStudyTime,
+        }
+      : null;
+
     res.json({
       user,
       hasActiveAccess: subscriptions.some((s) => s.status === "active"),
@@ -456,6 +477,7 @@ router.get("/admin/users/:userId/details", async (req, res) => {
         unread: Number(notifAgg[0]?.unread ?? 0),
       },
       devices,
+      onboarding,
     });
   } catch (err) {
     req.log.error({ err }, "User details error");

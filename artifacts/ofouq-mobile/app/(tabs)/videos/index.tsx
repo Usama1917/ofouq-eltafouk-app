@@ -51,7 +51,7 @@ function YearCard({ item, index }: { item: AcademicYear; index: number }) {
   }
 
   function handleOpen(source: "card" | "arrow") {
-    const params = { yearId: String(item.id), yearName: String(item.name ?? "") };
+    const params = { yearId: String(item.id), yearName: String(item.name ?? ""), yearNameEn: String(item.nameEn ?? "") };
     console.info("[mobile][videos] year card pressed", {
       source,
       yearId: params.yearId,

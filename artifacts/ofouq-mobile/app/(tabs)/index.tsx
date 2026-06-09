@@ -20,6 +20,7 @@ import { COLORS } from "@/constants/colors";
 import { FONT } from "@/constants/typography";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
+import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import { apiFetch } from "@/lib/api";
 import { formatNumber, toEnglishDigits } from "@/lib/format";
 import { resolveMediaUrl } from "@/lib/media";
@@ -28,7 +29,9 @@ import { fetchNotificationSummary, notificationsQueryKey } from "@/lib/notificat
 type AcademicYear = {
   id: number;
   name: string;
+  nameEn?: string | null;
   description?: string | null;
+  descriptionEn?: string | null;
 };
 
 const YEAR_ACCENTS = [
@@ -41,7 +44,7 @@ const YEAR_ACCENTS = [
 function openYear(year: AcademicYear) {
   router.push({
     pathname: "/(tabs)/videos/subjects",
-    params: { yearId: String(year.id), yearName: year.name },
+    params: { yearId: String(year.id), yearName: year.name, yearNameEn: year.nameEn ?? "" },
   });
 }
 
@@ -52,7 +55,7 @@ function compactDisplayName(name: string | undefined) {
 }
 
 function LearningPathCard({ year, index }: { year: AcademicYear; index: number }) {
-  const { colors, strings, isRTL, textAlign, direction, rowDirection } = usePreferences();
+  const { colors, strings, language, isRTL, textAlign, direction, rowDirection } = usePreferences();
   const accent = YEAR_ACCENTS[index % YEAR_ACCENTS.length];
 
   return (
@@ -78,14 +81,14 @@ function LearningPathCard({ year, index }: { year: AcademicYear; index: number }
             style={[styles.pathTitle, { color: colors.text, textAlign, writingDirection: direction }]}
             numberOfLines={2}
           >
-            {toEnglishDigits(year.name)}
+            {localizeAcademicText(year.name, language, year.nameEn)}
           </Text>
           {year.description ? (
             <Text
               style={[styles.pathDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]}
               numberOfLines={2}
             >
-              {toEnglishDigits(year.description)}
+              {localizeAcademicText(year.description, language, year.descriptionEn)}
             </Text>
           ) : null}
         </View>
@@ -96,7 +99,7 @@ function LearningPathCard({ year, index }: { year: AcademicYear; index: number }
           {
             flexDirection: rowDirection,
             direction,
-            left: 16,
+            ...(isRTL ? { left: 16 } : { right: 16 }),
           },
         ]}
       >
@@ -158,7 +161,10 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(18)).current;
-  const topBarDirection = isRTL ? reverseRowDirection : rowDirection;
+  // Keep the bell on the right and the account pill on the left in BOTH
+  // languages. Notification button is the first child, so row-reverse pins it
+  // to the inline-end (right) in LTR while RTL already resolves the same way.
+  const topBarDirection = reverseRowDirection;
   const avatarUri = resolveMediaUrl(user?.avatarUrl);
   const headerOverlayHeight = insets.top + 86;
   const { data: notificationSummary } = useQuery({
