@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { I18nManager, NativeModules, useColorScheme, View, type FlexStyle } from "react-native";
 
 import { COLORS } from "@/constants/colors";
+import { setAppIsRTL } from "@/lib/appDirection";
 import {
   AppLanguage,
   AppStrings,
@@ -57,6 +58,10 @@ function isAppThemePreference(value: string | null): value is AppThemePreference
 function applyNativeDirection(language: AppLanguage) {
   const shouldBeRTL = language === "ar";
 
+  // Keep the app-wide direction flag in sync so the global <Text> patch aligns
+  // Arabic right + RTL even before a native reload applies forceRTL.
+  setAppIsRTL(shouldBeRTL);
+
   I18nManager.allowRTL(true);
   I18nManager.swapLeftAndRightInRTL(false);
   I18nManager.forceRTL(shouldBeRTL);
@@ -64,7 +69,11 @@ function applyNativeDirection(language: AppLanguage) {
 
 export function PreferencesProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();
-  const [language, setLanguageState] = useState<AppLanguage>(() => getDeviceLanguage());
+  const [language, setLanguageState] = useState<AppLanguage>(() => {
+    const initial = getDeviceLanguage();
+    setAppIsRTL(initial === "ar");
+    return initial;
+  });
   const [themePreference, setThemePreferenceState] = useState<AppThemePreference>("system");
   const [isReady, setIsReady] = useState(false);
 

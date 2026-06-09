@@ -12,6 +12,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { getAppIsRTL } from "@/lib/appDirection";
 import { FONT } from "@/constants/typography";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { PreferencesProvider, usePreferences } from "@/contexts/PreferencesContext";
@@ -28,15 +29,7 @@ if (typeof I18nManager.swapLeftAndRightInRTL === "function") {
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
-// In Arabic (RTL) the whole app must default to right alignment + RTL writing
-// direction. We bake it into the global Text/TextInput default style so any text
-// that doesn't set its own alignment still reads correctly right-to-left. English
-// (LTR) keeps its natural left alignment.
-const IS_RTL_BOOT = typeof I18nManager.isRTL === "boolean" ? I18nManager.isRTL : false;
-const defaultFontStyle = {
-  ...FONT.regular,
-  ...(IS_RTL_BOOT ? ({ textAlign: "right", writingDirection: "rtl" } as const) : null),
-};
+const defaultFontStyle = { ...FONT.regular };
 
 type FontComponent = {
   defaultProps?: {
@@ -57,6 +50,32 @@ function applyDefaultFont(Component: FontComponent) {
 
 applyDefaultFont(Text as unknown as FontComponent);
 applyDefaultFont(TextInput as unknown as FontComponent);
+
+// ── Foundational RTL ──────────────────────────────────────────────────────────
+// Patch the global <Text>/<TextInput> render so EVERY text in the app defaults to
+// right alignment + RTL writing direction whenever the app language is Arabic,
+// unless the component sets its own textAlign (component styles still win). This
+// fixes the long-standing recurring issue of Arabic content rendering left-aligned.
+// English (LTR) is untouched. Reads getAppIsRTL() at render time so it follows the
+// resolved app language even before a native reload applies forceRTL.
+const RTL_BASE_TEXT_STYLE = { textAlign: "right", writingDirection: "rtl" } as const;
+
+function applyRtlBaseStyle(Component: any) {
+  if (!Component || Component.__rtlBasePatched) return;
+  const baseRender = Component.render;
+  if (typeof baseRender !== "function") return;
+  Component.render = function rtlPatchedRender(props: any, ref: any) {
+    if (!getAppIsRTL()) {
+      return baseRender.call(this, props, ref);
+    }
+    const nextStyle = props && props.style != null ? [RTL_BASE_TEXT_STYLE, props.style] : RTL_BASE_TEXT_STYLE;
+    return baseRender.call(this, { ...props, style: nextStyle }, ref);
+  };
+  Component.__rtlBasePatched = true;
+}
+
+applyRtlBaseStyle(Text);
+applyRtlBaseStyle(TextInput);
 
 function RootLayoutNav() {
   const { colors } = usePreferences();
