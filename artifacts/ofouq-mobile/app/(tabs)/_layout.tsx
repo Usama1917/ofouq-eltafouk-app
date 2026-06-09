@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurView } from "expo-blur";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
-import { router, Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { Feather, Ionicons } from "@expo/vector-icons";
@@ -162,7 +162,9 @@ export default function TabLayout() {
   const { colors } = usePreferences();
   // Gate the main app behind first-time onboarding for students only. Backend is
   // the source of truth; a local flag avoids re-fetching/flicker after completion.
-  const [gateReady, setGateReady] = useState(false);
+  // We resolve a state then redirect DECLARATIVELY with <Redirect> — imperative
+  // router.replace from a group layout effect is unreliable on first mount.
+  const [gate, setGate] = useState<"checking" | "ok" | "needsOnboarding">("checking");
 
   useEffect(() => {
     let cancelled = false;
@@ -170,14 +172,14 @@ export default function TabLayout() {
     async function check() {
       // Guests, admins, teachers, owners, etc. are never gated.
       if (!user || !token || user.role !== "student" || user.onboardingCompleted) {
-        if (!cancelled) setGateReady(true);
+        if (!cancelled) setGate("ok");
         return;
       }
       try {
         const flag = await AsyncStorage.getItem(onboardingDoneKey(user.id));
         if (cancelled) return;
         if (flag === "1") {
-          setGateReady(true);
+          setGate("ok");
           return;
         }
       } catch {
@@ -188,24 +190,28 @@ export default function TabLayout() {
         if (cancelled) return;
         if (data?.completed) {
           await AsyncStorage.setItem(onboardingDoneKey(user.id), "1").catch(() => undefined);
-          setGateReady(true);
+          setGate("ok");
         } else {
-          router.replace("/onboarding");
+          setGate("needsOnboarding");
         }
       } catch {
         // Network/server issue — don't hard-block the app.
-        if (!cancelled) setGateReady(true);
+        if (!cancelled) setGate("ok");
       }
     }
 
-    setGateReady(false);
+    setGate("checking");
     void check();
     return () => {
       cancelled = true;
     };
   }, [user?.id, user?.role, user?.onboardingCompleted, token]);
 
-  if (!gateReady) {
+  if (gate === "needsOnboarding") {
+    return <Redirect href="/onboarding" />;
+  }
+
+  if (gate === "checking") {
     return (
       <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator color={COLORS.primary} />
