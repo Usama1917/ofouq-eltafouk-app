@@ -381,9 +381,11 @@ export default function LessonDetailScreen() {
                         ) : null}
                       </View>
                       {lesson.video.description ? (
-                        <Text style={[styles.summaryDescription, { color: colors.textSecondary, width: "100%", textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
-                          {localizeAcademicText(lesson.video.description, language, lesson.video.descriptionEn)}
-                        </Text>
+                        <View style={{ width: "100%", alignItems: isRTL ? "flex-end" : "flex-start" }}>
+                          <Text style={[styles.summaryDescription, { color: colors.textSecondary, width: "100%", textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
+                            {localizeAcademicText(lesson.video.description, language, lesson.video.descriptionEn)}
+                          </Text>
+                        </View>
                       ) : null}
                     </Animated.View>
                   ) : null}

@@ -507,7 +507,13 @@ export function AcademicVideoPlayer({
   const displayedTime = scrubTime ?? currentTime;
   const watermarkLabel = watermarkText ? `${watermarkText} · ${clockText}` : null;
   const segmentPanelWidth = isLandscapeFullscreen ? landscapeSegmentPanelWidth : Math.max(1, width - 36);
-  const segmentPanelBottom = isLandscapeFullscreen ? 12 : isPortraitFullscreen ? 16 : 154;
+  // Lift the panel above the Android system navigation bar / gesture area so its
+  // bottom rows are never covered (portrait fullscreen, the reported case).
+  const segmentPanelBottom = isLandscapeFullscreen
+    ? 12 + insets.bottom
+    : isPortraitFullscreen
+      ? 16 + insets.bottom + 12
+      : 154;
   const segmentPanelLeft = isLandscapeFullscreen ? width - landscapeControlInset - landscapeSegmentPanelWidth : 18;
   const estimatedSegmentPanelHeight = Math.min(
     isLandscapeFullscreen ? 188 : 230,
