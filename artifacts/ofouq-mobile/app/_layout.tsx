@@ -28,7 +28,15 @@ if (typeof I18nManager.swapLeftAndRightInRTL === "function") {
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
-const defaultFontStyle = { ...FONT.regular };
+// In Arabic (RTL) the whole app must default to right alignment + RTL writing
+// direction. We bake it into the global Text/TextInput default style so any text
+// that doesn't set its own alignment still reads correctly right-to-left. English
+// (LTR) keeps its natural left alignment.
+const IS_RTL_BOOT = typeof I18nManager.isRTL === "boolean" ? I18nManager.isRTL : false;
+const defaultFontStyle = {
+  ...FONT.regular,
+  ...(IS_RTL_BOOT ? ({ textAlign: "right", writingDirection: "rtl" } as const) : null),
+};
 
 type FontComponent = {
   defaultProps?: {
