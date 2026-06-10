@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Users, Activity, GraduationCap } from "lucide-react";
+import { MapPin, Users, Activity, GraduationCap, Plus, Minus, X } from "lucide-react";
 import { EGYPT_VIEWBOX, EGYPT_GOV_PATHS, EGYPT_GOV_CENTROIDS } from "@/data/egypt-governorates";
+
+// viewBox is "0 0 W H" — parse the extents once for zoom + popup math.
+const [, , MAP_W, MAP_H] = EGYPT_VIEWBOX.split(" ").map(Number);
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const apiPath = (p: string) => `${BASE}${p}`;
@@ -29,13 +32,11 @@ const METRICS: { key: Metric; label: string; icon: React.ElementType }[] = [
   { key: "activeUsers", label: "النشطون", icon: GraduationCap },
 ];
 
-// Weather-radar-style precipitation ramp: low→high = blue→violet→magenta→orange→yellow
+// Ramp: low → high = yellow → blue → red (per request).
 const RAMP: [number, [number, number, number]][] = [
-  [0.0, [37, 99, 235]],
-  [0.3, [124, 58, 237]],
-  [0.55, [219, 39, 119]],
-  [0.8, [245, 158, 11]],
-  [1.0, [253, 224, 71]],
+  [0.0, [250, 204, 21]],  // أصفر — أقل
+  [0.5, [37, 99, 235]],   // أزرق — متوسط
+  [1.0, [239, 68, 68]],   // أحمر — أعلى
 ];
 function rampColor(t: number): string {
   const x = Math.max(0, Math.min(1, t));
@@ -54,6 +55,28 @@ function rampColor(t: number): string {
 export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
   const [metric, setMetric] = useState<Metric>("users");
   const [hovered, setHovered] = useState<string | null>(null);
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  // Zoom is driven by the SVG viewBox (vector strokes stay crisp).
+  const [view, setView] = useState({ x: 0, y: 0, w: MAP_W, h: MAP_H });
+  const MIN_W = MAP_W / 5; // up to 5× zoom
+
+  const clampView = (v: { x: number; y: number; w: number; h: number }) => {
+    const w = Math.min(MAP_W, Math.max(MIN_W, v.w));
+    const h = w * (MAP_H / MAP_W);
+    const x = Math.min(Math.max(0, v.x), MAP_W - w);
+    const y = Math.min(Math.max(0, v.y), MAP_H - h);
+    return { x, y, w, h };
+  };
+  const zoomBy = (factor: number, center?: [number, number]) => {
+    setView((v) => {
+      const cx = center ? center[0] : v.x + v.w / 2;
+      const cy = center ? center[1] : v.y + v.h / 2;
+      const w = Math.min(MAP_W, Math.max(MIN_W, v.w / factor));
+      const h = w * (MAP_H / MAP_W);
+      return clampView({ x: cx - w / 2, y: cy - h / 2, w, h });
+    });
+  };
+  const resetView = () => setView({ x: 0, y: 0, w: MAP_W, h: MAP_H });
 
   const { data, isLoading, isError } = useQuery<GeoResponse>({
     queryKey: ["owner-geo"],
@@ -79,7 +102,12 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
 
   const emptyFill = isDark ? "#222831" : "#E9EDF2";
   const stroke = isDark ? "rgba(255,255,255,0.16)" : "rgba(15,23,42,0.12)";
-  const selected = hovered ? byName.get(hovered) : null;
+  const active = selectedName ? byName.get(selectedName) : null;
+  const activeCentroid = selectedName ? EGYPT_GOV_CENTROIDS[selectedName] : null;
+  // popup position as % of the (zoomed) viewBox; flip below the point near the top
+  const popLeft = activeCentroid ? ((activeCentroid[0] - view.x) / view.w) * 100 : 0;
+  const popTop = activeCentroid ? ((activeCentroid[1] - view.y) / view.h) * 100 : 0;
+  const popBelow = popTop < 26;
   const topList = useMemo(
     () => [...(data?.governorates ?? [])].sort((a, b) => b[metric] - a[metric]).slice(0, 5),
     [data, metric],
@@ -106,54 +134,79 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-5">
           {/* Map */}
-          <div className="relative rounded-2xl p-3 bg-gradient-to-b from-slate-50 to-white dark:from-[#0e1217] dark:to-[#141a21] border border-white/60 dark:border-white/10">
-            <svg viewBox={EGYPT_VIEWBOX} className="w-full h-auto" style={{ maxHeight: 420 }}>
-              <g>
-                {Object.entries(EGYPT_GOV_PATHS).map(([name, d]) => {
-                  const row = byName.get(name);
-                  const v = row ? row[metric] : 0;
-                  const isHot = v > 0;
-                  const fill = isHot ? rampColor(v / maxVal) : emptyFill;
-                  const isSel = hovered === name;
-                  return (
-                    <path key={name} d={d} fill={fill} stroke={isSel ? "#0f172a" : stroke}
-                      strokeWidth={isSel ? 2.2 : 0.8}
-                      style={{ cursor: "pointer", opacity: hovered && !isSel ? 0.72 : 1, transition: "opacity .15s, stroke-width .15s" }}
-                      onMouseEnter={() => setHovered(name)} onMouseLeave={() => setHovered(null)} />
-                  );
-                })}
-              </g>
-              <g pointerEvents="none">
-                {Object.entries(EGYPT_GOV_CENTROIDS).map(([name, [cx, cy]]) => {
-                  const row = byName.get(name);
-                  if (!row || row[metric] <= 0) return null;
-                  return (
-                    <text key={name} x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
-                      style={{ fontSize: 13, fontWeight: 800, fill: "#fff", paintOrder: "stroke" }}
-                      stroke="rgba(0,0,0,0.35)" strokeWidth={0.6}>{fmt(row[metric])}</text>
-                  );
-                })}
-              </g>
-            </svg>
+          <div className="rounded-2xl p-3 bg-gradient-to-b from-slate-50 to-white dark:from-[#0e1217] dark:to-[#141a21] border border-white/60 dark:border-white/10">
+            <div className="relative w-full overflow-hidden rounded-xl" style={{ aspectRatio: `${MAP_W} / ${MAP_H}`, maxHeight: 440 }}>
+              <svg viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} className="absolute inset-0 w-full h-full" onClick={() => setSelectedName(null)}>
+                <g>
+                  {Object.entries(EGYPT_GOV_PATHS).map(([name, d]) => {
+                    const row = byName.get(name);
+                    const v = row ? row[metric] : 0;
+                    const fill = v > 0 ? rampColor(v / maxVal) : emptyFill;
+                    const isActive = selectedName === name;
+                    const isHover = hovered === name;
+                    const dim = (hovered || selectedName) && !isActive && !isHover;
+                    return (
+                      <path key={name} d={d} fill={fill}
+                        stroke={isActive ? "#0f172a" : isHover ? "#334155" : stroke}
+                        strokeWidth={isActive ? 2.4 : isHover ? 1.6 : 0.8}
+                        vectorEffect="non-scaling-stroke"
+                        style={{ cursor: "pointer", opacity: dim ? 0.65 : 1, transition: "opacity .15s" }}
+                        onMouseEnter={() => setHovered(name)} onMouseLeave={() => setHovered(null)}
+                        onClick={(e) => { e.stopPropagation(); setSelectedName((cur) => (cur === name ? null : name)); }} />
+                    );
+                  })}
+                </g>
+                <g pointerEvents="none">
+                  {Object.entries(EGYPT_GOV_CENTROIDS).map(([name, [cx, cy]]) => {
+                    const row = byName.get(name);
+                    if (!row || row[metric] <= 0) return null;
+                    return (
+                      <text key={name} x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
+                        style={{ fontSize: 13, fontWeight: 800, fill: "#fff", paintOrder: "stroke" }}
+                        stroke="rgba(0,0,0,0.35)" strokeWidth={0.6}>{fmt(row[metric])}</text>
+                    );
+                  })}
+                </g>
+              </svg>
 
-            {/* Legend */}
-            <div className="flex items-center gap-2 mt-2 px-1">
-              <span className="text-[10px] text-muted-foreground">منخفض</span>
-              <div className="h-2.5 flex-1 rounded-full" style={{ background: `linear-gradient(to right, ${rampColor(0)}, ${rampColor(0.3)}, ${rampColor(0.55)}, ${rampColor(0.8)}, ${rampColor(1)})` }} />
-              <span className="text-[10px] text-muted-foreground">مرتفع</span>
+              {/* Floating popup above the clicked governorate */}
+              {active && activeCentroid && popLeft >= 0 && popLeft <= 100 && popTop >= 0 && popTop <= 100 && (
+                <div className="absolute z-20 w-[210px]" style={{ left: `${popLeft}%`, top: `${popTop}%`, transform: `translate(-50%, ${popBelow ? "14px" : "calc(-100% - 14px)"})` }}>
+                  <div className="relative rounded-xl bg-white/97 dark:bg-[#11151b]/97 backdrop-blur border border-white/70 dark:border-white/10 shadow-2xl px-3 py-2.5">
+                    <button onClick={() => setSelectedName(null)} className="absolute top-2 left-2 w-5 h-5 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground"><X className="w-3 h-3" /></button>
+                    <p className="text-sm font-bold text-foreground pr-1">{active.name}</p>
+                    <div className="text-[11px] text-muted-foreground mt-1.5 space-y-1">
+                      <div className="flex justify-between gap-2"><span>المستخدمون</span><span className="font-bold text-foreground">{fmt(active.users)}</span></div>
+                      <div className="flex justify-between gap-2"><span>النشطون</span><span className="font-bold text-foreground">{fmt(active.activeUsers)}</span></div>
+                      <div className="flex justify-between gap-2"><span>الطلاب</span><span className="font-bold text-foreground">{fmt(active.students)}</span></div>
+                      <div className="flex justify-between gap-2"><span>الاشتراكات</span><span className="font-bold text-foreground">{fmt(active.subscriptions)}</span></div>
+                      <div className="flex justify-between gap-2 pt-1 border-t border-border/60"><span>الأكثر اشتراكًا</span><span className="font-bold text-primary truncate max-w-[100px]">{active.topSubject || "—"}</span></div>
+                    </div>
+                    {/* caret */}
+                    <div className={`absolute ${popBelow ? "-top-1.5" : "-bottom-1.5"} left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-white dark:bg-[#11151b] border-white/70 dark:border-white/10 ${popBelow ? "border-t border-r" : "border-b border-l"}`} />
+                  </div>
+                </div>
+              )}
+
+              {/* Zoom controls — bottom-left corner */}
+              <div className="absolute bottom-2 left-2 z-20 flex flex-col gap-1">
+                <button onClick={() => zoomBy(1.5, activeCentroid ?? undefined)} title="تكبير"
+                  className="w-8 h-8 rounded-lg bg-white/90 dark:bg-[#11151b]/90 backdrop-blur border border-white/70 dark:border-white/10 shadow flex items-center justify-center text-foreground hover:bg-white dark:hover:bg-[#1a1f27]"><Plus className="w-4 h-4" /></button>
+                <button onClick={() => zoomBy(1 / 1.5)} title="تصغير"
+                  className="w-8 h-8 rounded-lg bg-white/90 dark:bg-[#11151b]/90 backdrop-blur border border-white/70 dark:border-white/10 shadow flex items-center justify-center text-foreground hover:bg-white dark:hover:bg-[#1a1f27]"><Minus className="w-4 h-4" /></button>
+                {(view.w < MAP_W - 1) && (
+                  <button onClick={resetView} title="إعادة الضبط"
+                    className="w-8 h-8 rounded-lg bg-white/90 dark:bg-[#11151b]/90 backdrop-blur border border-white/70 dark:border-white/10 shadow flex items-center justify-center text-[9px] font-bold text-foreground hover:bg-white dark:hover:bg-[#1a1f27]">⟳</button>
+                )}
+              </div>
             </div>
 
-            {/* Hover tooltip */}
-            {selected && (
-              <div className="absolute top-3 right-3 max-w-[60%] rounded-xl bg-white/95 dark:bg-[#0e1217]/95 backdrop-blur border border-white/70 dark:border-white/10 shadow-xl px-3 py-2 pointer-events-none">
-                <p className="text-sm font-bold text-foreground">{selected.name}</p>
-                <div className="text-[11px] text-muted-foreground mt-0.5 space-y-0.5">
-                  <p>المستخدمون: <span className="font-bold text-foreground">{fmt(selected.users)}</span> · النشطون: <span className="font-bold text-foreground">{fmt(selected.activeUsers)}</span></p>
-                  <p>الاشتراكات: <span className="font-bold text-foreground">{fmt(selected.subscriptions)}</span></p>
-                  <p>الأكثر اشتراكًا: <span className="font-bold text-primary">{selected.topSubject || "—"}</span></p>
-                </div>
-              </div>
-            )}
+            {/* Legend: yellow (low) → blue → red (high) */}
+            <div dir="ltr" className="flex items-center gap-2 mt-2 px-1">
+              <span className="text-[10px] text-muted-foreground">منخفض</span>
+              <div className="h-2.5 flex-1 rounded-full" style={{ background: `linear-gradient(to right, ${rampColor(0)}, ${rampColor(0.5)}, ${rampColor(1)})` }} />
+              <span className="text-[10px] text-muted-foreground">مرتفع</span>
+            </div>
           </div>
 
           {/* Ranking side panel */}
@@ -169,7 +222,8 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
                 <p className="text-xs text-muted-foreground text-center py-6">لا توجد بيانات جغرافية بعد</p>
               ) : topList.map((g, i) => (
                 <div key={g.name} onMouseEnter={() => setHovered(g.name)} onMouseLeave={() => setHovered(null)}
-                  className="flex items-center gap-3 p-2.5 rounded-xl bg-white/50 dark:bg-white/[0.06] border border-white/60 dark:border-white/10 cursor-default">
+                  onClick={() => setSelectedName(g.name)}
+                  className={`flex items-center gap-3 p-2.5 rounded-xl border cursor-pointer transition-colors ${selectedName === g.name ? "bg-primary/10 border-primary/40" : "bg-white/50 dark:bg-white/[0.06] border-white/60 dark:border-white/10 hover:bg-white/70 dark:hover:bg-white/10"}`}>
                   <span className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-black flex-shrink-0" style={{ background: rampColor(g[metric] / maxVal) }}>{i + 1}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-foreground truncate">{g.name}</p>
