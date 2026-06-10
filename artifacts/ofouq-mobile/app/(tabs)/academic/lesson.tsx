@@ -22,6 +22,8 @@ import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AcademicVideoPlayer, AcademicVideoSegment } from "@/components/AcademicVideoPlayer";
+import { AutoFitTitle } from "@/components/AutoFitTitle";
+import { LessonSummaryCard } from "@/components/LessonSummaryCard";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
@@ -82,31 +84,6 @@ export default function LessonDetailScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const routeBase = getAcademicRouteBase(usePathname());
-  const [summaryExpanded, setSummaryExpanded] = useState(false);
-  const summaryChevron = useRef(new Animated.Value(0)).current;
-
-  const toggleSummary = useCallback(() => {
-    if (Platform.OS !== "web") {
-      // Springy "stretch open" for the height change so the card feels like it
-      // expands/unfolds to reveal its content.
-      LayoutAnimation.configureNext({
-        duration: 360,
-        update: { type: LayoutAnimation.Types.spring, springDamping: 0.78 },
-        create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-        delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-      });
-    }
-    setSummaryExpanded((value) => {
-      const next = !value;
-      Animated.spring(summaryChevron, {
-        toValue: next ? 1 : 0,
-        useNativeDriver: true,
-        speed: 12,
-        bounciness: 6,
-      }).start();
-      return next;
-    });
-  }, [summaryChevron]);
   const {
     lessonId,
     lessonTitle,
@@ -169,10 +146,13 @@ export default function LessonDetailScreen() {
   const subscribePath =
     `${academicRoute(routeBase, "subscribe")}?yearId=${yearId ?? ""}&yearName=${encode(String(yearName ?? ""))}&yearNameEn=${encode(String(yearNameEn ?? ""))}` +
     `&subjectId=${subjectId ?? ""}&subjectName=${encode(String(subjectName ?? ""))}&subjectNameEn=${encode(String(subjectNameEn ?? ""))}`;
-  const summaryThumbnailUrl = resolveMediaUrl(lesson?.video?.thumbnailUrl ?? lesson?.video?.posterUrl);
+  // The summary card below the player shows the SECONDARY image (posterUrl);
+  // the big video thumbnail above shows the PRIMARY one (thumbnailUrl).
+  const summaryThumbnailUrl = resolveMediaUrl(lesson?.video?.posterUrl ?? lesson?.video?.thumbnailUrl);
   const initialSeekSeconds = Math.max(0, Math.floor(Number(seekSeconds) || 0));
   const shouldAutoResume = resumeFromNotification === "1" && initialSeekSeconds > 0;
-  const headerOverlayHeight = insets.top + 126;
+  // Measured so the header grows for a 2-line title instead of clipping it.
+  const [headerHeight, setHeaderHeight] = useState(insets.top + 126);
 
   const reportLessonProgress = useCallback(
     (progress: { currentTime: number; duration: number }) => {
@@ -219,7 +199,13 @@ export default function LessonDetailScreen() {
         style={StyleSheet.absoluteFill}
       />
 
-      <View style={[styles.topBar, { height: headerOverlayHeight, paddingTop: insets.top + 12 }]}>
+      <View
+        style={[styles.topBar, { paddingTop: insets.top + 12 }]}
+        onLayout={(event) => {
+          const next = event.nativeEvent.layout.height;
+          setHeaderHeight((current) => (Math.abs(current - next) < 0.5 ? current : next));
+        }}
+      >
         <BlurView
           intensity={resolvedScheme === "dark" ? 62 : 92}
           tint={resolvedScheme === "dark" ? "dark" : "light"}
@@ -258,9 +244,14 @@ export default function LessonDetailScreen() {
           </View>
 
           <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-            <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
+            <AutoFitTitle
+              style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]}
+              maxFontSize={28}
+              minFontSize={18}
+              maxLines={2}
+            >
               {localizeAcademicText(lesson?.title ?? String(lessonTitle ?? strings.academic.lesson), language, lesson?.titleEn)}
-            </Text>
+            </AutoFitTitle>
             <Text style={[styles.lessonDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
               {lesson?.description ? localizeAcademicText(lesson.description, language, lesson.descriptionEn) : strings.academic.chooseLesson}
             </Text>
@@ -271,7 +262,7 @@ export default function LessonDetailScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: headerOverlayHeight + 18,
+          paddingTop: headerHeight + 18,
           paddingHorizontal: HORIZONTAL_PADDING,
           paddingBottom: insets.bottom + 118,
           gap: 16,
@@ -312,85 +303,6 @@ export default function LessonDetailScreen() {
           <>
             {lesson.video ? (
               <>
-                <Pressable
-                  onPress={toggleSummary}
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: summaryExpanded }}
-                  style={({ pressed }) => [
-                    styles.videoSummary,
-                    { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.94 : 1 },
-                  ]}
-                >
-                  <View style={[styles.summaryRow, { flexDirection: rowDirection, direction }]}>
-                    {summaryThumbnailUrl ? (
-                      <Image source={{ uri: summaryThumbnailUrl }} style={styles.summaryThumb} contentFit="cover" />
-                    ) : (
-                      <View style={styles.summaryThumbFallback}>
-                        <Feather name="play" size={22} color={COLORS.primary} />
-                      </View>
-                    )}
-                    <View style={[styles.summaryText, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-                      <Text style={[styles.summaryTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
-                        {localizeAcademicText(lesson.video.title, language, lesson.video.titleEn)}
-                      </Text>
-                      <Text style={[styles.summaryMeta, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                        {localizeAcademicText(lesson.video.instructor, language, lesson.video.instructorEn)} · {formatVideoDuration(lesson.video.duration)}
-                      </Text>
-                      {user ? (
-                        <Text style={[styles.watermarkHint, { color: colors.textTertiary, textAlign, writingDirection: direction }]} numberOfLines={1}>
-                          {localizeAcademicText(user.name, language)} - {toEnglishDigits(user.email)}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <Animated.View
-                      style={[
-                        styles.summaryToggle,
-                        { transform: [{ rotate: summaryChevron.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "180deg"] }) }] },
-                      ]}
-                    >
-                      <Feather name="chevron-down" size={20} color="#fff" />
-                    </Animated.View>
-                  </View>
-
-                  {summaryExpanded ? (
-                    <Animated.View
-                      style={[
-                        styles.summaryExpanded,
-                        {
-                          borderTopColor: colors.border,
-                          opacity: summaryChevron,
-                          transform: [{ translateY: summaryChevron.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }],
-                        },
-                      ]}
-                    >
-                      {summaryThumbnailUrl ? (
-                        <Image source={{ uri: summaryThumbnailUrl }} style={styles.summaryExpandedImage} contentFit="cover" />
-                      ) : null}
-                      <View style={[styles.summaryChips, { flexDirection: rowDirection, direction }]}>
-                        <View style={[styles.summaryChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                          <Feather name="clock" size={13} color={COLORS.primary} />
-                          <Text style={[styles.summaryChipText, { color: colors.textSecondary }]}>{formatVideoDuration(lesson.video.duration)}</Text>
-                        </View>
-                        {lesson.video.segments && lesson.video.segments.length > 0 ? (
-                          <View style={[styles.summaryChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                            <Feather name="list" size={13} color={COLORS.primary} />
-                            <Text style={[styles.summaryChipText, { color: colors.textSecondary }]}>
-                              {toEnglishDigits(String(lesson.video.segments.length))} {strings.academic.lessonSegments}
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
-                      {lesson.video.description ? (
-                        <View style={{ width: "100%", alignItems: isRTL ? "flex-end" : "flex-start" }}>
-                          <Text style={[styles.summaryDescription, { color: colors.textSecondary, width: "100%", textAlign: isRTL ? "right" : "left", writingDirection: direction }]}>
-                            {localizeAcademicText(lesson.video.description, language, lesson.video.descriptionEn)}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </Animated.View>
-                  ) : null}
-                </Pressable>
-
                 <AcademicVideoPlayer
                   key={`${lesson.id}:${initialSeekSeconds}:${resumeFromNotification ?? ""}:${notificationId ?? ""}`}
                   videoUrl={lesson.video.videoUrl}
@@ -400,6 +312,21 @@ export default function LessonDetailScreen() {
                   posterUrl={lesson.video.posterUrl ?? null}
                   thumbnailUrl={lesson.video.thumbnailUrl ?? null}
                   segments={lesson.video.segments ?? []}
+                  belowPlayerContent={
+                    <LessonSummaryCard
+                      thumbnailUrl={summaryThumbnailUrl}
+                      title={lesson.video.title}
+                      titleEn={lesson.video.titleEn}
+                      instructor={lesson.video.instructor}
+                      instructorEn={lesson.video.instructorEn}
+                      duration={lesson.video.duration}
+                      description={lesson.video.description}
+                      descriptionEn={lesson.video.descriptionEn}
+                      segmentsCount={lesson.video.segments?.length ?? 0}
+                      userName={user?.name ?? null}
+                      userEmail={user?.email ?? null}
+                    />
+                  }
                   watermarkText={user
                     ? `${localizeAcademicText(user.name, language).trim().split(/\s+/)[0]} · ${toEnglishDigits(user.phone || user.email)}`
                     : undefined}
@@ -434,7 +361,6 @@ const styles = StyleSheet.create({
   topBarContent: {
     zIndex: 1,
     width: "100%",
-    flex: 1,
     gap: 6,
     paddingBottom: 10,
   },
@@ -480,6 +406,9 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     padding: 14,
+    // Clip the expanding content so the open animation reads as the bottom
+    // edge sliding down to reveal what's inside (a curtain unfold).
+    overflow: "hidden",
   },
   summaryRow: {
     alignItems: "center",

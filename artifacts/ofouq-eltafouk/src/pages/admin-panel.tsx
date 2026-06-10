@@ -198,7 +198,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "academic", label: "المحتوى الأكاديمي", icon: GraduationCap },
   { id: "subscriptionRequests", label: "طلبات الاشتراك", icon: TicketPercent },
   { id: "supportMessages", label: "رسائل المستخدمين", icon: MessageSquare },
-  { id: "broadcastMessages", label: "إرسال الرسائل", icon: Send },
+  { id: "broadcastMessages", label: "إرسال الإشعارات", icon: Send },
   { id: "books", label: "الكتب", icon: BookOpen },
   { id: "posts", label: "المنشورات", icon: MessageSquare },
   { id: "reports", label: "التقارير", icon: Flag },
@@ -379,6 +379,7 @@ function getUserActivityInfo(value: unknown, activeWithinDays: number) {
   const date = parseAdminDate(value);
   if (!date) {
     return {
+      tone: "none" as const,
       isActive: false,
       label: "لا يوجد نشاط",
       meta: "لم يتم تسجيل نشاط بعد",
@@ -388,11 +389,18 @@ function getUserActivityInfo(value: unknown, activeWithinDays: number) {
   const ageMs = Date.now() - date.getTime();
   const isActive = ageMs <= activeWithinDays * 24 * 60 * 60 * 1000;
   return {
+    tone: isActive ? ("active" as const) : ("inactive" as const),
     isActive,
     label: isActive ? "نشط" : "غير نشط",
     meta: `آخر نشاط: ${formatAdminDateTime(date)}`,
   };
 }
+
+const ACTIVITY_TONE_CLASSES: Record<"active" | "inactive" | "none", string> = {
+  active: "bg-emerald-100 text-emerald-700",
+  inactive: "bg-amber-100 text-amber-700",
+  none: "bg-slate-100 text-slate-600",
+};
 
 function renderSupportMessageBody(body: string) {
   return body.split("\n").map((line, index) => {
@@ -1697,9 +1705,11 @@ function UsersTab({
                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${ROLE_COLORS[u.role] || "bg-muted text-muted-foreground"}`}>{ROLE_LABELS[u.role] || u.role}</span>
                   </td>
                   <td className="px-5 py-3.5">
-                    <div className="space-y-1">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${activity.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{activity.label}</span>
-                      <p className="text-[11px] text-muted-foreground">{activity.meta}</p>
+                    <div className="group relative inline-flex">
+                      <span className={`cursor-default rounded-full px-2.5 py-1 text-xs font-bold ${ACTIVITY_TONE_CLASSES[activity.tone]}`}>{activity.label}</span>
+                      <div className="pointer-events-none absolute top-full right-0 z-30 mt-1.5 hidden whitespace-nowrap rounded-lg bg-slate-900/95 px-3 py-1.5 text-[11px] font-medium text-white shadow-xl ring-1 ring-white/10 group-hover:block">
+                        {activity.meta}
+                      </div>
                     </div>
                   </td>
                   <td className="px-5 py-3.5">
@@ -1771,7 +1781,7 @@ function UsersTab({
                     <Send className="h-5 w-5 text-primary" />
                     <div>
                       <p className="text-sm font-black text-foreground">إرسال إشعار</p>
-                      <p className="mt-1 text-xs text-muted-foreground">يفتح صفحة إرسال الرسائل والجمهور جاهز على المحددين.</p>
+                      <p className="mt-1 text-xs text-muted-foreground">يفتح صفحة إرسال الإشعارات والجمهور جاهز على المحددين.</p>
                     </div>
                   </div>
                 </button>
@@ -3180,7 +3190,7 @@ function BroadcastMessagesTab({
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-display font-bold">إرسال الرسائل للمستخدمين</h2>
+          <h2 className="text-xl font-display font-bold">إرسال الإشعارات للمستخدمين</h2>
           <p className="text-sm text-muted-foreground mt-1">فلتر الجمهور، اكتب الرسالة، واختر لينك أو وصول سريع داخل التطبيق.</p>
         </div>
         <button
@@ -4627,7 +4637,7 @@ export default function AdminPanel() {
   }, [adminTheme]);
 
   if (!user || (user.role !== "admin" && user.role !== "owner")) {
-    setLocation("/admin-login");
+    setLocation("/login");
     return null;
   }
 

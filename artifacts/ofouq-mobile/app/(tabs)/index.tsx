@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AutoFitTitle } from "@/components/AutoFitTitle";
 import { COLORS } from "@/constants/colors";
 import { FONT } from "@/constants/typography";
 import { useAuth } from "@/contexts/AuthContext";
@@ -99,7 +100,6 @@ function LearningPathCard({ year, index }: { year: AcademicYear; index: number }
           {
             flexDirection: rowDirection,
             direction,
-            ...(isRTL ? { left: 16 } : { right: 16 }),
           },
         ]}
       >
@@ -352,9 +352,15 @@ export default function HomeScreen() {
           <View style={[styles.sectionHeader, { flexDirection: rowDirection, direction }]}>
             {/* direction:"ltr" + physical align so multi-line Arabic text isn't swapped to the left */}
             <View style={[styles.sectionTitleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-              <Text style={[styles.sectionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+              <AutoFitTitle
+                style={[styles.sectionTitle, { color: colors.text, textAlign, writingDirection: direction }]}
+                maxFontSize={24}
+                minFontSize={15}
+                maxLines={1}
+                lineHeightRatio={1.4}
+              >
                 {strings.home.continueLearning}
-              </Text>
+              </AutoFitTitle>
               <Text
                 style={[styles.sectionSubtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}
                 numberOfLines={2}
@@ -669,8 +675,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 24,
     padding: 16,
-    minHeight: 132,
-    justifyContent: "center",
+    // No fixed minHeight / centering: the card hugs its content (title + desc +
+    // the "Start learning" row) so it never grows a big empty gap.
     shadowColor: "#1E3A8A",
     shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.09,
@@ -681,8 +687,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-start",
     gap: 14,
-    minHeight: 78,
-    paddingBottom: 12,
   },
   pathIcon: {
     width: 54,
@@ -707,12 +711,14 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   pathAction: {
+    // In normal flow below the title/description so a long, wrapping description
+    // never collides with the "Start learning" CTA. alignSelf:flex-end + the
+    // card's writing direction keeps it on the forward (inline-end) side.
     alignSelf: "flex-end",
     flexDirection: "row-reverse",
     alignItems: "center",
     gap: 5,
-    position: "absolute",
-    bottom: 16,
+    marginTop: 10,
   },
   pathActionText: {
     ...FONT.bold,

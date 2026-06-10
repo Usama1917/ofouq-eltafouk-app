@@ -325,6 +325,7 @@ function SubjectHistoryCard({
 
             {watchedLessons.map((lesson, index) => {
               const lessonProgress = clampProgress(lesson.progressRatio);
+              // Show the PRIMARY image (thumbnailUrl) here, same as the lessons list.
               const thumbnailUri = resolveMediaUrl(lesson.thumbnailUrl ?? lesson.posterUrl);
               const statusLabel = lesson.completed
                 ? strings.settings.watchHistoryCompleted
@@ -378,8 +379,11 @@ function SubjectHistoryCard({
                     )}
 
                     <View style={[styles.lessonBody, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-                      <View style={[styles.lessonTitleLine, { flexDirection: rowDirection, direction }]}>
-                        <Text style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
+                      {/* direction:"ltr" neutralizes forceRTL; explicit physical
+                          flexDirection + textAlign forces title to the right in
+                          Arabic and to the left in English, deterministically. */}
+                      <View style={[styles.lessonTitleLine, { flexDirection: isRTL ? "row-reverse" : "row", direction: "ltr" }]}>
+                        <Text style={[styles.lessonTitle, { color: colors.text, textAlign: isRTL ? "right" : "left", writingDirection: direction }]} numberOfLines={1}>
                           {localizeAcademicText(lesson.title, language, lesson.titleEn)}
                         </Text>
                         <Text style={[styles.lessonStatus, lesson.completed ? styles.lessonStatusDone : null]}>
@@ -1011,15 +1015,15 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   lessonThumb: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
+    width: 96,
+    height: 54, // 16:9 to match the lesson cover/thumbnail aspect ratio
+    borderRadius: 12,
     backgroundColor: COLORS.primary + "10",
   },
   lessonThumbFallback: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
+    width: 96,
+    height: 54, // 16:9
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: COLORS.primary + "10",

@@ -8,7 +8,6 @@ import { SOFT_LAUNCH_MODE, hiddenStudentRouteRedirects } from "@/config/soft-lau
 // Public pages
 import Login from "@/pages/login";
 import Register from "@/pages/register";
-import AdminLogin from "@/pages/admin-login";
 import OwnerLogin from "@/pages/owner-login";
 
 // Main app pages
@@ -67,8 +66,9 @@ function Router() {
       {/* Auth pages — standalone, no app layout */}
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
-      <Route path="/admin-login" component={AdminLogin} />
       <Route path="/owner-login" component={OwnerLogin} />
+      {/* Legacy admin login URL — redirect to the unified /login */}
+      <Route path="/admin-login">{() => <SoftLaunchRedirect to="/login" />}</Route>
 
       {/* Panel pages — have their own layout with sidebar */}
       <Route path="/admin" component={AdminPanel} />

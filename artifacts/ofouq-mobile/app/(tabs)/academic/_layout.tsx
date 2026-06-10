@@ -15,6 +15,8 @@ export default function AcademicLayout() {
         headerBackTitle: strings.common.back,
         contentStyle: { backgroundColor: colors.background },
         headerTitleAlign: "center",
+        // Open: new screen enters from the right and slides left (right→left).
+        // Close: the screen slides back out toward the right.
         animation: "slide_from_right",
       }}
     />

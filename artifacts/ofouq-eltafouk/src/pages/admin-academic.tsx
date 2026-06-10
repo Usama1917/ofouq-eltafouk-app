@@ -8,6 +8,7 @@ import {
   Eye,
   EyeOff,
   GraduationCap,
+  Info,
   Layers,
   Pencil,
   PlayCircle,
@@ -17,6 +18,7 @@ import {
   Video,
   Youtube,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/contexts/auth-context";
 
 type Level = "years" | "subjects" | "units" | "lessons";
@@ -1539,33 +1541,61 @@ export function AcademicTab() {
                   )}
                 </div>
 
-                <label className="w-full px-3 py-3 rounded-xl bg-white/70 border border-white/70 text-sm flex items-center justify-between cursor-pointer">
-                  <span>{lessonThumbnailFile ? lessonThumbnailFile.name : "صورة الكارت قبل الدخول (اختياري)"}</span>
-                  <Upload className="w-4 h-4 text-primary" />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => setLessonThumbnailFile(e.target.files?.[0] ?? null)}
-                  />
-                </label>
+                <div className="flex items-center gap-2">
+                  <label className="flex-1 px-3 py-3 rounded-xl bg-white/70 border border-white/70 text-sm flex items-center justify-between cursor-pointer">
+                    <span>{lessonThumbnailFile ? lessonThumbnailFile.name : "الصورة الرئيسية — قائمة الدروس + ثامبنيل الفيديو (اختياري)"}</span>
+                    <Upload className="w-4 h-4 text-primary" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => setLessonThumbnailFile(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  <TooltipProvider delayDuration={150}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" aria-label="الأبعاد الموصى بها للصورة الرئيسية" className="shrink-0 text-muted-foreground hover:text-primary transition-colors">
+                          <Info className="w-4 h-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" align="end" className="max-w-[280px] text-right leading-relaxed">
+                        <strong>الصورة الرئيسية</strong>: تظهر في قائمة الدروس، وفي سجل المشاهدة، وكثامبنيل الفيديو داخل صفحة الدرس. المقاس الموصى به: <strong>1280×720 بكسل</strong> (الأفضل 1920×1080) — بنسبة <strong>16:9</strong>. أقصى حجم 10 ميجا، صيغة JPG أو WebP.
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
 
-                <label className="w-full px-3 py-3 rounded-xl bg-white/70 border border-white/70 text-sm flex items-center justify-between cursor-pointer">
-                  <span>{lessonPosterFile ? lessonPosterFile.name : "صورة بداية الفيديو داخل المشغل (اختياري)"}</span>
-                  <Upload className="w-4 h-4 text-primary" />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => setLessonPosterFile(e.target.files?.[0] ?? null)}
-                  />
-                </label>
+                <div className="flex items-center gap-2">
+                  <label className="flex-1 px-3 py-3 rounded-xl bg-white/70 border border-white/70 text-sm flex items-center justify-between cursor-pointer">
+                    <span>{lessonPosterFile ? lessonPosterFile.name : "الصورة الثانوية — كارت ملخص الدرس (اختياري)"}</span>
+                    <Upload className="w-4 h-4 text-primary" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => setLessonPosterFile(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  <TooltipProvider delayDuration={150}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" aria-label="الأبعاد الموصى بها للصورة الثانوية" className="shrink-0 text-muted-foreground hover:text-primary transition-colors">
+                          <Info className="w-4 h-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" align="end" className="max-w-[280px] text-right leading-relaxed">
+                        <strong>الصورة الثانوية</strong>: تظهر في كارت ملخص الدرس أسفل الفيديو. نفس النسبة <strong>16:9</strong> — المقاس الموصى به <strong>1280×720 بكسل</strong>. أقصى حجم 10 ميجا، صيغة JPG أو WebP.
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
                 <p className="text-xs text-muted-foreground -mt-1">
-                  تم إلغاء إدخال رابط الثامبنيل يدويًا. الآن يمكنك رفع صورتين منفصلتين: واحدة للكارت الخارجي وواحدة لبداية الفيديو.
+                  لكل درس صورتان: <strong>الرئيسية</strong> (قائمة الدروس + ثامبنيل الفيديو) و<strong>الثانوية</strong> (كارت ملخص الدرس). كلاهما بنسبة 16:9.
                 </p>
-                {!lessonPosterFile && !lessonForm.posterUrl ? (
+                {!lessonThumbnailFile && !lessonForm.thumbnailUrl ? (
                   <p className="text-xs font-semibold text-amber-700 -mt-1">
-                    تنبيه: لم يتم رفع صورة بانر للمشغل بعد. سيظهر Placeholder داخل المشغل حتى يتم رفعها.
+                    تنبيه: لم يتم رفع الصورة الرئيسية بعد. سيظهر Placeholder في قائمة الدروس وكثامبنيل الفيديو حتى يتم رفعها.
                   </p>
                 ) : null}
 

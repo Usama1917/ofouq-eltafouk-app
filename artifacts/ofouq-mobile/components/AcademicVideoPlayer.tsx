@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 import { Image } from "expo-image";
 import * as NavigationBar from "expo-navigation-bar";
 import * as ScreenCapture from "expo-screen-capture";
@@ -54,6 +55,10 @@ type AcademicVideoPlayerProps = {
   posterUrl?: string | null;
   thumbnailUrl?: string | null;
   segments?: AcademicVideoSegment[] | null;
+  // Optional content rendered between the player and the inline "lesson
+  // segments" list (e.g. the video summary card). Lets the host slot custom UI
+  // directly under the video without losing the segments below it.
+  belowPlayerContent?: React.ReactNode;
   watermarkText?: string;
   initialSeekSeconds?: number | null;
   autoPlayOnLoad?: boolean;
@@ -351,6 +356,246 @@ function buildYouTubeHtml(videoId: string) {
 </html>`;
 }
 
+// ─── Premium player sheets (translated from the "Implement Smooth Animations"
+// Figma design): a full-width bottom sheet in portrait, a centered floating
+// panel in landscape. Speed / Quality / Lesson-segments share the same body. ──
+
+type SheetKind = "speed" | "quality" | "segments";
+
+function clampRate(value: number) {
+  return Math.max(0.25, Math.min(3, Math.round(value * 4) / 4));
+}
+
+function getActiveSegmentIndex(segments: { startSeconds: number }[], time: number) {
+  let index = 0;
+  for (let i = 0; i < segments.length; i += 1) {
+    if (time >= segments[i].startSeconds) index = i;
+  }
+  return index;
+}
+
+function SheetSlider({ value, onChange }: { value: number; onChange: (rate: number) => void }) {
+  const widthRef = useRef(1);
+  const ratio = Math.max(0, Math.min(1, (value - 0.25) / (3 - 0.25)));
+  const apply = (locationX: number) => {
+    const width = widthRef.current;
+    const next = Math.max(0, Math.min(1, locationX / width));
+    onChange(clampRate(0.25 + next * (3 - 0.25)));
+  };
+  return (
+    <View
+      style={styles.sliderTrack}
+      onLayout={(event) => {
+        widthRef.current = Math.max(1, event.nativeEvent.layout.width);
+      }}
+      onStartShouldSetResponder={() => true}
+      onMoveShouldSetResponder={() => true}
+      onResponderGrant={(event) => apply(event.nativeEvent.locationX)}
+      onResponderMove={(event) => apply(event.nativeEvent.locationX)}
+    >
+      <View style={styles.sliderBase} />
+      <View style={[styles.sliderFill, { width: `${ratio * 100}%` }]} />
+      <View style={[styles.sliderKnob, { left: `${ratio * 100}%` }]} />
+    </View>
+  );
+}
+
+function PlayerSheet({
+  progress,
+  isLandscape,
+  insetsBottom,
+  onClose,
+  children,
+}: {
+  progress: Animated.Value;
+  isLandscape: boolean;
+  insetsBottom: number;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const [sheetHeight, setSheetHeight] = useState(360);
+  const backdropOpacity = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, isLandscape ? 0.5 : 0.55],
+  });
+
+  if (isLandscape) {
+    const panelStyle = {
+      opacity: progress,
+      transform: [
+        { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) },
+        { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) },
+      ],
+    };
+    return (
+      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
+          <Animated.View style={[StyleSheet.absoluteFill, styles.sheetBackdrop, { opacity: backdropOpacity }]} />
+        </Pressable>
+        <View style={styles.sheetLandscapeWrap} pointerEvents="box-none">
+          <Animated.View style={[styles.sheetLandscapePanel, { marginBottom: insetsBottom + 16 }, panelStyle]}>
+            {children}
+          </Animated.View>
+        </View>
+      </View>
+    );
+  }
+
+  const sheetStyle = {
+    opacity: progress.interpolate({ inputRange: [0, 0.45, 1], outputRange: [0, 1, 1] }),
+    transform: [
+      { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [sheetHeight + 48, 0] }) },
+    ],
+  };
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
+        <Animated.View style={[StyleSheet.absoluteFill, styles.sheetBackdrop, { opacity: backdropOpacity }]} />
+      </Pressable>
+      <Animated.View
+        style={[styles.sheetPortrait, { paddingBottom: insetsBottom + 18 }, sheetStyle]}
+        onLayout={(event) => {
+          const next = event.nativeEvent.layout.height;
+          if (next > 0) setSheetHeight((current) => (Math.abs(current - next) < 1 ? current : next));
+        }}
+      >
+        <View style={styles.sheetHandle} />
+        {children}
+      </Animated.View>
+    </View>
+  );
+}
+
+function SheetSpeedContent({
+  rates,
+  value,
+  onChange,
+  strings,
+}: {
+  rates: number[];
+  value: number;
+  onChange: (rate: number) => void;
+  isRTL: boolean;
+  strings: any;
+}) {
+  return (
+    <View style={styles.sheetBody}>
+      <Text style={styles.sheetTitle}>{strings.academic.speed}</Text>
+      <View style={styles.speedValueRow}>
+        <Pressable style={styles.speedStep} onPress={() => onChange(clampRate(value - 0.25))}>
+          <Text style={styles.speedStepText}>−</Text>
+        </Pressable>
+        <Text style={styles.speedValue}>{value === 1 ? "1.00×" : `${value}×`}</Text>
+        <Pressable style={styles.speedStep} onPress={() => onChange(clampRate(value + 0.25))}>
+          <Text style={styles.speedStepText}>+</Text>
+        </Pressable>
+      </View>
+      <SheetSlider value={value} onChange={onChange} />
+      <View style={styles.presetWrap}>
+        {rates.map((rate) => {
+          const active = Math.abs(rate - value) < 0.001;
+          return (
+            <Pressable key={rate} onPress={() => onChange(rate)} style={[styles.preset, active ? styles.presetActive : null]}>
+              <Text style={[styles.presetText, active ? styles.presetTextActive : null]}>{rate === 1 ? "1.0" : String(rate)}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function SheetQualityContent({
+  levels,
+  value,
+  onChange,
+  isRTL,
+  strings,
+}: {
+  levels: string[];
+  value: string;
+  onChange: (level: string) => void;
+  isRTL: boolean;
+  strings: any;
+}) {
+  return (
+    <View style={styles.sheetBody}>
+      <Text style={styles.sheetTitle}>{strings.academic.quality}</Text>
+      <View style={styles.qualityList}>
+        {levels.map((level) => {
+          const active = level === value;
+          return (
+            <Pressable
+              key={level}
+              onPress={() => onChange(level)}
+              style={[styles.qualityRow, { flexDirection: isRTL ? "row-reverse" : "row" }, active ? styles.qualityRowActive : null]}
+            >
+              <Text style={styles.qualityText}>{labelQuality(level)}</Text>
+              {active ? <View style={styles.qualityDot} /> : null}
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function SheetSegmentsContent({
+  segments,
+  currentTime,
+  onSeek,
+  segmentLabel,
+  language,
+  isRTL,
+  strings,
+}: {
+  segments: any[];
+  currentTime: number;
+  onSeek: (time: number) => void;
+  segmentLabel: (type: AcademicVideoSegment["segmentType"]) => string;
+  language: string;
+  isRTL: boolean;
+  strings: any;
+}) {
+  const activeIndex = getActiveSegmentIndex(segments, currentTime);
+  return (
+    <View style={[styles.sheetBody, styles.sheetBodySegments]}>
+      <Text style={styles.sheetTitle}>{strings.academic.lessonSegments}</Text>
+      <ScrollView
+        style={styles.segScroll}
+        contentContainerStyle={styles.segScrollContent}
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+      >
+        {segments.map((segment, index) => {
+          const active = index === activeIndex;
+          return (
+            <Pressable
+              key={`${segment.id}-${segment.startSeconds}`}
+              onPress={() => onSeek(segment.startSeconds)}
+              style={[styles.segRow, { flexDirection: isRTL ? "row-reverse" : "row" }, active ? styles.segRowActive : null]}
+            >
+              <View style={[styles.segBar, active ? styles.segBarActive : null]} />
+              <View style={[styles.segBody, { alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                <Text
+                  style={[styles.segTitle, active ? styles.segTitleActive : null, { textAlign: isRTL ? "right" : "left" }]}
+                  numberOfLines={1}
+                >
+                  {localizeAcademicText(segment.title, language, segment.titleEn)}
+                </Text>
+                <Text style={[styles.segMeta, { textAlign: isRTL ? "right" : "left" }]}>
+                  {segmentLabel(segment.segmentType)} · {formatTime(segment.startSeconds)}
+                </Text>
+              </View>
+              {active ? <View style={styles.segDot} /> : null}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
 export function AcademicVideoPlayer({
   videoUrl,
   videoType,
@@ -359,6 +604,7 @@ export function AcademicVideoPlayer({
   posterUrl,
   thumbnailUrl,
   segments,
+  belowPlayerContent,
   watermarkText,
   initialSeekSeconds,
   autoPlayOnLoad = false,
@@ -427,6 +673,10 @@ export function AcademicVideoPlayer({
   const [playbackRates, setPlaybackRates] = useState<number[]>(DEFAULT_PLAYBACK_RATES);
   const [quality, setQuality] = useState("hd720");
   const [qualityLevels, setQualityLevels] = useState<string[]>(FALLBACK_QUALITY_LEVELS);
+  // ── New premium-player sheet (speed / quality / segments) ──
+  const [activeSheet, setActiveSheet] = useState<SheetKind | null>(null);
+  const [sheetMounted, setSheetMounted] = useState(false);
+  const sheetProgress = useRef(new Animated.Value(0)).current;
   const [clockText, setClockText] = useState(() =>
     new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).format(new Date()),
   );
@@ -435,7 +685,9 @@ export function AcademicVideoPlayer({
   const youTubeId = useMemo(() => (isYouTube ? parseYouTubeId(videoUrl) : null), [isYouTube, videoUrl]);
   const webHtml = useMemo(() => (youTubeId ? buildYouTubeHtml(youTubeId) : ""), [youTubeId]);
   const resolvedVideoUrl = resolveMediaUrl(videoUrl);
-  const posterCandidateUrl = resolveMediaUrl(posterUrl) ?? resolveMediaUrl(thumbnailUrl);
+  // The video thumbnail uses the PRIMARY image (thumbnailUrl) first, falling
+  // back to the secondary (posterUrl) only if no primary was uploaded.
+  const posterCandidateUrl = resolveMediaUrl(thumbnailUrl) ?? resolveMediaUrl(posterUrl);
   const resolvedPosterUrl = isYouTube && isYouTubeHostedImage(posterCandidateUrl) ? null : posterCandidateUrl;
   const shouldShowCleanYouTubeCover = isYouTube && (!isFullscreen || !hasStarted);
   const shouldShowPosterOverlay = Boolean(
@@ -722,10 +974,10 @@ export function AcademicVideoPlayer({
   useEffect(() => {
     if (!isPlaying) return;
     if (scrubTime !== null) return;
-    if (optionMenu) return;
+    if (activeSheet) return;
     const timeout = setTimeout(() => setShowControls(false), 2600);
     return () => clearTimeout(timeout);
-  }, [currentTime, isPlaying, optionMenu, scrubTime, showControls]);
+  }, [activeSheet, currentTime, isPlaying, scrubTime, showControls]);
 
   useEffect(() => {
     if (isScrubbingRef.current) return;
@@ -850,40 +1102,42 @@ export function AcademicVideoPlayer({
     else void play();
   }
 
-  function closeOptionMenu() {
-    if (!optionMenu) return;
-    setOptionMenuOpen(false);
-    Animated.timing(optionMenuProgress, {
+  function closeSheet() {
+    Animated.timing(sheetProgress, {
       toValue: 0,
-      duration: 170,
+      duration: 220,
       easing: Easing.in(Easing.cubic),
       useNativeDriver: true,
     }).start(({ finished }) => {
-      if (finished) setOptionMenu(null);
+      if (finished) {
+        setSheetMounted(false);
+        setActiveSheet(null);
+      }
     });
   }
 
-  function openOptionMenu(nextMenu: ControlOptionMenu) {
+  function openSheet(kind: SheetKind) {
     setShowControls(true);
-    closeSegmentPanel();
-    if (optionMenu === nextMenu && optionMenuOpen) {
-      closeOptionMenu();
-      return;
-    }
-    setOptionMenu(nextMenu);
-    setOptionMenuOpen(true);
-    optionMenuProgress.setValue(0);
-    Animated.timing(optionMenuProgress, {
+    setActiveSheet(kind);
+    setSheetMounted(true);
+    sheetProgress.stopAnimation();
+    sheetProgress.setValue(0);
+    Animated.timing(sheetProgress, {
       toValue: 1,
-      duration: 230,
+      duration: 300,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
   }
 
-  function closeFloatingControlPanels() {
-    closeOptionMenu();
+  function toggleSheet(kind: SheetKind) {
+    if (activeSheet === kind) closeSheet();
+    else openSheet(kind);
   }
+
+  // Back-compat aliases so existing call sites keep closing the new sheet.
+  const closeOptionMenu = closeSheet;
+  const closeFloatingControlPanels = closeSheet;
 
   function clampTime(seconds: number) {
     const safeSeconds = Math.max(0, Number(seconds) || 0);
@@ -978,8 +1232,8 @@ export function AcademicVideoPlayer({
       return;
     }
 
-    if (optionMenu) {
-      closeFloatingControlPanels();
+    if (activeSheet) {
+      closeSheet();
       return;
     }
 
@@ -1140,32 +1394,11 @@ export function AcademicVideoPlayer({
 
   function openSegmentPanel() {
     if (normalizedSegments.length === 0) return;
-    closeFloatingControlPanels();
-    measureSegmentButton();
-    segmentPanelProgress.stopAnimation();
-    segmentPanelProgress.setValue(0);
-    setSegmentPanelVisible(true);
-    setSegmentPanelOpen(true);
-    Animated.timing(segmentPanelProgress, {
-      toValue: 1,
-      duration: 320,
-      easing: Easing.bezier(0.16, 1, 0.3, 1),
-      useNativeDriver: true,
-    }).start();
+    openSheet("segments");
   }
 
   function closeSegmentPanel() {
-    setSegmentPanelOpen(false);
-    measureSegmentButton();
-    segmentPanelProgress.stopAnimation();
-    Animated.timing(segmentPanelProgress, {
-      toValue: 0,
-      duration: 240,
-      easing: Easing.bezier(0.7, 0, 0.84, 0),
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished) setSegmentPanelVisible(false);
-    });
+    closeSheet();
   }
 
   function selectPlaybackRate(nextRate: number) {
@@ -1449,194 +1682,67 @@ export function AcademicVideoPlayer({
 
         {isFullscreen ? (
           <Animated.View
-            pointerEvents={showControls ? "auto" : "none"}
-            style={[
-              styles.controls,
-              isCompactControls ? styles.controlsCompact : null,
-              isPortraitFullscreen ? styles.controlsPortrait : null,
-              isLandscapeFullscreen ? [styles.controlsLandscape, { left: landscapeControlInset + insets.left, right: landscapeControlInset + insets.right }] : null,
-              { bottom: insets.bottom + (isLandscapeFullscreen ? 12 : 16) },
-              controlsAnimatedStyle,
-            ]}
+            pointerEvents={showControls ? "box-none" : "none"}
+            style={[StyleSheet.absoluteFill, styles.npOverlay, controlsAnimatedStyle]}
           >
-            <BlurView
+            {/* Bottom scrim keeps the controls readable over any video. */}
+            <LinearGradient
               pointerEvents="none"
-              intensity={44}
-              tint="dark"
-              style={[
-                styles.controlsSurface,
-                isCompactControls ? styles.controlsSurfaceCompact : null,
-                isPortraitFullscreen ? styles.controlsSurfacePortrait : null,
-                isLandscapeFullscreen ? styles.controlsSurfaceLandscape : null,
-              ]}
+              colors={["transparent", "rgba(0,0,0,0.5)", "rgba(0,0,0,0.82)"]}
+              style={[styles.npScrim, { height: isLandscapeFullscreen ? 150 : 190 }]}
             />
-            <View
-              style={[
-                styles.controlsContent,
-                isPortraitFullscreen ? styles.controlsContentPortrait : null,
-                isLandscapeFullscreen ? styles.controlsContentLandscape : null,
-              ]}
-            >
-            <View
-              style={[
-                styles.controlsTopRow,
-                isCompactControls ? styles.controlsTopRowCompact : null,
-                isPortraitFullscreen ? styles.controlsTopRowPortrait : null,
-                isLandscapeFullscreen ? styles.controlsTopRowLandscape : null,
-              ]}
-            >
-              {optionMenu ? (
-                <Pressable
-                  pointerEvents={optionMenuOpen ? "auto" : "none"}
-                  style={styles.optionMenuBackdrop}
-                  onPress={closeOptionMenu}
-                />
-              ) : null}
-
-              <View
-                ref={segmentButtonRef}
-                collapsable={false}
-                style={[
-                  styles.segmentButtonAnchor,
-                  styles.topRightControl,
-                  isPortraitFullscreen ? styles.topSideControlPortrait : null,
-                  isLandscapeFullscreen ? styles.topSideControlLandscape : null,
-                ]}
-                onLayout={measureSegmentButton}
-              >
-                <AnimatedPressable
-                  style={[
-                    styles.controlIcon,
-                    isPortraitFullscreen ? styles.controlIconPortrait : null,
-                    isLandscapeFullscreen ? styles.controlIconLandscape : null,
-                  ]}
-                  onPress={openSegmentPanel}
-                  disabled={normalizedSegments.length === 0}
-                >
-                  <Feather name="list" size={22} color={normalizedSegments.length > 0 ? "#fff" : "rgba(255,255,255,0.35)"} />
-                </AnimatedPressable>
-              </View>
-
-              {/* Logical order is [back -10, play, forward +10]. We force the
-                  flex direction per language so the VISUAL order is always the
-                  same: left button rewinds 10s, right button skips 10s forward —
-                  in both Arabic (RTL) and English (LTR). */}
-              <View
-                style={[
-                  styles.transportRow,
-                  isPortraitFullscreen ? styles.transportRowPortrait : null,
-                  isLandscapeFullscreen ? styles.transportRowLandscape : null,
-                  { flexDirection: isRTL ? "row-reverse" : "row" },
-                ]}
-              >
-                <AnimatedPressable
-                  style={[
-                    styles.seekTenButton,
-                    isPortraitFullscreen ? styles.seekTenButtonPortrait : null,
-                    isLandscapeFullscreen ? styles.seekTenButtonLandscape : null,
-                  ]}
-                  onPress={() => seekBy(-10)}
-                  pressedScale={0.88}
-                >
-                  <Feather name="rotate-ccw" size={isLandscapeFullscreen ? 22 : isPortraitFullscreen ? 23 : 26} color="#E5E7EB" />
-                  <Text style={styles.seekTenText}>10</Text>
-                </AnimatedPressable>
-                <AnimatedPressable
-                  style={[
-                    styles.playButton,
-                    isPortraitFullscreen ? styles.playButtonPortrait : null,
-                    isLandscapeFullscreen ? styles.playButtonLandscape : null,
-                  ]}
-                  onPress={togglePlayback}
-                  disabled={!ready && isYouTube}
-                  pressedScale={0.9}
-                >
-                  <Feather name={isPlaying ? "pause" : "play"} size={isLandscapeFullscreen ? 25 : isPortraitFullscreen ? 27 : 30} color="#0F172A" />
-                </AnimatedPressable>
-                <AnimatedPressable
-                  style={[
-                    styles.seekTenButton,
-                    isPortraitFullscreen ? styles.seekTenButtonPortrait : null,
-                    isLandscapeFullscreen ? styles.seekTenButtonLandscape : null,
-                  ]}
-                  onPress={() => seekBy(10)}
-                  pressedScale={0.88}
-                >
-                  <Feather name="rotate-cw" size={isLandscapeFullscreen ? 22 : isPortraitFullscreen ? 23 : 26} color="#E5E7EB" />
-                  <Text style={styles.seekTenText}>10</Text>
-                </AnimatedPressable>
-              </View>
-
-              <AnimatedPressable
-                style={[
-                  styles.controlIcon,
-                  isPortraitFullscreen ? styles.controlIconPortrait : null,
-                  isLandscapeFullscreen ? styles.controlIconLandscape : null,
-                  styles.topLeftControl,
-                  isPortraitFullscreen ? styles.topSideControlPortrait : null,
-                  isLandscapeFullscreen ? styles.topSideControlLandscape : null,
-                ]}
-                onPress={toggleFullscreenOrientation}
-                accessibilityRole="button"
-                accessibilityLabel={fullscreenOrientation === "landscape" ? "الرجوع للفول سكرين بالطول" : "الفول سكرين بالعرض"}
-              >
-                <Feather
-                  name={fullscreenOrientation === "landscape" ? "minimize-2" : "maximize-2"}
-                  size={isLandscapeFullscreen ? 18 : isPortraitFullscreen ? 19 : 20}
-                  color="#fff"
-                />
-              </AnimatedPressable>
-            </View>
 
             <View
+              pointerEvents="box-none"
               style={[
-                styles.controlsBottomRow,
-                isCompactControls ? styles.controlsBottomRowCompact : null,
-                isPortraitFullscreen ? styles.controlsBottomRowPortrait : null,
-                isLandscapeFullscreen ? styles.controlsBottomRowLandscape : null,
+                styles.npControls,
+                {
+                  left: isLandscapeFullscreen ? landscapeControlInset + insets.left : 16,
+                  right: isLandscapeFullscreen ? landscapeControlInset + insets.right : 16,
+                  bottom: insets.bottom + (isLandscapeFullscreen ? 10 : 18),
+                  gap: isLandscapeFullscreen ? 8 : 11,
+                },
               ]}
             >
-              <View
-                style={[
-                  styles.timelineGroup,
-                  isPortraitFullscreen ? styles.timelineGroupPortrait : null,
-                  isLandscapeFullscreen ? styles.timelineGroupLandscape : null,
-                ]}
-              >
-                <View
-                  style={[
-                    styles.timeRow,
-                    isPortraitFullscreen ? styles.timeRowPortrait : null,
-                    isLandscapeFullscreen ? styles.timeRowLandscape : null,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.timeText,
-                      isPortraitFullscreen ? styles.timeTextPortrait : null,
-                      isLandscapeFullscreen ? styles.timeTextLandscape : null,
-                    ]}
-                  >
-                    {formatTime(displayedTime)}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.timeText,
-                      isPortraitFullscreen ? styles.timeTextPortrait : null,
-                      isLandscapeFullscreen ? styles.timeTextLandscape : null,
-                    ]}
-                  >
-                    {formatTime(duration)}
+              {/* Row 1 — time pill (start side) · play + fullscreen (end side) */}
+              <View pointerEvents="box-none" style={[styles.npRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                <View pointerEvents="none" style={styles.npTimePill}>
+                  <Text style={styles.npTimePillText}>
+                    {toEnglishDigits(`${formatTime(displayedTime)} / ${formatTime(duration)}`)}
                   </Text>
                 </View>
+                <View pointerEvents="box-none" style={[styles.npRowGroup, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                  <AnimatedPressable
+                    style={styles.npPlayBtn}
+                    onPress={togglePlayback}
+                    disabled={!ready && isYouTube}
+                    pressedScale={0.9}
+                  >
+                    <Feather
+                      name={isPlaying ? "pause" : "play"}
+                      size={17}
+                      color="#fff"
+                      style={isPlaying ? undefined : { marginLeft: 2 }}
+                    />
+                  </AnimatedPressable>
+                  <AnimatedPressable
+                    style={styles.npIconBtn}
+                    onPress={toggleFullscreenOrientation}
+                    pressedScale={0.9}
+                    accessibilityRole="button"
+                    accessibilityLabel={fullscreenOrientation === "landscape" ? "الرجوع للفول سكرين بالطول" : "الفول سكرين بالعرض"}
+                  >
+                    <Feather name={fullscreenOrientation === "landscape" ? "minimize" : "maximize"} size={15} color="#fff" />
+                  </AnimatedPressable>
+                </View>
+              </View>
+
+              {/* Row 2 — white timeline (kept physically LTR in both languages) */}
+              <View pointerEvents="box-none" style={styles.npTimelineRow}>
                 <View
                   ref={progressTrackRef}
                   collapsable={false}
-                  style={[
-                    styles.progressTrack,
-                    isPortraitFullscreen ? styles.progressTrackPortrait : null,
-                    isLandscapeFullscreen ? styles.progressTrackLandscape : null,
-                  ]}
+                  style={styles.npTrack}
                   accessible
                   accessibilityRole="adjustable"
                   accessibilityLabel="شريط تقدم الفيديو"
@@ -1670,175 +1776,111 @@ export function AcademicVideoPlayer({
                   onResponderTerminate={() => finishProgressScrub()}
                   onResponderTerminationRequest={() => false}
                 >
-                  <View
-                    pointerEvents="none"
-                    style={[
-                      styles.progressBaseLine,
-                      isPortraitFullscreen ? styles.progressBaseLinePortrait : null,
-                      isLandscapeFullscreen ? styles.progressBaseLineLandscape : null,
-                    ]}
-                  />
+                  <View pointerEvents="none" style={styles.npTrackBase} />
+                  <Animated.View pointerEvents="none" style={[styles.npTrackFill, { width: timelineProgress }]} />
                   <Animated.View
                     pointerEvents="none"
-                    style={[
-                      styles.progressFill,
-                      isPortraitFullscreen ? styles.progressFillPortrait : null,
-                      isLandscapeFullscreen ? styles.progressFillLandscape : null,
-                      { width: timelineProgress },
-                    ]}
-                  />
-                  <Animated.View
-                    pointerEvents="none"
-                    style={[
-                      styles.progressKnob,
-                      isPortraitFullscreen ? styles.progressKnobPortrait : null,
-                      isLandscapeFullscreen ? styles.progressKnobLandscape : null,
-                      { transform: [{ translateX: timelineProgress }] },
-                    ]}
+                    style={[styles.npKnob, { transform: [{ translateX: timelineProgress }] }]}
                   />
                 </View>
               </View>
 
-              {optionMenu ? (
-                <Pressable
-                  pointerEvents={optionMenuOpen ? "auto" : "none"}
-                  style={styles.optionMenuBackdrop}
-                  onPress={closeOptionMenu}
-                />
-              ) : null}
-
-              <View
-                pointerEvents={optionMenu ? "box-none" : "auto"}
-                style={[
-                  styles.bottomControlsRow,
-                  isPortraitFullscreen ? styles.bottomControlsRowPortrait : null,
-                  isLandscapeFullscreen ? styles.bottomControlsRowLandscape : null,
-                ]}
-              >
-                <View style={[styles.controlChipAnchor, optionMenu === "quality" ? styles.controlChipAnchorActive : null]}>
-                  {renderOptionMenu("quality")}
+              {/* Row 3 — speed/quality chips (start side) · skip + segments (end side) */}
+              <View pointerEvents="box-none" style={[styles.npRow, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                <View pointerEvents="box-none" style={[styles.npRowGroup, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
                   <AnimatedPressable
-                    style={[
-                      styles.optionChip,
-                      isPortraitFullscreen ? styles.mediaChipPortrait : null,
-                      isLandscapeFullscreen ? styles.mediaChipLandscape : null,
-                      optionMenu === "quality" && optionMenuOpen ? styles.mediaChipActive : null,
-                    ]}
-                    onPress={() => openOptionMenu("quality")}
+                    style={[styles.npChip, activeSheet === "speed" ? styles.npChipActive : null]}
+                    onPress={() => toggleSheet("speed")}
+                    pressedScale={0.92}
                   >
-                    <Text
-                      style={[
-                        styles.optionText,
-                        isPortraitFullscreen ? styles.mediaChipTextPortrait : null,
-                        isLandscapeFullscreen ? styles.mediaChipTextLandscape : null,
-                      ]}
-                    >
-                      {labelQuality(quality)}
-                    </Text>
-                    <Feather name="chevron-up" size={isLandscapeFullscreen ? 13 : 14} color="rgba(255,255,255,0.82)" />
+                    <Text style={styles.npChipText}>{formatRate(playbackRate)}</Text>
                   </AnimatedPressable>
+                  {isYouTube ? (
+                    <AnimatedPressable
+                      style={[styles.npChip, activeSheet === "quality" ? styles.npChipActive : null]}
+                      onPress={() => toggleSheet("quality")}
+                      pressedScale={0.92}
+                    >
+                      <Text style={styles.npChipText}>{labelQuality(quality)}</Text>
+                    </AnimatedPressable>
+                  ) : null}
                 </View>
 
-                <View style={[styles.controlChipAnchor, optionMenu === "speed" ? styles.controlChipAnchorActive : null]}>
-                  {renderOptionMenu("speed")}
-                  <AnimatedPressable
-                    style={[
-                      styles.optionChip,
-                      isPortraitFullscreen ? styles.mediaChipPortrait : null,
-                      isLandscapeFullscreen ? styles.mediaChipLandscape : null,
-                      optionMenu === "speed" && optionMenuOpen ? styles.mediaChipActive : null,
-                    ]}
-                    onPress={() => openOptionMenu("speed")}
-                  >
-                    <Text
-                      style={[
-                        styles.optionText,
-                        isPortraitFullscreen ? styles.mediaChipTextPortrait : null,
-                        isLandscapeFullscreen ? styles.mediaChipTextLandscape : null,
-                      ]}
-                    >
-                      {formatRate(playbackRate)}
-                    </Text>
-                    <Feather name="chevron-up" size={isLandscapeFullscreen ? 13 : 14} color="rgba(255,255,255,0.82)" />
+                {/* Fixed LTR so rewind is always left, forward always right. */}
+                <View pointerEvents="box-none" style={styles.npRowGroupFixed}>
+                  <AnimatedPressable style={styles.npRoundBtn} onPress={() => seekBy(-10)} pressedScale={0.88}>
+                    <Feather name="rotate-ccw" size={15} color="#fff" />
                   </AnimatedPressable>
+                  <AnimatedPressable style={styles.npRoundBtn} onPress={() => seekBy(10)} pressedScale={0.88}>
+                    <Feather name="rotate-cw" size={15} color="#fff" />
+                  </AnimatedPressable>
+                  <View ref={segmentButtonRef} collapsable={false} onLayout={measureSegmentButton}>
+                    <AnimatedPressable
+                      style={[styles.npRoundBtn, activeSheet === "segments" ? styles.npRoundBtnActive : null]}
+                      onPress={openSegmentPanel}
+                      disabled={normalizedSegments.length === 0}
+                      pressedScale={0.88}
+                    >
+                      <Feather name="list" size={16} color={normalizedSegments.length > 0 ? "#fff" : "rgba(255,255,255,0.35)"} />
+                    </AnimatedPressable>
+                  </View>
                 </View>
               </View>
-            </View>
             </View>
           </Animated.View>
         ) : null}
 
-        {segmentPanelVisible ? (
-          <>
-            <Pressable
-              pointerEvents={segmentPanelOpen ? "auto" : "none"}
-              style={styles.segmentPanelBackdrop}
-              onPress={closeSegmentPanel}
-            />
-            <Animated.View
-              pointerEvents={segmentPanelOpen ? "auto" : "none"}
-              style={[
-                styles.segmentPanel,
-                isPortraitFullscreen ? styles.segmentPanelPortrait : null,
-                isLandscapeFullscreen
-                  ? [
-                      styles.segmentPanelLandscape,
-                      {
-                        left: width - landscapeControlInset - landscapeSegmentPanelWidth,
-                        bottom: 12,
-                        width: landscapeSegmentPanelWidth,
-                      },
-                    ]
-                  : null,
-                segmentPanelAnimatedStyle,
-              ]}
-              onLayout={handleSegmentPanelLayout}
-            >
-              <BlurView pointerEvents="none" intensity={44} tint="dark" style={styles.segmentPanelSurface} />
-              <Animated.View style={[styles.segmentPanelContent, segmentPanelContentAnimatedStyle]}>
-                <View style={styles.segmentPanelHeader}>
-                  <AnimatedPressable style={styles.segmentClose} onPress={closeSegmentPanel} pressedScale={0.88}>
-                    <Feather name="x" size={16} color="#fff" />
-                  </AnimatedPressable>
-                  <Text style={styles.segmentPanelTitle}>{strings.academic.lessonSegments}</Text>
-                </View>
-                <ScrollView
-                  style={[
-                    styles.segmentPanelList,
-                    IS_ANDROID ? styles.segmentPanelListAndroid : null,
-                    IS_ANDROID && isLandscapeFullscreen ? styles.segmentPanelListAndroidLandscape : null,
-                  ]}
-                  contentContainerStyle={styles.segmentPanelListContent}
-                  nestedScrollEnabled={IS_ANDROID}
-                  persistentScrollbar={IS_ANDROID}
-                  showsVerticalScrollIndicator={IS_ANDROID}
-                >
-                  {normalizedSegments.map((segment) => (
-                    <AnimatedPressable
-                      key={`panel-${segment.id}-${segment.startSeconds}`}
-                      style={styles.segmentRow}
-                      onPress={() => {
-                        closeSegmentPanel();
-                        void seekTo(segment.startSeconds, true);
-                      }}
-                      pressedScale={0.97}
-                    >
-                      <View style={styles.segmentRowIcon}>
-                        <Feather name="play" size={15} color="#fff" />
-                      </View>
-                      <View style={styles.segmentRowBody}>
-                        <Text style={styles.segmentRowTitle} numberOfLines={1}>{localizeAcademicText(segment.title, language, segment.titleEn)}</Text>
-                        <Text style={styles.segmentRowMeta}>{segmentLabel(segment.segmentType)} · {formatTime(segment.startSeconds)}</Text>
-                      </View>
-                    </AnimatedPressable>
-                  ))}
-                </ScrollView>
-              </Animated.View>
-            </Animated.View>
-          </>
+        {sheetMounted && isFullscreen ? (
+          <PlayerSheet
+            progress={sheetProgress}
+            isLandscape={isLandscapeFullscreen}
+            insetsBottom={insets.bottom}
+            onClose={closeSheet}
+          >
+            {activeSheet === "speed" ? (
+              <SheetSpeedContent
+                rates={displayPlaybackRates}
+                value={playbackRate}
+                onChange={(rate) => {
+                  setPlaybackRate(rate);
+                  setShowControls(true);
+                }}
+                isRTL={isRTL}
+                strings={strings}
+              />
+            ) : activeSheet === "quality" ? (
+              <SheetQualityContent
+                levels={displayQualityLevels}
+                value={quality}
+                onChange={(value) => {
+                  setQuality(value);
+                  setShowControls(true);
+                }}
+                isRTL={isRTL}
+                strings={strings}
+              />
+            ) : activeSheet === "segments" ? (
+              <SheetSegmentsContent
+                segments={normalizedSegments}
+                currentTime={currentTime}
+                onSeek={(time) => {
+                  closeSheet();
+                  void seekTo(time, true);
+                }}
+                segmentLabel={segmentLabel}
+                language={language}
+                isRTL={isRTL}
+                strings={strings}
+              />
+            ) : null}
+          </PlayerSheet>
         ) : null}
       </View>
       </PlayerHost>
+
+      {belowPlayerContent ? (
+        <View style={styles.belowPlayerSlot}>{belowPlayerContent}</View>
+      ) : null}
 
       {normalizedSegments.length > 0 ? (
         <View style={styles.externalSegments}>
@@ -1890,11 +1932,356 @@ const styles = StyleSheet.create({
     gap: 14,
     alignItems: "center",
   },
+  // ── New premium controls / sheets ──
+  npTimePill: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+    paddingHorizontal: 11,
+    paddingVertical: 4,
+  },
+  npTimePillText: {
+    ...FONT.semiBold,
+    color: "rgba(255,255,255,0.92)",
+    fontSize: 12,
+    letterSpacing: 0.3,
+  },
+  npOverlay: {
+    zIndex: 6,
+  },
+  npScrim: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  npControls: {
+    position: "absolute",
+  },
+  npRow: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  npRowGroup: {
+    alignItems: "center",
+    gap: 10,
+  },
+  npRowGroupFixed: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    direction: "ltr",
+  },
+  npPlayBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  npIconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  npTimelineRow: {
+    width: "100%",
+    height: 22,
+    justifyContent: "center",
+    direction: "ltr",
+  },
+  npTrack: {
+    width: "100%",
+    height: 22,
+    justifyContent: "center",
+  },
+  npTrackBase: {
+    width: "100%",
+    height: 3,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.22)",
+  },
+  npTrackFill: {
+    position: "absolute",
+    left: 0,
+    top: "50%",
+    marginTop: -1.5,
+    height: 3,
+    borderRadius: 999,
+    backgroundColor: "#fff",
+  },
+  npKnob: {
+    position: "absolute",
+    left: 0,
+    top: "50%",
+    marginTop: -8,
+    marginLeft: -8,
+    width: 16,
+    height: 16,
+    borderRadius: 999,
+    backgroundColor: "#fff",
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  npChip: {
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  npChipActive: {
+    backgroundColor: "rgba(255,255,255,0.26)",
+  },
+  npChipText: {
+    ...FONT.semiBold,
+    color: "rgba(255,255,255,0.92)",
+    fontSize: 12.5,
+  },
+  npRoundBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  npRoundBtnActive: {
+    backgroundColor: "rgba(255,255,255,0.26)",
+  },
+  sliderTrack: {
+    height: 26,
+    justifyContent: "center",
+    marginHorizontal: 2,
+  },
+  sliderBase: {
+    width: "100%",
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  sliderFill: {
+    position: "absolute",
+    left: 0,
+    top: "50%",
+    marginTop: -2,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: "#fff",
+  },
+  sliderKnob: {
+    position: "absolute",
+    top: "50%",
+    marginTop: -9,
+    marginLeft: -9,
+    width: 18,
+    height: 18,
+    borderRadius: 999,
+    backgroundColor: "#fff",
+  },
+  sheetBackdrop: {
+    backgroundColor: "#000",
+  },
+  sheetPortrait: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(18,18,22,0.98)",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: "hidden",
+    zIndex: 50,
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    marginTop: 10,
+    marginBottom: 2,
+  },
+  sheetLandscapeWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+  sheetLandscapePanel: {
+    width: 360,
+    maxWidth: "64%",
+    maxHeight: "72%",
+    backgroundColor: "rgba(16,16,20,0.97)",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.09)",
+    overflow: "hidden",
+    zIndex: 50,
+  },
+  sheetBody: {
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 10,
+    gap: 12,
+  },
+  sheetBodySegments: {
+    paddingTop: 10,
+  },
+  sheetTitle: {
+    ...FONT.semiBold,
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 12,
+    textAlign: "center",
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  speedValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 18,
+  },
+  speedStep: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  speedStepText: {
+    ...FONT.regular,
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 22,
+    lineHeight: 26,
+  },
+  speedValue: {
+    ...FONT.bold,
+    color: "#fff",
+    fontSize: 24,
+    minWidth: 84,
+    textAlign: "center",
+  },
+  presetWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8,
+  },
+  preset: {
+    minWidth: 52,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  presetActive: {
+    backgroundColor: "rgba(255,255,255,0.95)",
+  },
+  presetText: {
+    ...FONT.semiBold,
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 13,
+  },
+  presetTextActive: {
+    color: "#111827",
+  },
+  qualityList: {
+    gap: 2,
+  },
+  qualityRow: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  qualityRowActive: {
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+  qualityText: {
+    ...FONT.regular,
+    color: "#fff",
+    fontSize: 15,
+  },
+  qualityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#fff",
+  },
+  segScroll: {
+    maxHeight: 320,
+  },
+  segScrollContent: {
+    gap: 2,
+    paddingBottom: 4,
+  },
+  segRow: {
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 12,
+  },
+  segRowActive: {
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+  segBar: {
+    width: 3,
+    alignSelf: "stretch",
+    minHeight: 30,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.15)",
+  },
+  segBarActive: {
+    backgroundColor: "rgba(255,255,255,0.9)",
+  },
+  segBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  segTitle: {
+    ...FONT.semiBold,
+    color: "rgba(255,255,255,0.66)",
+    fontSize: 14,
+    width: "100%",
+  },
+  segTitleActive: {
+    color: "rgba(255,255,255,0.96)",
+  },
+  segMeta: {
+    ...FONT.regular,
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 12,
+    marginTop: 2,
+    width: "100%",
+  },
+  segDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#fff",
+  },
   fullscreenBackdrop: {
     flex: 1,
     backgroundColor: "#000",
     alignItems: "center",
     justifyContent: "center",
+  },
+  belowPlayerSlot: {
+    width: "100%",
   },
   externalSegments: {
     width: "100%",

@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams, useNavigation, usePathname } from "expo-router";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -16,6 +16,7 @@ import {
 import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AutoFitTitle } from "@/components/AutoFitTitle";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
@@ -206,7 +207,8 @@ export default function SubjectsScreen() {
   const { yearId, yearName, yearNameEn } = useLocalSearchParams<{ yearId: string; yearName: string; yearNameEn?: string }>();
   const title = String(yearName ?? strings.academic.subjects);
   const displayTitle = localizeAcademicText(title, language, yearNameEn ? String(yearNameEn) : undefined);
-  const headerOverlayHeight = insets.top + 134;
+  // Measured so the header grows for a 2-line title instead of clipping it.
+  const [headerHeight, setHeaderHeight] = useState(insets.top + 134);
 
   useEffect(() => {
     navigation.setOptions({ title: displayTitle });
@@ -265,7 +267,13 @@ export default function SubjectsScreen() {
         style={StyleSheet.absoluteFill}
       />
 
-      <View style={[styles.topBar, { height: headerOverlayHeight, paddingTop: insets.top + 12 }]}>
+      <View
+        style={[styles.topBar, { paddingTop: insets.top + 12 }]}
+        onLayout={(event) => {
+          const next = event.nativeEvent.layout.height;
+          setHeaderHeight((current) => (Math.abs(current - next) < 0.5 ? current : next));
+        }}
+      >
         <BlurView
           intensity={resolvedScheme === "dark" ? 62 : 92}
           tint={resolvedScheme === "dark" ? "dark" : "light"}
@@ -308,12 +316,14 @@ export default function SubjectsScreen() {
               <Feather name="book-open" size={23} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
             </View>
             <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-              <Text
+              <AutoFitTitle
                 style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}
-                numberOfLines={1}
+                maxFontSize={28}
+                minFontSize={18}
+                maxLines={2}
               >
                 {displayTitle}
-              </Text>
+              </AutoFitTitle>
               <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
                 {strings.academic.chooseSubject}
               </Text>
@@ -328,7 +338,7 @@ export default function SubjectsScreen() {
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="never"
         contentContainerStyle={{
-          paddingTop: headerOverlayHeight + 18,
+          paddingTop: headerHeight + 18,
           paddingHorizontal: 18,
           paddingBottom: insets.bottom + 118,
           gap: 13,
@@ -431,7 +441,6 @@ const styles = StyleSheet.create({
   topBarContent: {
     zIndex: 1,
     width: "100%",
-    flex: 1,
     gap: 6,
     paddingBottom: 10,
   },
