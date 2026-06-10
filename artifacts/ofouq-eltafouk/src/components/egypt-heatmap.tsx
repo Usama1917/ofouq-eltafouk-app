@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Users, Activity, GraduationCap, Plus, Minus, X } from "lucide-react";
+import { MapPin, Users, Activity, GraduationCap, Plus, Minus, X, RotateCcw } from "lucide-react";
 import { EGYPT_VIEWBOX, EGYPT_GOV_PATHS, EGYPT_GOV_CENTROIDS } from "@/data/egypt-governorates";
 
 // viewBox is "0 0 W H" — parse the extents once for zoom + popup math.
@@ -102,8 +102,11 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
 
   const emptyFill = isDark ? "#222831" : "#E9EDF2";
   const stroke = isDark ? "rgba(255,255,255,0.16)" : "rgba(15,23,42,0.12)";
-  const active = selectedName ? byName.get(selectedName) : null;
-  const activeCentroid = selectedName ? EGYPT_GOV_CENTROIDS[selectedName] : null;
+  // Live: the popup tracks whatever governorate you're pointing at; falls back to
+  // the pinned (clicked) one when not hovering, and stays anchored as you zoom.
+  const focusName = hovered ?? selectedName;
+  const active = focusName ? byName.get(focusName) : null;
+  const activeCentroid = focusName ? EGYPT_GOV_CENTROIDS[focusName] : null;
   // popup position as % of the (zoomed) viewBox; flip below the point near the top
   const popLeft = activeCentroid ? ((activeCentroid[0] - view.x) / view.w) * 100 : 0;
   const popTop = activeCentroid ? ((activeCentroid[1] - view.y) / view.h) * 100 : 0;
@@ -171,9 +174,9 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
 
               {/* Floating popup above the clicked governorate */}
               {active && activeCentroid && popLeft >= 0 && popLeft <= 100 && popTop >= 0 && popTop <= 100 && (
-                <div className="absolute z-20 w-[210px]" style={{ left: `${popLeft}%`, top: `${popTop}%`, transform: `translate(-50%, ${popBelow ? "14px" : "calc(-100% - 14px)"})` }}>
+                <div className="absolute z-20 w-[210px] pointer-events-none" style={{ left: `${popLeft}%`, top: `${popTop}%`, transform: `translate(-50%, ${popBelow ? "14px" : "calc(-100% - 14px)"})` }}>
                   <div className="relative rounded-xl bg-white/97 dark:bg-[#11151b]/97 backdrop-blur border border-white/70 dark:border-white/10 shadow-2xl px-3 py-2.5">
-                    <button onClick={() => setSelectedName(null)} className="absolute top-2 left-2 w-5 h-5 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground"><X className="w-3 h-3" /></button>
+                    {selectedName && <button onClick={() => setSelectedName(null)} className="pointer-events-auto absolute top-2 left-2 w-5 h-5 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground"><X className="w-3 h-3" /></button>}
                     <p className="text-sm font-bold text-foreground pr-1">{active.name}</p>
                     <div className="text-[11px] text-muted-foreground mt-1.5 space-y-1">
                       <div className="flex justify-between gap-2"><span>المستخدمون</span><span className="font-bold text-foreground">{fmt(active.users)}</span></div>
@@ -188,16 +191,16 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
                 </div>
               )}
 
-              {/* Zoom controls — bottom-left corner */}
+              {/* Zoom controls — bottom-left corner (reset on top) */}
               <div className="absolute bottom-2 left-2 z-20 flex flex-col gap-1">
+                {(view.w < MAP_W - 1) && (
+                  <button onClick={resetView} title="إعادة الضبط"
+                    className="w-8 h-8 rounded-lg bg-white/90 dark:bg-[#11151b]/90 backdrop-blur border border-white/70 dark:border-white/10 shadow flex items-center justify-center text-foreground hover:bg-white dark:hover:bg-[#1a1f27]"><RotateCcw className="w-4 h-4" /></button>
+                )}
                 <button onClick={() => zoomBy(1.5, activeCentroid ?? undefined)} title="تكبير"
                   className="w-8 h-8 rounded-lg bg-white/90 dark:bg-[#11151b]/90 backdrop-blur border border-white/70 dark:border-white/10 shadow flex items-center justify-center text-foreground hover:bg-white dark:hover:bg-[#1a1f27]"><Plus className="w-4 h-4" /></button>
                 <button onClick={() => zoomBy(1 / 1.5)} title="تصغير"
                   className="w-8 h-8 rounded-lg bg-white/90 dark:bg-[#11151b]/90 backdrop-blur border border-white/70 dark:border-white/10 shadow flex items-center justify-center text-foreground hover:bg-white dark:hover:bg-[#1a1f27]"><Minus className="w-4 h-4" /></button>
-                {(view.w < MAP_W - 1) && (
-                  <button onClick={resetView} title="إعادة الضبط"
-                    className="w-8 h-8 rounded-lg bg-white/90 dark:bg-[#11151b]/90 backdrop-blur border border-white/70 dark:border-white/10 shadow flex items-center justify-center text-[9px] font-bold text-foreground hover:bg-white dark:hover:bg-[#1a1f27]">⟳</button>
-                )}
               </div>
             </div>
 

@@ -29,6 +29,7 @@ export type ReportData = {
   user: {
     id: number; name: string; email: string; role: string; status: string;
     phone: string | null; governorate: string | null; joinedAt: string | null; lastActiveAt: string | null;
+    expectationStars?: number; scoringFrozen?: boolean;
   };
   stats: {
     totalActions: number; subscriptionsReviewed: number; subscriptionsApproved: number;
@@ -38,8 +39,11 @@ export type ReportData = {
     requestsSubmitted: number; lessonsWatched: number; activeDays: number;
   };
   score:
-    | { available: false; reason: string }
-    | { available: true; value: number; label: string; breakdown: Record<string, number> };
+    | { available: false; reason: string; frozen?: boolean }
+    | {
+        available: true; value: number; label: string; stars: number;
+        breakdown: { poolCount: number; poolTotal: number; equalShare: number; multiplier: number; expected: number; actual: number };
+      };
   byActionType: Record<string, number>;
   byCategory: Record<string, number>;
   topActionTypes: { type: string; label: string; count: number }[];
@@ -90,8 +94,19 @@ export function exportExcel(report: ReportData): void {
   // 1) ملخص
   const s = report.stats;
   const scoreLine = report.score.available
-    ? [`${report.score.value} / 100 (${report.score.label})`]
+    ? [`${report.score.value}% من المتوقّع (${report.score.label})`]
     : [report.score.reason];
+  const scoreDetailRows: (string | number)[][] = report.score.available
+    ? [
+        ["المستوى المتوقَّع (نجوم)", report.score.stars],
+        ["النصيب العادل لكل مشرف", report.score.breakdown.equalShare],
+        ["مُعامل المستوى", report.score.breakdown.multiplier],
+        ["المتوقَّع من هذا المشرف", report.score.breakdown.expected],
+        ["المُنجَز فعليًا", report.score.breakdown.actual],
+        ["عدد المشرفين في التوزيع", report.score.breakdown.poolCount],
+        ["إجمالي مهام الشهر", report.score.breakdown.poolTotal],
+      ]
+    : [];
   const summaryAoA: (string | number)[][] = [
     ["تقرير نشاط المشرف"],
     [],
@@ -117,6 +132,7 @@ export function exportExcel(report: ReportData): void {
     ["مستخدمون حُذفوا", s.usersDeleted],
     [],
     ["التقييم الشهري", ...scoreLine],
+    ...scoreDetailRows,
     [],
     ["ملاحظة التدقيق", report.auditCoverage.note],
   ];
@@ -149,15 +165,19 @@ export function exportExcel(report: ReportData): void {
 // ── PDF (summary report, Arabic via DOM rendering) ────────────────────────────
 function buildPdfHtml(report: ReportData): string {
   const s = report.stats;
+  const stars = report.score.available ? "★".repeat(report.score.stars) + "☆".repeat(5 - report.score.stars) : "";
+  const bd = report.score.available ? report.score.breakdown : null;
   const scoreBlock = report.score.available
     ? `<div style="display:flex;align-items:center;gap:16px;background:#f0f7ff;border:1px solid #cfe3ff;border-radius:16px;padding:18px 22px;">
-         <div style="width:88px;height:88px;border-radius:50%;background:#1e63ff;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-           <div style="font-size:30px;font-weight:800;line-height:1;">${report.score.value}</div>
-           <div style="font-size:11px;opacity:.85;">من 100</div>
+         <div style="width:92px;height:92px;border-radius:50%;background:#1e63ff;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;">
+           <div style="font-size:28px;font-weight:800;line-height:1;">${report.score.value}%</div>
+           <div style="font-size:10px;opacity:.85;">من المتوقّع</div>
          </div>
-         <div>
-           <div style="font-size:13px;color:#64748b;">التقييم الشهري</div>
+         <div style="flex:1;">
+           <div style="font-size:13px;color:#64748b;">التقييم الشهري (توزيع عادل للمهام)</div>
            <div style="font-size:24px;font-weight:800;color:#0f172a;">${report.score.label}</div>
+           <div style="font-size:12px;color:#b45309;margin-top:2px;">المستوى المتوقَّع: ${stars}</div>
+           <div style="font-size:11px;color:#64748b;margin-top:4px;">النصيب العادل: ${bd!.equalShare} مهمة × ${bd!.multiplier} = متوقَّع ${bd!.expected} · المُنجَز: ${bd!.actual} · عدد المشرفين: ${bd!.poolCount}</div>
          </div>
        </div>`
     : `<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:18px 22px;color:#9a3412;font-weight:600;">${report.score.reason}</div>`;
@@ -177,7 +197,7 @@ function buildPdfHtml(report: ReportData): string {
     : `<tr><td colspan="2" style="padding:12px;text-align:center;color:#94a3b8;">—</td></tr>`;
 
   const evalText = report.score.available
-    ? `بناءً على ${s.totalActions} إجراءً موزّعة على ${s.activeDays} يومًا من النشاط خلال الفترة، يُقيَّم أداء المشرف بـ «${report.score.label}» بدرجة ${report.score.value} من 100. يشمل ذلك ${s.subscriptionsReviewed} مراجعة اشتراك و${s.supportReplies} ردًّا على الدعم.`
+    ? `جرى توزيع إجمالي مهام الشهر (${bd!.poolTotal} مهمة) بالتساوي على ${bd!.poolCount} مشرفًا، فكان النصيب العادل لكل مشرف ${bd!.equalShare} مهمة. وبحسب المستوى المتوقَّع لهذا المشرف (${report.score.stars}★ = ${Math.round(bd!.multiplier * 100)}% من النصيب) يكون المتوقَّع منه ${bd!.expected} مهمة. أنجز فعليًا ${bd!.actual} مهمة، أي ${report.score.value}% من المتوقَّع — التقييم: «${report.score.label}». يشمل ذلك ${s.subscriptionsReviewed} مراجعة اشتراك و${s.supportReplies} ردًّا على الدعم.`
     : report.score.reason;
 
   return `

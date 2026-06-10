@@ -537,6 +537,7 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
         id: usersTable.id, name: usersTable.name, email: usersTable.email,
         role: usersTable.role, status: usersTable.status, phone: usersTable.phone,
         governorate: usersTable.governorate, joinedAt: usersTable.joinedAt, lastActiveAt: usersTable.lastActiveAt,
+        expectationStars: usersTable.expectationStars, scoringFrozen: usersTable.scoringFrozen,
       })
       .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
     if (!profile) {
@@ -612,6 +613,53 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
     });
   } catch (err) {
     req.log.error({ err }, "Admin activity error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Owner sets an admin's performance expectation (stars) / freeze (owner only) ──
+router.patch("/admin/owner-dashboard/admin-scoring/:userId", async (req, res) => {
+  try {
+    const actor = (req as any).adminActor;
+    if (!actor || actor.role !== "owner") {
+      res.status(403).json({ error: "هذا الإجراء متاح للمالك فقط" });
+      return;
+    }
+    const userId = Number.parseInt(req.params.userId, 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      res.status(400).json({ error: "معرّف المستخدم غير صالح" });
+      return;
+    }
+    const patch: Record<string, unknown> = {};
+    if (req.body.expectationStars !== undefined) {
+      const s = Number(req.body.expectationStars);
+      if (!Number.isInteger(s) || s < 1 || s > 5) {
+        res.status(400).json({ error: "عدد النجوم يجب أن يكون بين 1 و 5" });
+        return;
+      }
+      patch.expectationStars = s;
+    }
+    if (req.body.scoringFrozen !== undefined) {
+      patch.scoringFrozen = Boolean(req.body.scoringFrozen);
+    }
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ error: "لا يوجد ما يتم تحديثه" });
+      return;
+    }
+    const [updated] = await db.update(usersTable).set(patch).where(eq(usersTable.id, userId))
+      .returning({ id: usersTable.id, name: usersTable.name, expectationStars: usersTable.expectationStars, scoringFrozen: usersTable.scoringFrozen });
+    if (!updated) {
+      res.status(404).json({ error: "المستخدم غير موجود" });
+      return;
+    }
+    await logAudit(req, {
+      actionType: "scoring_update", actionLabel: "حدّث إعدادات تقييم المشرف",
+      entityType: "user", entityId: userId, entityLabel: updated.name,
+      newValue: `${updated.expectationStars}★${updated.scoringFrozen ? " / مجمّد" : ""}`,
+    });
+    res.json(updated);
+  } catch (err) {
+    req.log.error({ err }, "Admin scoring update error");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -712,6 +760,7 @@ router.get("/admin/reports/activity", async (req, res) => {
         id: usersTable.id, name: usersTable.name, email: usersTable.email,
         role: usersTable.role, status: usersTable.status, phone: usersTable.phone,
         governorate: usersTable.governorate, joinedAt: usersTable.joinedAt, lastActiveAt: usersTable.lastActiveAt,
+        expectationStars: usersTable.expectationStars, scoringFrozen: usersTable.scoringFrozen,
       })
       .from(usersTable).where(eq(usersTable.id, targetId)).limit(1);
     if (!profile) {
@@ -843,24 +892,74 @@ router.get("/admin/reports/activity", async (req, res) => {
       activeDays: activeDays.size,
     };
 
-    // ── Monthly activity score (admins/owners only; needs enough data) ──
     const rangeDays = Math.max(1, Math.round((toExclusive.getTime() - fromDate.getTime()) / 86400000));
-    const adminActions = stats.subscriptionsReviewed + stats.subscriptionsGranted + stats.supportReplies + stats.notificationsSent + stats.contentActions + stats.usersCreated + stats.usersSuspended;
-    const isStaff = profile.role === "admin" || profile.role === "owner";
+
+    // ── Fair workload distribution scoring ──
+    // The month's total admin work is shared EQUALLY across all non-frozen admins.
+    // Each admin has an owner-set star level → an expectation multiplier of the
+    // equal share (1★=70% … 3★=100% … 5★=150%). A diligent admin can exceed 100%.
+    const STAR_MULT: Record<number, number> = { 1: 0.7, 2: 0.9, 3: 1.0, 4: 1.1, 5: 1.5 };
+    const isPoolAudit = (t: string) => t.startsWith("notification") || t.startsWith("content") || t === "user_create" || t === "user_suspend";
+
+    const [adminsPool, repByUser, revByUser, grantByUser, auditByUser] = await Promise.all([
+      db.select({ id: usersTable.id, stars: usersTable.expectationStars, frozen: usersTable.scoringFrozen })
+        .from(usersTable).where(eq(usersTable.role, "admin")),
+      db.select({ uid: supportMessagesTable.senderId, n: count() })
+        .from(supportMessagesTable)
+        .where(and(ne(supportMessagesTable.senderRole, "student"), inRange(supportMessagesTable.createdAt)))
+        .groupBy(supportMessagesTable.senderId),
+      db.select({ uid: subjectSubscriptionRequestsTable.reviewedBy, n: count() })
+        .from(subjectSubscriptionRequestsTable)
+        .where(and(sql`${subjectSubscriptionRequestsTable.reviewedBy} is not null`, sql`${subjectSubscriptionRequestsTable.reviewedAt} is not null`, inRange(subjectSubscriptionRequestsTable.reviewedAt)))
+        .groupBy(subjectSubscriptionRequestsTable.reviewedBy),
+      db.select({ uid: subjectSubscriptionsTable.grantedByUserId, n: count() })
+        .from(subjectSubscriptionsTable)
+        .where(and(sql`${subjectSubscriptionsTable.grantedByUserId} is not null`, inRange(subjectSubscriptionsTable.createdAt)))
+        .groupBy(subjectSubscriptionsTable.grantedByUserId),
+      db.select({ uid: adminAuditLogTable.actorUserId, type: adminAuditLogTable.actionType, n: count() })
+        .from(adminAuditLogTable)
+        .where(inRange(adminAuditLogTable.createdAt))
+        .groupBy(adminAuditLogTable.actorUserId, adminAuditLogTable.actionType),
+    ]);
+
+    const actionByUser = new Map<number, number>();
+    const addAU = (uid: number | null, n: any) => { if (uid != null) actionByUser.set(uid, (actionByUser.get(uid) || 0) + (Number(n) || 0)); };
+    for (const r of repByUser) addAU(r.uid as any, r.n);
+    for (const r of revByUser) addAU(r.uid as any, r.n);
+    for (const r of grantByUser) addAU(r.uid as any, r.n);
+    for (const r of auditByUser) if (r.type && isPoolAudit(r.type)) addAU(r.uid as any, r.n);
+
+    const poolAdmins = adminsPool.filter((a) => !a.frozen);
+    const poolCount = poolAdmins.length;
+    const poolTotal = poolAdmins.reduce((s, a) => s + (actionByUser.get(a.id) || 0), 0);
+    const equalShare = poolCount > 0 ? poolTotal / poolCount : 0;
+    const targetStars = profile.expectationStars ?? 3;
+    const targetActual = actionByUser.get(targetId) || 0;
+
     let score: any;
-    if (!isStaff) {
-      score = { available: false, reason: "هذا المستخدم ليس مشرفًا — تقييم نشاط المشرفين لا ينطبق عليه" };
-    } else if (adminActions < 3) {
-      score = { available: false, reason: "لا توجد بيانات كافية لحساب تقييم دقيق لهذا المشرف" };
+    if (profile.role === "owner") {
+      score = { available: false, reason: "تقييم توزيع المهام يخص المشرفين فقط" };
+    } else if (profile.role !== "admin") {
+      score = { available: false, reason: "هذا المستخدم ليس مشرفًا — التقييم لا ينطبق عليه" };
+    } else if (profile.scoringFrozen) {
+      score = { available: false, frozen: true, reason: "الحساب مُجمّد — خارج توزيع المهام والتقييم" };
+    } else if (poolCount === 0 || poolTotal < 3) {
+      score = { available: false, reason: "لا توجد بيانات كافية لحساب تقييم عادل لهذا الشهر" };
     } else {
-      const volume = Math.min(40, adminActions * 2);
-      const categoriesEngaged = ["subscription", "support", "academic", "user", "notification"].filter((c) => (byCategory[c] || 0) > 0).length;
-      const diversity = (categoriesEngaged / 5) * 20;
-      const responsiveness = Math.min(20, stats.supportReplies * 2);
-      const consistency = Math.min(20, (activeDays.size / rangeDays) * 20 * 3); // reward active days
-      const total = Math.round(Math.min(100, volume + diversity + responsiveness + consistency));
-      const label = total >= 85 ? "ممتاز" : total >= 70 ? "جيد جدًا" : total >= 50 ? "جيد" : "يحتاج متابعة";
-      score = { available: true, value: total, label, breakdown: { volume: Math.round(volume), diversity: Math.round(diversity), responsiveness: Math.round(responsiveness), consistency: Math.round(consistency) } };
+      const mult = STAR_MULT[targetStars] ?? 1;
+      const expected = equalShare * mult;
+      const pct = expected > 0 ? Math.round((targetActual / expected) * 100) : 0;
+      const label = pct >= 110 ? "ممتاز" : pct >= 90 ? "جيد جدًا" : pct >= 70 ? "جيد" : "يحتاج متابعة";
+      score = {
+        available: true, value: pct, label, stars: targetStars,
+        breakdown: {
+          poolCount, poolTotal,
+          equalShare: Math.round(equalShare * 10) / 10,
+          multiplier: mult,
+          expected: Math.round(expected * 10) / 10,
+          actual: targetActual,
+        },
+      };
     }
 
     const topActionTypes = Object.entries(byActionType)

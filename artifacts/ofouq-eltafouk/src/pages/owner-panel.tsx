@@ -5,13 +5,13 @@ import {
   GraduationCap, TicketPercent, Send, FileBarChart, Crown, ShieldCheck,
   TrendingUp, BarChart3, Plus, LogOut, Bell, AlertTriangle,
   CheckCircle2, Clock, FolderTree, ListVideo, Sun, Moon, Info, X, History,
-  Download, FileSpreadsheet, FileText, Loader2,
+  Download, FileSpreadsheet, FileText, Loader2, Star, Snowflake,
 } from "lucide-react";
 import { fetchReport, exportExcel, exportPdf } from "@/lib/activity-export";
 import { EgyptHeatmap } from "@/components/egypt-heatmap";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useListAdminUsers, useUpdateAdminUser, useDeleteAdminUser, useCreateAdminUser,
 } from "@workspace/api-client-react";
@@ -501,7 +501,7 @@ function EmptyRow() {
 
 // ── Per-user details + activity timeline drawer (owner only) ───────────────
 type ActivityResponse = {
-  user: { id: number; name: string; email: string; role: string; status: string; phone: string | null; governorate: string | null; joinedAt: string; lastActiveAt: string | null };
+  user: { id: number; name: string; email: string; role: string; status: string; phone: string | null; governorate: string | null; joinedAt: string; lastActiveAt: string | null; expectationStars?: number; scoringFrozen?: boolean };
   stats: { supportReplies: number; subscriptionsReviewed: number; subscriptionsGranted: number; requestsSubmitted: number; lessonsWatched: number };
   timeline: { type: string; at: string | null; title: string; detail: string }[];
 };
@@ -650,7 +650,49 @@ function ExportMenu({ userId, userName }: { userId: number; userName: string }) 
   );
 }
 
+// ── Owner control: per-admin expectation stars (1..5) + freeze ───────────────
+const STAR_PCT = [70, 90, 100, 110, 150]; // 1★..5★ → % of the equal per-admin share
+function ScoringControl({ userId, stars, frozen, onChanged }: { userId: number; stars: number; frozen: boolean; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [localStars, setLocalStars] = useState(stars);
+  const [localFrozen, setLocalFrozen] = useState(frozen);
+  const [hover, setHover] = useState(0);
+  useEffect(() => { setLocalStars(stars); setLocalFrozen(frozen); }, [stars, frozen]);
+
+  const patch = async (body: Record<string, unknown>, revert: () => void) => {
+    setBusy(true);
+    try {
+      const res = await fetch(apiPath(`/api/admin/owner-dashboard/admin-scoring/${userId}`), {
+        method: "PATCH", headers: { ...authHeader(), "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error();
+      onChanged();
+    } catch { revert(); } finally { setBusy(false); }
+  };
+  const setStar = (s: number) => { const prev = localStars; setLocalStars(s); patch({ expectationStars: s }, () => setLocalStars(prev)); };
+  const toggleFreeze = () => { const nf = !localFrozen; setLocalFrozen(nf); patch({ scoringFrozen: nf }, () => setLocalFrozen(!nf)); };
+  const shown = hover || localStars;
+
+  return (
+    <div className="flex flex-col items-start gap-1.5">
+      <div className="flex items-center gap-0.5" onMouseLeave={() => setHover(0)}>
+        {[1, 2, 3, 4, 5].map((i) => (
+          <button key={i} disabled={busy} onMouseEnter={() => setHover(i)} onClick={() => setStar(i)} title={`${STAR_PCT[i - 1]}% من النصيب المتوقَّع`} className="p-0.5 disabled:opacity-60">
+            <Star className={`w-4 h-4 transition-colors ${i <= shown ? "fill-amber-400 text-amber-400" : "text-muted-foreground/40"}`} />
+          </button>
+        ))}
+        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 mr-1">{STAR_PCT[localStars - 1]}%</span>
+      </div>
+      <button disabled={busy} onClick={toggleFreeze}
+        className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${localFrozen ? "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-500/15 dark:text-sky-300 dark:border-sky-500/30" : "bg-white/50 dark:bg-white/[0.06] text-muted-foreground border-white/60 dark:border-white/10 hover:bg-white/70"}`}>
+        <Snowflake className="w-3 h-3" />{localFrozen ? "مُجمّد (خارج القسمة)" : "تجميد الحساب"}
+      </button>
+    </div>
+  );
+}
+
 function ActivityDrawer({ userId, onClose }: { userId: number | null; onClose: () => void }) {
+  const queryClient = useQueryClient();
   const { data, isLoading, isError, error } = useQuery<ActivityResponse>({
     queryKey: ["admin-activity", userId],
     enabled: userId != null,
@@ -678,9 +720,19 @@ function ActivityDrawer({ userId, onClose }: { userId: number | null; onClose: (
                data ? (
                 <>
                   <div className="glass-card p-4 space-y-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white font-black text-lg">{data.user.name.charAt(0)}</div>
-                      <div className="min-w-0"><p className="font-bold truncate">{data.user.name}</p><p className="text-xs text-muted-foreground truncate">{data.user.email}</p></div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white font-black text-lg flex-shrink-0">{data.user.name.charAt(0)}</div>
+                        <div className="min-w-0"><p className="font-bold truncate">{data.user.name}</p><p className="text-xs text-muted-foreground truncate">{data.user.email}</p></div>
+                      </div>
+                      {data.user.role === "admin" && (
+                        <ScoringControl
+                          userId={data.user.id}
+                          stars={data.user.expectationStars ?? 3}
+                          frozen={data.user.scoringFrozen ?? false}
+                          onChanged={() => queryClient.invalidateQueries({ queryKey: ["admin-activity", userId] })}
+                        />
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <Field label="الدور" value={ROLE_LABELS[data.user.role] || data.user.role} />

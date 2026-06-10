@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -24,6 +24,13 @@ export const usersTable = pgTable("users", {
   // Preferred app language ("ar" | "en"), reported by the mobile app. Used to send
   // admin broadcasts/notifications in the user's own language.
   language: text("language"),
+  // Owner-set performance expectation for an admin, as a 1–5 star level. Each star
+  // maps to a percentage of the equal per-admin share of monthly work the admin is
+  // expected to carry (1★=70%, 2★=90%, 3★=100%, 4★=110%, 5★=150%).
+  expectationStars: integer("expectation_stars").notNull().default(3),
+  // When true, the admin is excluded from the fair workload distribution (frozen):
+  // not counted in the denominator and not scored. Distinct from `status`.
+  scoringFrozen: boolean("scoring_frozen").notNull().default(false),
   joinedAt: timestamp("joined_at").notNull().defaultNow(),
 });
 
