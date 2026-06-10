@@ -205,6 +205,11 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "banners", label: "البنرات", icon: Megaphone },
 ];
 
+// Inactive/placeholder modules — hidden from the sidebar for now (NOT deleted:
+// the tabs, routes and backend stay so they can be re-enabled later).
+const HIDDEN_TABS = new Set<Tab>(["books", "posts", "banners"]);
+const VISIBLE_TABS = TABS.filter((t) => !HIDDEN_TABS.has(t.id));
+
 const TAB_TRANSITION_ORDER: Tab[] = [
   "dashboard",
   "users",
@@ -269,6 +274,12 @@ function getTabTransitionIndex(tab: Tab) {
 const DEFAULT_MATERIAL_OPTIONS = ["علوم", "رياضيات", "لغة عربية", "لغة إنجليزية", "تاريخ", "برمجة"];
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const apiPath = (path: string) => `${BASE}${path}`;
+// Legacy /admin/* endpoints are now auth-gated on the backend, so every plain
+// fetch to them must carry the admin token (the generated client hooks already do).
+const authHeader = (): Record<string, string> => {
+  const token = localStorage.getItem("ofouq_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
 const QUICK_REPLIES_STORAGE_KEY = "ofouq-admin-support-quick-replies:v1";
 const ADMIN_THEME_STORAGE_KEY = "ofouq-admin-theme:v1";
 const ADMIN_DATE_LOCALE = "ar-EG-u-nu-latn";
@@ -861,7 +872,7 @@ function DashboardTab({ onOpenMaterials }: { onOpenMaterials: () => void }) {
     try {
       setSubjectInsightsLoading(true);
       setSubjectInsightsError("");
-      const res = await fetch(apiPath("/api/admin/subject-insights"));
+      const res = await fetch(apiPath("/api/admin/subject-insights"), { headers: authHeader() });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error((data as any)?.error || "تعذر تحميل بيانات المواد");
@@ -922,7 +933,7 @@ function MaterialsTab() {
     try {
       setLoading(true);
       setLoadError("");
-      const res = await fetch(apiPath("/api/admin/materials"));
+      const res = await fetch(apiPath("/api/admin/materials"), { headers: authHeader() });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error((data as any)?.error || "تعذر تحميل المواد");
@@ -958,7 +969,7 @@ function MaterialsTab() {
       setCreating(true);
       const res = await fetch(apiPath("/api/admin/materials"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({ name, classification }),
       });
       const data = await res.json().catch(() => ({}));
@@ -977,7 +988,7 @@ function MaterialsTab() {
   const handleDelete = async (material: Material) => {
     if (!confirm(`حذف المادة "${material.name}"؟`)) return;
     try {
-      const res = await fetch(apiPath(`/api/admin/materials/${material.id}`), { method: "DELETE" });
+      const res = await fetch(apiPath(`/api/admin/materials/${material.id}`), { method: "DELETE", headers: authHeader() });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data?.error || "تعذر حذف المادة");
@@ -1004,7 +1015,7 @@ function MaterialsTab() {
       setReorderLoadingId(materialId);
       const res = await fetch(apiPath("/api/admin/materials/reorder"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({ ids: orderedIds }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1890,7 +1901,7 @@ function BooksTab() {
   const loadVouchers = async () => {
     try {
       setVoucherLoading(true);
-      const res = await fetch(apiPath("/api/admin/book-vouchers"));
+      const res = await fetch(apiPath("/api/admin/book-vouchers"), { headers: authHeader() });
       const data = await res.json();
       if (res.ok && Array.isArray(data)) {
         setVouchers(data);
@@ -1904,7 +1915,7 @@ function BooksTab() {
 
   const loadMaterials = async () => {
     try {
-      const res = await fetch(apiPath("/api/admin/materials"));
+      const res = await fetch(apiPath("/api/admin/materials"), { headers: authHeader() });
       const data = await res.json().catch(() => []);
       if (res.ok && Array.isArray(data)) {
         setMaterials(data);
@@ -2029,7 +2040,7 @@ function BooksTab() {
 
       const res = await fetch(apiPath("/api/admin/book-vouchers"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({
           bookId: parseInt(voucherForm.bookId, 10),
           code: voucherForm.code,
@@ -2060,7 +2071,7 @@ function BooksTab() {
 
   const handleDeleteVoucher = async (id: number) => {
     if (!confirm("حذف كود الخصم؟")) return;
-    await fetch(apiPath(`/api/admin/book-vouchers/${id}`), { method: "DELETE" });
+    await fetch(apiPath(`/api/admin/book-vouchers/${id}`), { method: "DELETE", headers: authHeader() });
     await loadVouchers();
   };
 
@@ -2080,7 +2091,7 @@ function BooksTab() {
       setReorderLoadingId(bookId);
       const res = await fetch(apiPath("/api/admin/books/reorder"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({ ids: orderedIds }),
       });
       const data = await res.json().catch(() => ({}));
@@ -4555,7 +4566,11 @@ function SupportMessagesTab({
 export default function AdminPanel() {
   const { user, token, logout } = useAuth();
   const [, setLocation] = useLocation();
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>(() => {
+    // Allow deep links from the owner dashboard quick actions: /admin?tab=academic
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    return requested && TABS.some((t) => t.id === requested) ? (requested as Tab) : "dashboard";
+  });
   const [transitionDirection, setTransitionDirection] = useState(1);
   const [supportUnreadChatCount, setSupportUnreadChatCount] = useState(0);
   const [adminTheme, setAdminTheme] = useState<AdminTheme>(getInitialAdminTheme);
@@ -4693,7 +4708,7 @@ export default function AdminPanel() {
         </div>
         <div className="mx-5 h-px bg-gradient-to-l from-transparent via-border to-transparent mb-3" />
         <nav className="admin-sidebar-nav flex-1 px-3 space-y-1 overflow-y-auto hide-scrollbar">
-          {TABS.map(t => {
+          {VISIBLE_TABS.map(t => {
             const isActive = tab === t.id;
             const Icon = t.icon;
 

@@ -6,6 +6,7 @@ import {
   db,
   booksTable,
   videosTable,
+  videoSegmentsTable,
   lessonsTable,
   postsTable,
   gamesTable,
@@ -31,8 +32,10 @@ import {
   supportConversationsTable,
   supportMessagesTable,
   studentOnboardingResponsesTable,
+  adminAuditLogTable,
 } from "@workspace/db";
-import { eq, ne, and, count, sql, desc, asc, or } from "drizzle-orm";
+import { eq, ne, and, count, sql, desc, asc, or, gte, lt } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 const bookCoversUploadDir = path.resolve(process.cwd(), "uploads/book-covers");
 fs.mkdirSync(bookCoversUploadDir, { recursive: true });
@@ -104,6 +107,103 @@ async function ensureDefaultMaterials() {
     }
   }
   return db.select().from(materialsTable).orderBy(asc(materialsTable.sortOrder), asc(materialsTable.name));
+}
+
+// ── Admin/owner gate for ALL legacy /admin routes ─────────────────────────────
+// These CRUD routes predate auth. A single router-level guard now requires an
+// authenticated, active admin or owner on every /admin endpoint in this router.
+// Safe for the admin web: it already sends a valid admin token (the academic
+// routes sharing the same token already enforce requireAdmin successfully).
+function adminActorIdFromReq(req: any): number | null {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  if (!token?.startsWith("session_")) return null;
+  const parsed = Number.parseInt(token.replace("session_", ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+async function requireAdminGate(req: any, res: any, next: any) {
+  try {
+    const actorId = adminActorIdFromReq(req);
+    if (!actorId) {
+      res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
+      return;
+    }
+    const [actor] = await db
+      .select({ id: usersTable.id, role: usersTable.role, status: usersTable.status })
+      .from(usersTable)
+      .where(eq(usersTable.id, actorId))
+      .limit(1);
+    if (!actor || actor.status !== "active") {
+      res.status(401).json({ error: "غير مصرح" });
+      return;
+    }
+    if (actor.role !== "admin" && actor.role !== "owner") {
+      res.status(403).json({ error: "هذا الإجراء متاح للمشرفين فقط" });
+      return;
+    }
+    (req as any).adminActor = actor;
+    next();
+  } catch (err) {
+    req.log?.error?.({ err }, "Admin gate error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+// Scope the gate to /admin paths ONLY. A bare router.use(gate) would also block
+// every other router mounted after this one (academic/student/etc.), breaking
+// the public mobile endpoints.
+router.use("/admin", requireAdminGate);
+
+// ── Audit logging ─────────────────────────────────────────────────────────────
+// Fire-and-forget, append-only. NEVER throws into the request flow: a failed
+// audit write must not break the underlying admin action. Captures the actor
+// snapshot (name/email/role at action time) so reports stay accurate even if the
+// user is later renamed or deleted.
+type AuditInput = {
+  actionType: string;
+  actionLabel?: string;
+  entityType?: string;
+  entityId?: string | number | null;
+  entityLabel?: string | null;
+  oldValue?: string | null;
+  newValue?: string | null;
+  status?: "success" | "failed";
+  metadata?: Record<string, unknown> | null;
+};
+async function logAudit(req: any, input: AuditInput): Promise<void> {
+  try {
+    const actor = (req as any).adminActor;
+    const actorId = actor?.id ?? adminActorIdFromReq(req);
+    let actorName: string | null = actor?.name ?? null;
+    let actorEmail: string | null = actor?.email ?? null;
+    let actorRole: string | null = actor?.role ?? null;
+    // The gate only selects id/role/status — fetch the name/email snapshot once.
+    if (actorId && (!actorName || !actorEmail)) {
+      const [u] = await db
+        .select({ name: usersTable.name, email: usersTable.email, role: usersTable.role })
+        .from(usersTable).where(eq(usersTable.id, actorId)).limit(1);
+      if (u) { actorName = u.name; actorEmail = u.email; actorRole = actorRole || u.role; }
+    }
+    const ipRaw = (req.headers["x-forwarded-for"] as string) || req.socket?.remoteAddress || "";
+    const ip = String(ipRaw).split(",")[0].trim().slice(0, 64) || null;
+    const userAgent = String(req.headers["user-agent"] || "").slice(0, 256) || null;
+    await db.insert(adminAuditLogTable).values({
+      actorUserId: actorId ?? null,
+      actorName, actorEmail, actorRole,
+      actionType: input.actionType,
+      actionLabel: input.actionLabel ?? null,
+      entityType: input.entityType ?? null,
+      entityId: input.entityId != null ? String(input.entityId) : null,
+      entityLabel: input.entityLabel ?? null,
+      oldValue: input.oldValue ?? null,
+      newValue: input.newValue ?? null,
+      status: input.status ?? "success",
+      metadata: (input.metadata ?? null) as any,
+      ip, userAgent,
+    });
+  } catch (err) {
+    req.log?.warn?.({ err }, "Audit log write failed (non-fatal)");
+  }
 }
 
 // Stats
@@ -199,6 +299,666 @@ router.get("/admin/subject-insights", async (req, res) => {
   }
 });
 
+// ── Owner dashboard summary — 100% real data, owner/admin only ─────────────────
+router.get("/admin/owner-dashboard/summary", async (req, res) => {
+  try {
+    const num = (value: unknown) => Number(value ?? 0) || 0;
+
+    const [
+      roleCounts,
+      studentStatusCounts,
+      requestStatusCounts,
+      activeSubsRow,
+      yearsRow,
+      subjectsRow,
+      unitsRow,
+      lessonsRow,
+      videosRow,
+      segmentsRow,
+      unreadSupportRow,
+      openConversationsRow,
+      pushTokenRows,
+      lastActiveRow,
+    ] = await Promise.all([
+      db.select({ role: usersTable.role, total: count() }).from(usersTable).groupBy(usersTable.role),
+      db.select({ status: usersTable.status, total: count() }).from(usersTable).where(eq(usersTable.role, "student")).groupBy(usersTable.status),
+      db.select({ status: subjectSubscriptionRequestsTable.status, total: count() }).from(subjectSubscriptionRequestsTable).groupBy(subjectSubscriptionRequestsTable.status),
+      db.select({ total: count() }).from(subjectSubscriptionsTable).where(eq(subjectSubscriptionsTable.status, "active")),
+      db.select({ total: count() }).from(academicYearsTable),
+      db.select({ total: count() }).from(subjectsTable),
+      db.select({ total: count() }).from(unitsTable),
+      db.select({ total: count() }).from(lessonsTable),
+      db.select({ total: count() }).from(videosTable),
+      db.select({ total: count() }).from(videoSegmentsTable),
+      db.select({ total: count() }).from(supportMessagesTable).where(and(eq(supportMessagesTable.senderRole, "student"), sql`${supportMessagesTable.readAt} is null`)),
+      db.select({ total: count() }).from(supportConversationsTable).where(eq(supportConversationsTable.status, "open")),
+      db.select({ platform: pushNotificationTokensTable.platform, total: count() }).from(pushNotificationTokensTable).where(sql`${pushNotificationTokensTable.disabledAt} is null`).groupBy(pushNotificationTokensTable.platform),
+      db.select({ ts: sql<string | null>`max(${usersTable.lastActiveAt})` }).from(usersTable),
+    ]);
+
+    const roleMap = new Map(roleCounts.map((r) => [r.role, num(r.total)]));
+    const studentStatusMap = new Map(studentStatusCounts.map((r) => [r.status, num(r.total)]));
+    const requestMap = new Map(requestStatusCounts.map((r) => [r.status, num(r.total)]));
+    const pushMap = new Map(pushTokenRows.map((r) => [r.platform, num(r.total)]));
+
+    const totalStudents = roleMap.get("student") ?? 0;
+    const activeStudents = studentStatusMap.get("active") ?? 0;
+
+    const kpis = {
+      totalUsers: roleCounts.reduce((sum, r) => sum + num(r.total), 0),
+      totalStudents,
+      totalTeachers: roleMap.get("teacher") ?? 0,
+      totalAdmins: (roleMap.get("admin") ?? 0) + (roleMap.get("owner") ?? 0),
+      totalModerators: roleMap.get("moderator") ?? 0,
+      totalParents: roleMap.get("parent") ?? 0,
+      activeStudents,
+      suspendedStudents: Math.max(0, totalStudents - activeStudents),
+      activeSubscriptions: num(activeSubsRow[0]?.total),
+      pendingSubscriptions: requestMap.get("pending") ?? 0,
+      approvedSubscriptions: requestMap.get("approved") ?? 0,
+      rejectedSubscriptions: requestMap.get("rejected") ?? 0,
+      totalYears: num(yearsRow[0]?.total),
+      totalSubjects: num(subjectsRow[0]?.total),
+      totalUnits: num(unitsRow[0]?.total),
+      totalLessons: num(lessonsRow[0]?.total),
+      totalVideos: num(videosRow[0]?.total),
+      totalSegments: num(segmentsRow[0]?.total),
+      unreadSupport: num(unreadSupportRow[0]?.total),
+      openConversations: num(openConversationsRow[0]?.total),
+      pushTokensAndroid: pushMap.get("android") ?? 0,
+      pushTokensIos: pushMap.get("ios") ?? 0,
+      pushTokensTotal: pushTokenRows.reduce((sum, r) => sum + num(r.total), 0),
+      lastActivityAt: lastActiveRow[0]?.ts ?? null,
+    };
+
+    // ── Content-gap alerts (real existence checks) ──
+    const [
+      subjectsWithoutUnitsRow,
+      unitsWithoutLessonsRow,
+      lessonsWithoutVideosRow,
+      videosWithoutSegmentsRow,
+    ] = await Promise.all([
+      db.select({ total: count() }).from(subjectsTable).where(sql`not exists (select 1 from units u where u.subject_id = ${subjectsTable.id})`),
+      db.select({ total: count() }).from(unitsTable).where(sql`not exists (select 1 from lessons l where l.unit_id = ${unitsTable.id})`),
+      db.select({ total: count() }).from(lessonsTable).where(sql`${lessonsTable.videoId} is null`),
+      db.select({ total: count() }).from(videosTable).where(sql`not exists (select 1 from video_segments s where s.video_id = ${videosTable.id})`),
+    ]);
+
+    const alerts = {
+      pendingSubscriptions: kpis.pendingSubscriptions,
+      unreadSupport: kpis.unreadSupport,
+      subjectsWithoutUnits: num(subjectsWithoutUnitsRow[0]?.total),
+      unitsWithoutLessons: num(unitsWithoutLessonsRow[0]?.total),
+      lessonsWithoutVideos: num(lessonsWithoutVideosRow[0]?.total),
+      videosWithoutSegments: num(videosWithoutSegmentsRow[0]?.total),
+    };
+
+    // ── Charts ──
+    const [growthRows, topSubjectRows, watchByDay, requestsByDay, messagesByDay] = await Promise.all([
+      db
+        .select({
+          month: sql<string>`to_char(date_trunc('month', ${usersTable.joinedAt}), 'YYYY-MM')`,
+          role: usersTable.role,
+          total: count(),
+        })
+        .from(usersTable)
+        .where(sql`${usersTable.joinedAt} >= (now() - interval '6 months')`)
+        .groupBy(sql`to_char(date_trunc('month', ${usersTable.joinedAt}), 'YYYY-MM')`, usersTable.role),
+      db
+        .select({ name: subjectsTable.name, value: sql<number>`count(distinct ${subjectSubscriptionsTable.studentId})` })
+        .from(subjectSubscriptionsTable)
+        .innerJoin(subjectsTable, eq(subjectSubscriptionsTable.subjectId, subjectsTable.id))
+        .where(eq(subjectSubscriptionsTable.status, "active"))
+        .groupBy(subjectsTable.id, subjectsTable.name)
+        .orderBy(desc(sql`count(distinct ${subjectSubscriptionsTable.studentId})`))
+        .limit(6),
+      db.select({ day: sql<string>`to_char(${lessonWatchProgressTable.lastWatchedAt}, 'YYYY-MM-DD')`, total: sql<number>`count(distinct ${lessonWatchProgressTable.studentId})` }).from(lessonWatchProgressTable).where(sql`${lessonWatchProgressTable.lastWatchedAt} >= (now() - interval '7 days')`).groupBy(sql`to_char(${lessonWatchProgressTable.lastWatchedAt}, 'YYYY-MM-DD')`),
+      db.select({ day: sql<string>`to_char(${subjectSubscriptionRequestsTable.submittedAt}, 'YYYY-MM-DD')`, total: count() }).from(subjectSubscriptionRequestsTable).where(sql`${subjectSubscriptionRequestsTable.submittedAt} >= (now() - interval '7 days')`).groupBy(sql`to_char(${subjectSubscriptionRequestsTable.submittedAt}, 'YYYY-MM-DD')`),
+      db.select({ day: sql<string>`to_char(${supportMessagesTable.createdAt}, 'YYYY-MM-DD')`, total: count() }).from(supportMessagesTable).where(and(eq(supportMessagesTable.senderRole, "student"), sql`${supportMessagesTable.createdAt} >= (now() - interval '7 days')`)).groupBy(sql`to_char(${supportMessagesTable.createdAt}, 'YYYY-MM-DD')`),
+    ]);
+
+    // user growth: pivot months -> {month, students, teachers, others}
+    const growthMonths = new Map<string, { month: string; students: number; teachers: number; others: number }>();
+    for (const row of growthRows) {
+      const entry = growthMonths.get(row.month) ?? { month: row.month, students: 0, teachers: 0, others: 0 };
+      if (row.role === "student") entry.students += num(row.total);
+      else if (row.role === "teacher") entry.teachers += num(row.total);
+      else entry.others += num(row.total);
+      growthMonths.set(row.month, entry);
+    }
+    const userGrowth = Array.from(growthMonths.values()).sort((a, b) => a.month.localeCompare(b.month));
+
+    // last 7 days buckets (fill gaps with zero)
+    const watchMap = new Map(watchByDay.map((r) => [r.day, num(r.total)]));
+    const requestsDayMap = new Map(requestsByDay.map((r) => [r.day, num(r.total)]));
+    const messagesDayMap = new Map(messagesByDay.map((r) => [r.day, num(r.total)]));
+    const last7Days: { day: string; watch: number; requests: number; messages: number }[] = [];
+    {
+      const today = new Date();
+      for (let i = 6; i >= 0; i -= 1) {
+        const d = new Date(today);
+        d.setDate(today.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        last7Days.push({
+          day: key,
+          watch: watchMap.get(key) ?? 0,
+          requests: requestsDayMap.get(key) ?? 0,
+          messages: messagesDayMap.get(key) ?? 0,
+        });
+      }
+    }
+
+    const charts = {
+      roleDistribution: roleCounts.map((r) => ({ role: r.role, value: num(r.total) })),
+      subscriptionsByStatus: [
+        { status: "pending", value: kpis.pendingSubscriptions },
+        { status: "approved", value: kpis.approvedSubscriptions },
+        { status: "rejected", value: kpis.rejectedSubscriptions },
+        { status: "active", value: kpis.activeSubscriptions },
+      ],
+      academicContent: [
+        { name: "subjects", value: kpis.totalSubjects },
+        { name: "units", value: kpis.totalUnits },
+        { name: "lessons", value: kpis.totalLessons },
+        { name: "videos", value: kpis.totalVideos },
+        { name: "segments", value: kpis.totalSegments },
+      ],
+      topSubjects: topSubjectRows.map((r) => ({ name: r.name, value: num(r.value) })),
+      userGrowth,
+      last7Days,
+    };
+
+    // ── Recent insights ──
+    const [recentStudents, recentRequests, recentSupport] = await Promise.all([
+      db
+        .select({ id: usersTable.id, name: usersTable.name, email: usersTable.email, status: usersTable.status, joinedAt: usersTable.joinedAt })
+        .from(usersTable)
+        .where(eq(usersTable.role, "student"))
+        .orderBy(desc(usersTable.joinedAt))
+        .limit(6),
+      db
+        .select({
+          id: subjectSubscriptionRequestsTable.id,
+          studentName: usersTable.name,
+          subjectName: subjectsTable.name,
+          status: subjectSubscriptionRequestsTable.status,
+          submittedAt: subjectSubscriptionRequestsTable.submittedAt,
+        })
+        .from(subjectSubscriptionRequestsTable)
+        .leftJoin(usersTable, eq(subjectSubscriptionRequestsTable.studentId, usersTable.id))
+        .leftJoin(subjectsTable, eq(subjectSubscriptionRequestsTable.subjectId, subjectsTable.id))
+        .orderBy(desc(subjectSubscriptionRequestsTable.submittedAt))
+        .limit(6),
+      db
+        .select({
+          conversationId: supportConversationsTable.id,
+          userName: usersTable.name,
+          status: supportConversationsTable.status,
+          lastMessageAt: supportConversationsTable.lastMessageAt,
+        })
+        .from(supportConversationsTable)
+        .leftJoin(usersTable, eq(supportConversationsTable.userId, usersTable.id))
+        .orderBy(desc(supportConversationsTable.lastMessageAt))
+        .limit(6),
+    ]);
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      kpis,
+      alerts,
+      charts,
+      recent: {
+        students: recentStudents,
+        subscriptionRequests: recentRequests,
+        support: recentSupport,
+      },
+    });
+  } catch (err) {
+    req.log.error({ err }, "Owner dashboard summary error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Per-user activity log (owner only) — real timeline from attributed data ────
+router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => {
+  try {
+    const actor = (req as any).adminActor;
+    if (!actor || actor.role !== "owner") {
+      res.status(403).json({ error: "هذه البيانات متاحة للمالك فقط" });
+      return;
+    }
+    const userId = Number.parseInt(req.params.userId, 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      res.status(400).json({ error: "معرّف المستخدم غير صالح" });
+      return;
+    }
+    const [profile] = await db
+      .select({
+        id: usersTable.id, name: usersTable.name, email: usersTable.email,
+        role: usersTable.role, status: usersTable.status, phone: usersTable.phone,
+        governorate: usersTable.governorate, joinedAt: usersTable.joinedAt, lastActiveAt: usersTable.lastActiveAt,
+      })
+      .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    if (!profile) {
+      res.status(404).json({ error: "المستخدم غير موجود" });
+      return;
+    }
+
+    const target = alias(usersTable, "target_user");
+
+    const [supportReplies, subReviews, subGrants, requestsMade, messagesSent, lessonsWatched] = await Promise.all([
+      db.select({ at: supportMessagesTable.createdAt, body: supportMessagesTable.body, who: target.name })
+        .from(supportMessagesTable)
+        .innerJoin(supportConversationsTable, eq(supportMessagesTable.conversationId, supportConversationsTable.id))
+        .leftJoin(target, eq(supportConversationsTable.userId, target.id))
+        .where(and(eq(supportMessagesTable.senderId, userId), ne(supportMessagesTable.senderRole, "student")))
+        .orderBy(desc(supportMessagesTable.createdAt)).limit(50),
+      db.select({ at: subjectSubscriptionRequestsTable.reviewedAt, status: subjectSubscriptionRequestsTable.status, who: target.name, subject: subjectsTable.name })
+        .from(subjectSubscriptionRequestsTable)
+        .leftJoin(target, eq(subjectSubscriptionRequestsTable.studentId, target.id))
+        .leftJoin(subjectsTable, eq(subjectSubscriptionRequestsTable.subjectId, subjectsTable.id))
+        .where(and(eq(subjectSubscriptionRequestsTable.reviewedBy, userId), sql`${subjectSubscriptionRequestsTable.reviewedAt} is not null`))
+        .orderBy(desc(subjectSubscriptionRequestsTable.reviewedAt)).limit(50),
+      db.select({ at: subjectSubscriptionsTable.createdAt, who: target.name, subject: subjectsTable.name })
+        .from(subjectSubscriptionsTable)
+        .leftJoin(target, eq(subjectSubscriptionsTable.studentId, target.id))
+        .leftJoin(subjectsTable, eq(subjectSubscriptionsTable.subjectId, subjectsTable.id))
+        .where(eq(subjectSubscriptionsTable.grantedByUserId, userId))
+        .orderBy(desc(subjectSubscriptionsTable.createdAt)).limit(50),
+      db.select({ at: subjectSubscriptionRequestsTable.submittedAt, status: subjectSubscriptionRequestsTable.status, subject: subjectsTable.name })
+        .from(subjectSubscriptionRequestsTable)
+        .leftJoin(subjectsTable, eq(subjectSubscriptionRequestsTable.subjectId, subjectsTable.id))
+        .where(eq(subjectSubscriptionRequestsTable.studentId, userId))
+        .orderBy(desc(subjectSubscriptionRequestsTable.submittedAt)).limit(50),
+      db.select({ at: supportMessagesTable.createdAt, body: supportMessagesTable.body })
+        .from(supportMessagesTable)
+        .where(and(eq(supportMessagesTable.senderId, userId), eq(supportMessagesTable.senderRole, "student")))
+        .orderBy(desc(supportMessagesTable.createdAt)).limit(50),
+      db.select({ at: lessonWatchProgressTable.lastWatchedAt, lesson: lessonsTable.title, completed: lessonWatchProgressTable.completed })
+        .from(lessonWatchProgressTable)
+        .leftJoin(lessonsTable, eq(lessonWatchProgressTable.lessonId, lessonsTable.id))
+        .where(eq(lessonWatchProgressTable.studentId, userId))
+        .orderBy(desc(lessonWatchProgressTable.lastWatchedAt)).limit(40),
+    ]);
+
+    const trunc = (value: string | null | undefined, max = 160) => {
+      const text = String(value ?? "").trim();
+      return text.length > max ? `${text.slice(0, max)}…` : text;
+    };
+    const statusAr = (status: string) =>
+      (({ approved: "بالموافقة", rejected: "بالرفض", pending: "قيد المراجعة", expired: "منتهٍ", active: "نشط", revoked: "ملغى" } as Record<string, string>)[status] || status);
+
+    type Item = { type: string; at: string | null; title: string; detail: string };
+    const timeline: Item[] = [];
+    for (const r of supportReplies) timeline.push({ type: "support_reply", at: r.at as any, title: `ردّ على ${r.who || "مستخدم"} في الدعم`, detail: trunc(r.body) });
+    for (const r of subReviews) timeline.push({ type: "subscription_review", at: r.at as any, title: `راجع طلب اشتراك ${r.who || "طالب"}${r.subject ? ` في ${r.subject}` : ""}`, detail: `القرار: ${statusAr(r.status)}` });
+    for (const r of subGrants) timeline.push({ type: "subscription_grant", at: r.at as any, title: `منح اشتراك ${r.who || "طالب"}${r.subject ? ` في ${r.subject}` : ""}`, detail: "تفعيل اشتراك مباشر" });
+    for (const r of requestsMade) timeline.push({ type: "request_submitted", at: r.at as any, title: `طلب اشتراك${r.subject ? ` في ${r.subject}` : ""}`, detail: `الحالة: ${statusAr(r.status)}` });
+    for (const r of messagesSent) timeline.push({ type: "support_message", at: r.at as any, title: "أرسل رسالة دعم", detail: trunc(r.body) });
+    for (const r of lessonsWatched) timeline.push({ type: "lesson_watch", at: r.at as any, title: `شاهد درس ${r.lesson || ""}`.trim(), detail: r.completed ? "اكتمل" : "قيد المشاهدة" });
+
+    timeline.sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
+
+    res.json({
+      user: profile,
+      stats: {
+        supportReplies: supportReplies.length,
+        subscriptionsReviewed: subReviews.length,
+        subscriptionsGranted: subGrants.length,
+        requestsSubmitted: requestsMade.length,
+        lessonsWatched: lessonsWatched.length,
+      },
+      timeline: timeline.slice(0, 150),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Admin activity error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Activity report (Excel/PDF data source) ──────────────────────────────────
+// Aggregated, date-ranged activity for one user, combining the append-only audit
+// log (richest, going forward) with derived historical activity (support replies,
+// subscription reviews/grants) so reports have real data immediately. Owner can
+// export any user; a non-owner admin can export ONLY their own report.
+const ACTION_LABELS_AR: Record<string, string> = {
+  support_reply: "ردّ على رسالة دعم",
+  support_message: "أرسل رسالة دعم",
+  subscription_review_approved: "وافق على طلب اشتراك",
+  subscription_review_rejected: "رفض طلب اشتراك",
+  subscription_review: "راجع طلب اشتراك",
+  subscription_grant: "منح اشتراك مباشر",
+  request_submitted: "قدّم طلب اشتراك",
+  lesson_watch: "متابعة درس",
+  notification_send: "أرسل إشعارًا",
+  user_create: "أنشأ مستخدمًا",
+  user_suspend: "أوقف مستخدمًا",
+  user_activate: "أعاد تفعيل مستخدم",
+  user_update: "حدّث بيانات مستخدم",
+  content_create: "أضاف محتوى أكاديمي",
+  content_update: "حدّث محتوى أكاديمي",
+  content_delete: "حذف محتوى أكاديمي",
+  login: "تسجيل دخول",
+  logout: "تسجيل خروج",
+};
+function categoryForAction(actionType: string, entityType?: string | null): string {
+  if (actionType.startsWith("subscription") || actionType === "request_submitted") return "subscription";
+  if (actionType.startsWith("support")) return "support";
+  if (actionType.startsWith("content") || actionType === "lesson_watch" || entityType === "academic") return "academic";
+  if (actionType.startsWith("user")) return "user";
+  if (actionType.startsWith("notification")) return "notification";
+  if (actionType === "login" || actionType === "logout") return "auth";
+  return "other";
+}
+function ymd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+router.get("/admin/reports/activity", async (req, res) => {
+  try {
+    const actor = (req as any).adminActor;
+
+    // ── Resolve target user (owner → anyone; admin → self only) ──
+    let targetId = actor.id as number;
+    const adminIdRaw = req.query.adminId;
+    if (adminIdRaw != null && String(adminIdRaw).trim() !== "") {
+      const parsed = Number.parseInt(String(adminIdRaw), 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        res.status(400).json({ error: "معرّف المستخدم غير صالح" });
+        return;
+      }
+      if (actor.role !== "owner" && parsed !== actor.id) {
+        res.status(403).json({ error: "يمكنك تصدير تقريرك فقط" });
+        return;
+      }
+      targetId = parsed;
+    }
+
+    // ── Parse + validate date range (server-side). Default = current month. ──
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const now = new Date();
+    const fromStr = String(req.query.from ?? "").trim();
+    const toStr = String(req.query.to ?? "").trim();
+    let fromYmd: string;
+    let toYmd: string;
+    if (fromStr || toStr) {
+      if (!dateRe.test(fromStr) || !dateRe.test(toStr)) {
+        res.status(400).json({ error: "صيغة التاريخ غير صحيحة (YYYY-MM-DD)" });
+        return;
+      }
+      fromYmd = fromStr;
+      toYmd = toStr;
+    } else {
+      fromYmd = ymd(new Date(now.getFullYear(), now.getMonth(), 1));
+      toYmd = ymd(now);
+    }
+    const fromDate = new Date(`${fromYmd}T00:00:00`);
+    const toExclusive = new Date(`${toYmd}T00:00:00`);
+    toExclusive.setDate(toExclusive.getDate() + 1); // make 'to' inclusive of its full day
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toExclusive.getTime())) {
+      res.status(400).json({ error: "صيغة التاريخ غير صحيحة (YYYY-MM-DD)" });
+      return;
+    }
+    if (fromDate.getTime() >= toExclusive.getTime()) {
+      res.status(400).json({ error: "تاريخ البداية يجب أن يكون قبل تاريخ النهاية" });
+      return;
+    }
+
+    const [profile] = await db
+      .select({
+        id: usersTable.id, name: usersTable.name, email: usersTable.email,
+        role: usersTable.role, status: usersTable.status, phone: usersTable.phone,
+        governorate: usersTable.governorate, joinedAt: usersTable.joinedAt, lastActiveAt: usersTable.lastActiveAt,
+      })
+      .from(usersTable).where(eq(usersTable.id, targetId)).limit(1);
+    if (!profile) {
+      res.status(404).json({ error: "المستخدم غير موجود" });
+      return;
+    }
+    const [generatedByRow] = await db
+      .select({ name: usersTable.name, email: usersTable.email, role: usersTable.role })
+      .from(usersTable).where(eq(usersTable.id, actor.id)).limit(1);
+
+    const target = alias(usersTable, "report_target_user");
+    const inRange = (col: any) => and(gte(col, fromDate), lt(col, toExclusive));
+
+    const [auditRows, supportReplies, subReviews, subGrants, requestsMade, messagesSent, lessonsWatched] = await Promise.all([
+      db.select().from(adminAuditLogTable)
+        .where(and(eq(adminAuditLogTable.actorUserId, targetId), inRange(adminAuditLogTable.createdAt)))
+        .orderBy(desc(adminAuditLogTable.createdAt)).limit(5000),
+      db.select({ at: supportMessagesTable.createdAt, body: supportMessagesTable.body, who: target.name })
+        .from(supportMessagesTable)
+        .innerJoin(supportConversationsTable, eq(supportMessagesTable.conversationId, supportConversationsTable.id))
+        .leftJoin(target, eq(supportConversationsTable.userId, target.id))
+        .where(and(eq(supportMessagesTable.senderId, targetId), ne(supportMessagesTable.senderRole, "student"), inRange(supportMessagesTable.createdAt)))
+        .orderBy(desc(supportMessagesTable.createdAt)).limit(2000),
+      db.select({ at: subjectSubscriptionRequestsTable.reviewedAt, status: subjectSubscriptionRequestsTable.status, who: target.name, subject: subjectsTable.name })
+        .from(subjectSubscriptionRequestsTable)
+        .leftJoin(target, eq(subjectSubscriptionRequestsTable.studentId, target.id))
+        .leftJoin(subjectsTable, eq(subjectSubscriptionRequestsTable.subjectId, subjectsTable.id))
+        .where(and(eq(subjectSubscriptionRequestsTable.reviewedBy, targetId), sql`${subjectSubscriptionRequestsTable.reviewedAt} is not null`, inRange(subjectSubscriptionRequestsTable.reviewedAt)))
+        .orderBy(desc(subjectSubscriptionRequestsTable.reviewedAt)).limit(2000),
+      db.select({ at: subjectSubscriptionsTable.createdAt, who: target.name, subject: subjectsTable.name })
+        .from(subjectSubscriptionsTable)
+        .leftJoin(target, eq(subjectSubscriptionsTable.studentId, target.id))
+        .leftJoin(subjectsTable, eq(subjectSubscriptionsTable.subjectId, subjectsTable.id))
+        .where(and(eq(subjectSubscriptionsTable.grantedByUserId, targetId), inRange(subjectSubscriptionsTable.createdAt)))
+        .orderBy(desc(subjectSubscriptionsTable.createdAt)).limit(2000),
+      db.select({ at: subjectSubscriptionRequestsTable.submittedAt, status: subjectSubscriptionRequestsTable.status, subject: subjectsTable.name })
+        .from(subjectSubscriptionRequestsTable)
+        .leftJoin(subjectsTable, eq(subjectSubscriptionRequestsTable.subjectId, subjectsTable.id))
+        .where(and(eq(subjectSubscriptionRequestsTable.studentId, targetId), inRange(subjectSubscriptionRequestsTable.submittedAt)))
+        .orderBy(desc(subjectSubscriptionRequestsTable.submittedAt)).limit(2000),
+      db.select({ at: supportMessagesTable.createdAt, body: supportMessagesTable.body })
+        .from(supportMessagesTable)
+        .where(and(eq(supportMessagesTable.senderId, targetId), eq(supportMessagesTable.senderRole, "student"), inRange(supportMessagesTable.createdAt)))
+        .orderBy(desc(supportMessagesTable.createdAt)).limit(2000),
+      db.select({ at: lessonWatchProgressTable.lastWatchedAt, lesson: lessonsTable.title, completed: lessonWatchProgressTable.completed })
+        .from(lessonWatchProgressTable)
+        .leftJoin(lessonsTable, eq(lessonWatchProgressTable.lessonId, lessonsTable.id))
+        .where(and(eq(lessonWatchProgressTable.studentId, targetId), inRange(lessonWatchProgressTable.lastWatchedAt)))
+        .orderBy(desc(lessonWatchProgressTable.lastWatchedAt)).limit(2000),
+    ]);
+
+    const trunc = (value: string | null | undefined, max = 300) => {
+      const text = String(value ?? "").trim();
+      return text.length > max ? `${text.slice(0, max)}…` : text;
+    };
+    const statusAr = (status: string) =>
+      (({ approved: "بالموافقة", rejected: "بالرفض", pending: "قيد المراجعة", expired: "منتهٍ", active: "نشط", revoked: "ملغى" } as Record<string, string>)[status] || status);
+
+    type Row = {
+      at: string | null; actionType: string; actionLabel: string; category: string;
+      entityType: string; entityId: string; target: string; oldValue: string; newValue: string;
+      status: string; detail: string; ip: string; userAgent: string;
+    };
+    const rows: Row[] = [];
+
+    // 1) Audit log entries (richest)
+    for (const a of auditRows) {
+      rows.push({
+        at: a.createdAt as any,
+        actionType: a.actionType,
+        actionLabel: a.actionLabel || ACTION_LABELS_AR[a.actionType] || a.actionType,
+        category: categoryForAction(a.actionType, a.entityType),
+        entityType: a.entityType || "",
+        entityId: a.entityId || "",
+        target: a.entityLabel || "",
+        oldValue: a.oldValue || "",
+        newValue: a.newValue || "",
+        status: a.status === "failed" ? "فشل" : "نجاح",
+        detail: a.metadata ? trunc(JSON.stringify(a.metadata)) : "",
+        ip: a.ip || "",
+        userAgent: a.userAgent || "",
+      });
+    }
+    // 2) Derived historical activity
+    for (const r of supportReplies) rows.push({ at: r.at as any, actionType: "support_reply", actionLabel: ACTION_LABELS_AR.support_reply, category: "support", entityType: "support_conversation", entityId: "", target: r.who || "", oldValue: "", newValue: "", status: "نجاح", detail: trunc(r.body), ip: "", userAgent: "" });
+    for (const r of subReviews) {
+      const at = r.status === "approved" ? "subscription_review_approved" : r.status === "rejected" ? "subscription_review_rejected" : "subscription_review";
+      rows.push({ at: r.at as any, actionType: at, actionLabel: ACTION_LABELS_AR[at], category: "subscription", entityType: "subscription_request", entityId: "", target: `${r.who || "طالب"}${r.subject ? ` - ${r.subject}` : ""}`, oldValue: "pending", newValue: r.status, status: "نجاح", detail: `القرار: ${statusAr(r.status)}`, ip: "", userAgent: "" });
+    }
+    for (const r of subGrants) rows.push({ at: r.at as any, actionType: "subscription_grant", actionLabel: ACTION_LABELS_AR.subscription_grant, category: "subscription", entityType: "subscription", entityId: "", target: `${r.who || "طالب"}${r.subject ? ` - ${r.subject}` : ""}`, oldValue: "", newValue: "active", status: "نجاح", detail: "تفعيل اشتراك مباشر", ip: "", userAgent: "" });
+    for (const r of requestsMade) rows.push({ at: r.at as any, actionType: "request_submitted", actionLabel: ACTION_LABELS_AR.request_submitted, category: "subscription", entityType: "subscription_request", entityId: "", target: r.subject || "", oldValue: "", newValue: r.status, status: "نجاح", detail: `الحالة: ${statusAr(r.status)}`, ip: "", userAgent: "" });
+    for (const r of messagesSent) rows.push({ at: r.at as any, actionType: "support_message", actionLabel: ACTION_LABELS_AR.support_message, category: "support", entityType: "support_conversation", entityId: "", target: "", oldValue: "", newValue: "", status: "نجاح", detail: trunc(r.body), ip: "", userAgent: "" });
+    for (const r of lessonsWatched) rows.push({ at: r.at as any, actionType: "lesson_watch", actionLabel: ACTION_LABELS_AR.lesson_watch, category: "academic", entityType: "lesson", entityId: "", target: r.lesson || "", oldValue: "", newValue: "", status: "نجاح", detail: r.completed ? "اكتمل" : "قيد المشاهدة", ip: "", userAgent: "" });
+
+    rows.sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
+
+    // ── Aggregates ──
+    const byActionType: Record<string, number> = {};
+    const byDay: Record<string, number> = {};
+    const byCategory: Record<string, number> = {};
+    const activeDays = new Set<string>();
+    for (const r of rows) {
+      byActionType[r.actionType] = (byActionType[r.actionType] || 0) + 1;
+      byCategory[r.category] = (byCategory[r.category] || 0) + 1;
+      if (r.at) {
+        const day = ymd(new Date(r.at));
+        byDay[day] = (byDay[day] || 0) + 1;
+        activeDays.add(day);
+      }
+    }
+    const subsApproved = subReviews.filter((r) => r.status === "approved").length;
+    const subsRejected = subReviews.filter((r) => r.status === "rejected").length;
+    const auditCount = (pred: (t: string) => boolean) => auditRows.filter((a) => pred(a.actionType)).length;
+    const stats = {
+      totalActions: rows.length,
+      subscriptionsReviewed: subReviews.length,
+      subscriptionsApproved: subsApproved,
+      subscriptionsRejected: subsRejected,
+      subscriptionsGranted: subGrants.length,
+      supportReplies: supportReplies.length,
+      supportResolved: auditCount((t) => t === "support_resolve"),
+      notificationsSent: auditCount((t) => t.startsWith("notification")),
+      contentActions: auditCount((t) => t.startsWith("content")),
+      usersCreated: auditCount((t) => t === "user_create"),
+      usersSuspended: auditCount((t) => t === "user_suspend"),
+      usersDeleted: auditCount((t) => t === "user_delete"),
+      requestsSubmitted: requestsMade.length,
+      lessonsWatched: lessonsWatched.length,
+      activeDays: activeDays.size,
+    };
+
+    // ── Monthly activity score (admins/owners only; needs enough data) ──
+    const rangeDays = Math.max(1, Math.round((toExclusive.getTime() - fromDate.getTime()) / 86400000));
+    const adminActions = stats.subscriptionsReviewed + stats.subscriptionsGranted + stats.supportReplies + stats.notificationsSent + stats.contentActions + stats.usersCreated + stats.usersSuspended;
+    const isStaff = profile.role === "admin" || profile.role === "owner";
+    let score: any;
+    if (!isStaff) {
+      score = { available: false, reason: "هذا المستخدم ليس مشرفًا — تقييم نشاط المشرفين لا ينطبق عليه" };
+    } else if (adminActions < 3) {
+      score = { available: false, reason: "لا توجد بيانات كافية لحساب تقييم دقيق لهذا المشرف" };
+    } else {
+      const volume = Math.min(40, adminActions * 2);
+      const categoriesEngaged = ["subscription", "support", "academic", "user", "notification"].filter((c) => (byCategory[c] || 0) > 0).length;
+      const diversity = (categoriesEngaged / 5) * 20;
+      const responsiveness = Math.min(20, stats.supportReplies * 2);
+      const consistency = Math.min(20, (activeDays.size / rangeDays) * 20 * 3); // reward active days
+      const total = Math.round(Math.min(100, volume + diversity + responsiveness + consistency));
+      const label = total >= 85 ? "ممتاز" : total >= 70 ? "جيد جدًا" : total >= 50 ? "جيد" : "يحتاج متابعة";
+      score = { available: true, value: total, label, breakdown: { volume: Math.round(volume), diversity: Math.round(diversity), responsiveness: Math.round(responsiveness), consistency: Math.round(consistency) } };
+    }
+
+    const topActionTypes = Object.entries(byActionType)
+      .sort((a, b) => b[1] - a[1]).slice(0, 6)
+      .map(([type, n]) => ({ type, label: ACTION_LABELS_AR[type] || type, count: n }));
+    const byDayArr = Object.entries(byDay).sort((a, b) => a[0].localeCompare(b[0])).map(([day, n]) => ({ day, count: n }));
+
+    // Note: audit-backed actions (notifications/content/user-mgmt/auth) only exist
+    // for actions performed AFTER audit logging was enabled. Older periods rely on
+    // derived activity (support replies, subscription reviews/grants) only.
+    const auditCoverageStart = auditRows.length > 0 ? (auditRows[auditRows.length - 1].createdAt as any) : null;
+
+    res.json({
+      range: { from: fromYmd, to: toYmd, days: rangeDays },
+      generatedAt: new Date().toISOString(),
+      generatedBy: generatedByRow ? { name: generatedByRow.name, email: generatedByRow.email, role: generatedByRow.role } : null,
+      user: profile,
+      stats,
+      score,
+      byActionType,
+      byCategory,
+      topActionTypes,
+      byDay: byDayArr,
+      activities: rows.slice(0, 5000),
+      auditCoverage: { rows: auditRows.length, since: auditCoverageStart, note: "السجل المُدقّق يغطّي الإجراءات بعد تفعيل نظام التدقيق فقط؛ الفترات الأقدم تعتمد على النشاط المُستنتَج (الدعم/الاشتراكات)." },
+    });
+  } catch (err) {
+    req.log.error({ err }, "Activity report error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Geographic distribution (Egypt governorate heatmap) ───────────────────────
+// Per-governorate aggregates for the dashboard map card: total users, students,
+// active users, subscriptions (activity), and the most-subscribed subject.
+router.get("/admin/owner-dashboard/geo", async (req, res) => {
+  try {
+    const [usersByGov, subsByGov, subjectRows] = await Promise.all([
+      db.select({
+        gov: usersTable.governorate,
+        total: count(),
+        students: sql<number>`count(*) filter (where ${usersTable.role} = 'student')`,
+        active: sql<number>`count(*) filter (where ${usersTable.status} = 'active')`,
+      }).from(usersTable).groupBy(usersTable.governorate),
+      db.select({ gov: usersTable.governorate, subs: count() })
+        .from(subjectSubscriptionsTable)
+        .innerJoin(usersTable, eq(subjectSubscriptionsTable.studentId, usersTable.id))
+        .groupBy(usersTable.governorate),
+      db.select({ gov: usersTable.governorate, subject: subjectsTable.name, n: count() })
+        .from(subjectSubscriptionsTable)
+        .innerJoin(usersTable, eq(subjectSubscriptionsTable.studentId, usersTable.id))
+        .innerJoin(subjectsTable, eq(subjectSubscriptionsTable.subjectId, subjectsTable.id))
+        .groupBy(usersTable.governorate, subjectsTable.name),
+    ]);
+
+    const subsMap = new Map<string, number>();
+    for (const r of subsByGov) if (r.gov) subsMap.set(r.gov, Number(r.subs) || 0);
+    const topSubject = new Map<string, { subject: string; n: number }>();
+    for (const r of subjectRows) {
+      if (!r.gov || !r.subject) continue;
+      const cur = topSubject.get(r.gov);
+      const n = Number(r.n) || 0;
+      if (!cur || n > cur.n) topSubject.set(r.gov, { subject: r.subject, n });
+    }
+
+    let unknownUsers = 0;
+    const governorates = [] as Array<{ name: string; users: number; students: number; activeUsers: number; subscriptions: number; topSubject: string | null; topSubjectCount: number }>;
+    for (const r of usersByGov) {
+      if (!r.gov) { unknownUsers += Number(r.total) || 0; continue; }
+      const ts = topSubject.get(r.gov);
+      governorates.push({
+        name: r.gov,
+        users: Number(r.total) || 0,
+        students: Number(r.students) || 0,
+        activeUsers: Number(r.active) || 0,
+        subscriptions: subsMap.get(r.gov) || 0,
+        topSubject: ts?.subject ?? null,
+        topSubjectCount: ts?.n ?? 0,
+      });
+    }
+    governorates.sort((a, b) => b.users - a.users);
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      governorates,
+      unknownUsers,
+      totals: {
+        coveredGovernorates: governorates.length,
+        totalUsersWithGov: governorates.reduce((s, g) => s + g.users, 0),
+        totalSubscriptions: governorates.reduce((s, g) => s + g.subscriptions, 0),
+      },
+    });
+  } catch (err) {
+    req.log.error({ err }, "Geo distribution error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Users
 router.get("/admin/users", async (req, res) => {
   try {
@@ -210,6 +970,8 @@ router.get("/admin/users", async (req, res) => {
         role: usersTable.role,
         status: usersTable.status,
         avatarUrl: usersTable.avatarUrl,
+        phone: usersTable.phone,
+        governorate: usersTable.governorate,
         joinedAt: usersTable.joinedAt,
         lastActiveAt: usersTable.lastActiveAt,
       })
@@ -489,6 +1251,7 @@ router.post("/admin/users", async (req, res) => {
   try {
     const { name, email, role = "student", status = "active" } = req.body;
     const [user] = await db.insert(usersTable).values({ name, email, role, status }).returning();
+    await logAudit(req, { actionType: "user_create", actionLabel: `أنشأ مستخدمًا (${role})`, entityType: "user", entityId: user.id, entityLabel: name || email, newValue: `${role}/${status}`, metadata: { email, role, status } });
     res.status(201).json(user);
   } catch (err) {
     req.log.error({ err }, "Create user error");
@@ -500,12 +1263,23 @@ router.put("/admin/users/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { name, role, status } = req.body;
+    const [before] = await db.select({ name: usersTable.name, role: usersTable.role, status: usersTable.status }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
     const updateData: Record<string, unknown> = {};
     if (name !== undefined) updateData.name = name;
     if (role !== undefined) updateData.role = role;
     if (status !== undefined) updateData.status = status;
     const [user] = await db.update(usersTable).set(updateData).where(eq(usersTable.id, id)).returning();
     if (!user) return res.status(404).json({ error: "User not found" });
+    // Classify the change so suspend/activate show as distinct actions in reports.
+    let actionType = "user_update";
+    let actionLabel = "حدّث بيانات مستخدم";
+    if (status !== undefined && before && status !== before.status) {
+      if (status === "active") { actionType = "user_activate"; actionLabel = "أعاد تفعيل مستخدم"; }
+      else { actionType = "user_suspend"; actionLabel = "أوقف مستخدمًا"; }
+    } else if (role !== undefined && before && role !== before.role) {
+      actionType = "user_update"; actionLabel = `غيّر دور المستخدم إلى ${role}`;
+    }
+    await logAudit(req, { actionType, actionLabel, entityType: "user", entityId: id, entityLabel: user.name, oldValue: before ? `${before.role}/${before.status}` : "", newValue: `${user.role}/${user.status}` });
     res.json(user);
   } catch (err) {
     req.log.error({ err }, "Update user error");
@@ -516,7 +1290,9 @@ router.put("/admin/users/:id", async (req, res) => {
 router.delete("/admin/users/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    const [before] = await db.select({ name: usersTable.name, email: usersTable.email, role: usersTable.role }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
     await db.delete(usersTable).where(eq(usersTable.id, id));
+    await logAudit(req, { actionType: "user_delete", actionLabel: "حذف مستخدمًا", entityType: "user", entityId: id, entityLabel: before?.name || before?.email || String(id), oldValue: before ? `${before.role}` : "" });
     res.status(204).send();
   } catch (err) {
     req.log.error({ err }, "Delete user error");
