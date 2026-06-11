@@ -5,8 +5,10 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronLeft,
+  Download,
   Eye,
   EyeOff,
+  FileSpreadsheet,
   GraduationCap,
   Info,
   Layers,
@@ -18,6 +20,7 @@ import {
   Video,
   Youtube,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/contexts/auth-context";
 
@@ -201,6 +204,94 @@ function createSegmentRow(): LessonSegmentFormItem {
     minutes: "",
     seconds: "",
   };
+}
+
+// ── Excel import for video segments ─────────────────────────────────────────────
+// Flexible header matching (Arabic/English), so non-technical editors can upload a
+// simple sheet with: العنوان / Section title (English) / النوع / الوقت.
+const SEGMENT_TYPE_BY_KEYWORD: Record<string, VideoSegmentType> = {
+  "أجزاء": "parts", "اجزاء": "parts", "جزء": "parts", part: "parts", parts: "parts",
+  "مواضيع": "topics", "موضوع": "topics", topic: "topics", topics: "topics",
+  "أسئلة": "questions", "اسئلة": "questions", "سؤال": "questions", question: "questions", questions: "questions",
+};
+const SEG_COL = {
+  title: ["العنوان", "عنوان", "العنوان عربي", "العنوان (عربي)", "العنوان بالعربية", "العنوان عربى", "title", "title ar", "اسم", "الاسم"],
+  titleEn: ["العنوان بالانجليزية", "العنوان (انجليزي)", "العنوان انجليزي", "section title (english)", "section title", "title en", "titleen", "english", "english title"],
+  type: ["النوع", "نوع", "type", "segment type", "الفئة"],
+  time: ["الوقت", "الزمن", "التوقيت", "وقت البداية", "البداية", "time", "timestamp", "start", "start time"],
+  hours: ["ساعة", "ساعات", "hours", "hour", "h"],
+  minutes: ["دقيقة", "دقائق", "minutes", "minute", "min", "m"],
+  seconds: ["ثانية", "ثواني", "seconds", "second", "sec", "s"],
+};
+function normHeader(s: unknown) { return String(s ?? "").trim().toLowerCase(); }
+function pickCol(row: Record<string, unknown>, keys: string[]): string {
+  for (const k of Object.keys(row)) {
+    if (keys.includes(normHeader(k))) {
+      const v = row[k];
+      if (v !== undefined && v !== null && String(v).trim() !== "") return String(v).trim();
+    }
+  }
+  return "";
+}
+// Normalise any time spelling ("H:M:S", "M:S", seconds, or an Excel time fraction)
+// into clamped h/m/s strings. Returns null when there is nothing to parse.
+function parseTimeToHMS(raw: string): { hours: string; minutes: string; seconds: string } | null {
+  const t = String(raw ?? "").trim();
+  if (!t) return null;
+  let total = 0;
+  if (t.includes(":")) {
+    const parts = t.split(":").map((p) => Number.parseInt(p.replace(/\D/g, ""), 10) || 0);
+    if (parts.length >= 3) total = parts[0] * 3600 + parts[1] * 60 + parts[2];
+    else if (parts.length === 2) total = parts[0] * 60 + parts[1];
+    else total = parts[0] || 0;
+  } else {
+    const num = Number(t);
+    if (!Number.isFinite(num)) return null;
+    total = num > 0 && num < 1 ? Math.round(num * 86400) : Math.round(num); // <1 ⇒ Excel day-fraction
+  }
+  if (total < 0) total = 0;
+  return {
+    hours: String(Math.floor(total / 3600)),
+    minutes: String(Math.floor((total % 3600) / 60)),
+    seconds: String(total % 60),
+  };
+}
+async function parseSegmentsFromExcel(file: File): Promise<LessonSegmentFormItem[]> {
+  const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  if (!ws) return [];
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
+  const out: LessonSegmentFormItem[] = [];
+  for (const row of rows) {
+    const title = pickCol(row, SEG_COL.title);
+    const titleEn = pickCol(row, SEG_COL.titleEn);
+    const segmentType = SEGMENT_TYPE_BY_KEYWORD[normHeader(pickCol(row, SEG_COL.type))] ?? "parts";
+    let time = parseTimeToHMS(pickCol(row, SEG_COL.time));
+    if (!time) {
+      const hh = pickCol(row, SEG_COL.hours), mm = pickCol(row, SEG_COL.minutes), ss = pickCol(row, SEG_COL.seconds);
+      if (hh || mm || ss) time = parseTimeToHMS(`${hh || 0}:${mm || 0}:${ss || 0}`);
+    }
+    if (!title && !titleEn && !time) continue; // skip blank rows
+    out.push({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${out.length}`,
+      title, titleEn, segmentType,
+      hours: time?.hours ?? "", minutes: time?.minutes ?? "", seconds: time?.seconds ?? "",
+    });
+  }
+  return out;
+}
+function downloadSegmentsTemplate() {
+  const aoa = [
+    ["العنوان (عربي)", "Section title (English)", "النوع", "الوقت"],
+    ["مقدمة", "Introduction", "أجزاء", "0:00"],
+    ["السؤال الأول", "Question 1", "أسئلة", "2:30"],
+    ["موضوع التفاضل", "Differentiation", "مواضيع", "10:05"],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 24 }, { wch: 26 }, { wch: 12 }, { wch: 10 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "التقسيمات");
+  XLSX.writeFile(wb, "قالب-تقسيمات-الفيديو.xlsx");
 }
 
 function parseYouTubeId(url: string): string | null {
@@ -530,6 +621,23 @@ export function AcademicTab() {
   const [lessonThumbnailFile, setLessonThumbnailFile] = useState<File | null>(null);
   const [lessonPosterFile, setLessonPosterFile] = useState<File | null>(null);
   const [lessonSegments, setLessonSegments] = useState<LessonSegmentFormItem[]>([]);
+  const segmentsFileRef = useRef<HTMLInputElement | null>(null);
+  const importSegmentsFromExcel = async (file: File) => {
+    try {
+      const parsed = await parseSegmentsFromExcel(file);
+      if (!parsed.length) {
+        alert("لم يتم العثور على تقسيمات صالحة في الملف. تأكد من وجود عمود للعنوان (مثلاً «العنوان»).");
+        return;
+      }
+      setLessonSegments((prev) => {
+        const existing = prev.filter((s) => s.title.trim() || s.hours || s.minutes || s.seconds);
+        return [...existing, ...parsed];
+      });
+      alert(`تم استيراد ${parsed.length} تقسيمة من الملف.`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "تعذّر قراءة ملف Excel");
+    }
+  };
   const [lessonFormMode, setLessonFormMode] = useState<"create" | "edit">("create");
   const [editingLessonId, setEditingLessonId] = useState<number | null>(null);
   const [lastSavedLesson, setLastSavedLesson] = useState<{ id: number; title: string; videoId?: number | null } | null>(null);
@@ -1415,7 +1523,23 @@ export function AcademicTab() {
                 <div className="w-full rounded-xl border border-white/70 bg-white/55 p-3 space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-bold text-foreground">تقسيم الفيديو (وصول سريع)</p>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                      <button
+                        type="button"
+                        onClick={downloadSegmentsTemplate}
+                        title="تحميل قالب Excel جاهز للتعبئة"
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-white/70 border border-white/70 text-muted-foreground font-bold hover:text-primary flex items-center gap-1"
+                      >
+                        <Download className="w-3.5 h-3.5" /> قالب
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => segmentsFileRef.current?.click()}
+                        title="استيراد التقسيمات من ملف Excel"
+                        className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 font-bold hover:bg-emerald-500/20 flex items-center gap-1"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5" /> استيراد Excel
+                      </button>
                       <button
                         type="button"
                         onClick={() => setLessonSegments((prev) => [...prev, createSegmentRow()])}
@@ -1423,6 +1547,13 @@ export function AcademicTab() {
                       >
                         + إضافة تقسيمة
                       </button>
+                      <input
+                        ref={segmentsFileRef}
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        className="hidden"
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) void importSegmentsFromExcel(f); e.target.value = ""; }}
+                      />
                     </div>
                   </div>
 
