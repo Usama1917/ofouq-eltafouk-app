@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapPin, Users, Activity, GraduationCap, Plus, Minus, X, RotateCcw } from "lucide-react";
 import { EGYPT_VIEWBOX, EGYPT_GOV_PATHS, EGYPT_GOV_CENTROIDS } from "@/data/egypt-governorates";
@@ -56,27 +56,79 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
   const [metric, setMetric] = useState<Metric>("users");
   const [hovered, setHovered] = useState<string | null>(null);
   const [selectedName, setSelectedName] = useState<string | null>(null);
+  // The base box is the *actual* extent of the drawn governorate shapes —
+  // measured from getBBox so the empty padding baked into EGYPT_VIEWBOX is
+  // trimmed away and the map fills its frame edge-to-edge. Falls back to the
+  // declared viewBox until the paths mount and report their real bounds.
+  const pathsRef = useRef<SVGGElement | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [base, setBase] = useState({ x: 0, y: 0, w: MAP_W, h: MAP_H });
   // Zoom is driven by the SVG viewBox (vector strokes stay crisp).
   const [view, setView] = useState({ x: 0, y: 0, w: MAP_W, h: MAP_H });
-  const MIN_W = MAP_W / 5; // up to 5× zoom
+  const MIN_W = base.w / 5; // up to 5× zoom
 
   const clampView = (v: { x: number; y: number; w: number; h: number }) => {
-    const w = Math.min(MAP_W, Math.max(MIN_W, v.w));
-    const h = w * (MAP_H / MAP_W);
-    const x = Math.min(Math.max(0, v.x), MAP_W - w);
-    const y = Math.min(Math.max(0, v.y), MAP_H - h);
+    const w = Math.min(base.w, Math.max(MIN_W, v.w));
+    const h = w * (base.h / base.w);
+    const x = Math.min(Math.max(base.x, v.x), base.x + base.w - w);
+    const y = Math.min(Math.max(base.y, v.y), base.y + base.h - h);
     return { x, y, w, h };
   };
   const zoomBy = (factor: number, center?: [number, number]) => {
     setView((v) => {
       const cx = center ? center[0] : v.x + v.w / 2;
       const cy = center ? center[1] : v.y + v.h / 2;
-      const w = Math.min(MAP_W, Math.max(MIN_W, v.w / factor));
-      const h = w * (MAP_H / MAP_W);
+      const w = Math.min(base.w, Math.max(MIN_W, v.w / factor));
+      const h = w * (base.h / base.w);
       return clampView({ x: cx - w / 2, y: cy - h / 2, w, h });
     });
   };
-  const resetView = () => setView({ x: 0, y: 0, w: MAP_W, h: MAP_H });
+  const resetView = () => setView(base);
+
+  // ── Free pan (grab & drag the map) ──────────────────────────────────────────
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const panRef = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean } | null>(null);
+  const draggedRef = useRef(false); // true right after a drag → swallow the click
+  const [panning, setPanning] = useState(false);
+  // Hold Option/Alt → drag-to-pan mode (grab cursor, clicks don't select).
+  const [panMode, setPanMode] = useState(false);
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => { if (e.key === "Alt" || e.altKey) setPanMode(true); };
+    const up = (e: KeyboardEvent) => { if (e.key === "Alt" || !e.altKey) setPanMode(false); };
+    const blur = () => setPanMode(false);
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", blur);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", blur); };
+  }, []);
+  const isZoomed = view.w < base.w - 0.5;
+
+  const onPanStart = (e: React.PointerEvent) => {
+    panRef.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false };
+    setPanning(true);
+  };
+  const onPanMove = (e: React.PointerEvent) => {
+    const p = panRef.current;
+    const el = svgRef.current;
+    if (!p || !el) return;
+    const rect = el.getBoundingClientRect();
+    const dx = e.clientX - p.x;
+    const dy = e.clientY - p.y;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) p.moved = true;
+    // Convert screen drag → viewBox units; drag right pushes the map right.
+    setView((v) => clampView({ ...v, x: p.vx - (dx / rect.width) * v.w, y: p.vy - (dy / rect.height) * v.h }));
+  };
+  const onPanEnd = () => {
+    if (panRef.current?.moved) draggedRef.current = true;
+    panRef.current = null;
+    setPanning(false);
+  };
+  // Clicking empty map / outside it clears the pinned governorate — unless the
+  // click is really the tail of a drag.
+  const clearSelection = () => {
+    if (draggedRef.current) { draggedRef.current = false; return; }
+    setSelectedName(null);
+  };
 
   const { data, isLoading, isError } = useQuery<GeoResponse>({
     queryKey: ["owner-geo"],
@@ -87,6 +139,43 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
       return d as GeoResponse;
     },
   });
+
+  // Once the static governorate paths are in the DOM, measure their true
+  // bounding box and adopt it as the base view — trims the empty margins that
+  // EGYPT_VIEWBOX pads around the country outline. Then EXPAND the base box to
+  // the container's aspect ratio: the map keeps its on-screen size, centered,
+  // while the deficient axis (usually horizontal) gains empty pan/zoom canvas so
+  // a zoomed view reads as a wide landscape strip and fills the card edge-to-edge.
+  // Matching aspect ratios keeps the SVG a 1:1 fill of the box → popup math stays simple.
+  useLayoutEffect(() => {
+    if (isLoading || isError) return;
+    const g = pathsRef.current;
+    const boxEl = boxRef.current;
+    if (!g || !boxEl) return;
+    const recompute = () => {
+      try {
+        const bb = g.getBBox();
+        if (!bb.width || !bb.height) return;
+        const rect = boxEl.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const pad = Math.max(bb.width, bb.height) * 0.01; // hairline so strokes aren't clipped
+        let x = bb.x - pad, y = bb.y - pad, w = bb.width + pad * 2, h = bb.height + pad * 2;
+        const contAspect = rect.width / rect.height;
+        if (contAspect > w / h) {
+          const tw = h * contAspect; x -= (tw - w) / 2; w = tw; // container wider → horizontal canvas
+        } else {
+          const th = w / contAspect; y -= (th - h) / 2; h = th; // container taller → vertical canvas
+        }
+        const box = { x, y, w, h };
+        setBase(box);
+        setView(box);
+      } catch { /* getBBox unavailable (e.g. detached) — keep the declared viewBox */ }
+    };
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(boxEl);
+    return () => ro.disconnect();
+  }, [isLoading, isError]);
 
   const byName = useMemo(() => {
     const m = new Map<string, GovRow>();
@@ -137,10 +226,17 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-5">
           {/* Map */}
-          <div className="rounded-2xl p-3 bg-gradient-to-b from-slate-50 to-white dark:from-[#0e1217] dark:to-[#141a21] border border-white/60 dark:border-white/10">
-            <div className="relative w-full overflow-hidden rounded-xl" style={{ aspectRatio: `${MAP_W} / ${MAP_H}`, maxHeight: 440 }}>
-              <svg viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} className="absolute inset-0 w-full h-full" onClick={() => setSelectedName(null)}>
-                <g>
+          <div onClick={clearSelection} className="rounded-2xl p-3 bg-gradient-to-b from-slate-50 to-white dark:from-[#0e1217] dark:to-[#141a21] border border-white/60 dark:border-white/10">
+            {/* Fill the card width at a fixed height. The base box is expanded (in the
+                layout effect) to this container's aspect ratio, so the SVG fills it 1:1
+                — no letterbox — keeping the popup % math valid while the map keeps its
+                size and the extra width becomes pan/zoom canvas. */}
+            <div ref={boxRef} className="relative w-full overflow-hidden rounded-xl h-[clamp(300px,40vw,440px)]">
+              <svg ref={svgRef} viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} className="absolute inset-0 w-full h-full"
+                style={{ cursor: (panMode || isZoomed) ? (panning ? "grabbing" : "grab") : "default", touchAction: "none" }}
+                onPointerDown={onPanStart} onPointerMove={onPanMove} onPointerUp={onPanEnd} onPointerLeave={onPanEnd}
+                onClick={clearSelection}>
+                <g ref={pathsRef}>
                   {Object.entries(EGYPT_GOV_PATHS).map(([name, d]) => {
                     const row = byName.get(name);
                     const v = row ? row[metric] : 0;
@@ -155,7 +251,7 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
                         vectorEffect="non-scaling-stroke"
                         style={{ cursor: "pointer", opacity: dim ? 0.65 : 1, transition: "opacity .15s" }}
                         onMouseEnter={() => setHovered(name)} onMouseLeave={() => setHovered(null)}
-                        onClick={(e) => { e.stopPropagation(); setSelectedName((cur) => (cur === name ? null : name)); }} />
+                        onClick={(e) => { e.stopPropagation(); if (panMode || draggedRef.current) { draggedRef.current = false; return; } setSelectedName((cur) => (cur === name ? null : name)); }} />
                     );
                   })}
                 </g>
@@ -191,9 +287,9 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
                 </div>
               )}
 
-              {/* Zoom controls — bottom-left corner (reset on top) */}
-              <div className="absolute bottom-2 left-2 z-20 flex flex-col gap-1">
-                {(view.w < MAP_W - 1) && (
+              {/* Zoom controls — bottom far-left, just above the legend (reset on top) */}
+              <div onClick={(e) => e.stopPropagation()} className="absolute left-1 bottom-2 z-20 flex flex-col gap-1">
+                {isZoomed && (
                   <button onClick={resetView} title="إعادة الضبط"
                     className="w-8 h-8 rounded-lg bg-white/90 dark:bg-[#11151b]/90 backdrop-blur border border-white/70 dark:border-white/10 shadow flex items-center justify-center text-foreground hover:bg-white dark:hover:bg-[#1a1f27]"><RotateCcw className="w-4 h-4" /></button>
                 )}

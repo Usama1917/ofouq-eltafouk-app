@@ -13,6 +13,7 @@ import authRouter from "./auth";
 import academicRouter from "./academic";
 import notificationsRouter from "./notifications";
 import supportRouter from "./support";
+import internalChatRouter from "./internal-chat";
 import studentRouter from "./student";
 
 const router: IRouter = Router();
@@ -31,6 +32,7 @@ router.use(authRouter);
 router.use(academicRouter);
 router.use(notificationsRouter);
 router.use(supportRouter);
+router.use(internalChatRouter);
 router.use(studentRouter);
 
 export default router;

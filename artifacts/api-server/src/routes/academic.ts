@@ -18,6 +18,7 @@ import {
   subjectSubscriptionsTable,
   notificationsTable,
   lessonWatchProgressTable,
+  adminAuditLogTable,
 } from "@workspace/db";
 import { and, asc, count, desc, eq, gt, inArray, isNull, like } from "drizzle-orm";
 import { sendPushNotificationToUser } from "../lib/push-notifications";
@@ -737,6 +738,41 @@ async function requireAdmin(req: any, res: any) {
   }
 
   return user;
+}
+
+// Append-only audit entry attributing an academic-content action to the admin
+// who performed it. Fire-and-forget: a failed audit write must never break the
+// underlying content action. This is the ONLY place academic content creation
+// gets attributed to an actor — there's no created_by column — so the owner
+// dashboard / workload scoring read these rows to count "videos an admin added".
+async function logContentAudit(
+  req: any,
+  actor: { id: number; role: string },
+  input: { actionType: string; actionLabel?: string; entityType: string; entityId?: number | null; entityLabel?: string | null },
+): Promise<void> {
+  try {
+    const [snap] = await db
+      .select({ name: usersTable.name, email: usersTable.email, role: usersTable.role })
+      .from(usersTable).where(eq(usersTable.id, actor.id)).limit(1);
+    const ipRaw = (req.headers["x-forwarded-for"] as string) || req.socket?.remoteAddress || "";
+    const ip = String(ipRaw).split(",")[0].trim().slice(0, 64) || null;
+    const userAgent = String(req.headers["user-agent"] || "").slice(0, 256) || null;
+    await db.insert(adminAuditLogTable).values({
+      actorUserId: actor.id,
+      actorName: snap?.name ?? null,
+      actorEmail: snap?.email ?? null,
+      actorRole: snap?.role ?? actor.role ?? null,
+      actionType: input.actionType,
+      actionLabel: input.actionLabel ?? null,
+      entityType: input.entityType,
+      entityId: input.entityId != null ? String(input.entityId) : null,
+      entityLabel: input.entityLabel ?? null,
+      status: "success",
+      ip, userAgent,
+    });
+  } catch (err) {
+    req.log?.warn?.({ err }, "Content audit log write failed (non-fatal)");
+  }
 }
 
 type SessionUser = {
@@ -2621,7 +2657,8 @@ router.get("/admin/academic/units/:unitId/lessons", async (req, res) => {
 
 router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
   try {
-    if (!(await requireAdmin(req, res))) return;
+    const actor = await requireAdmin(req, res);
+    if (!actor) return;
 
     const unitId = parsePositiveInt(req.params.unitId);
     if (!unitId) return res.status(400).json({ error: "معرف الوحدة غير صالح" });
@@ -2697,8 +2734,16 @@ router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
         })
         .returning({ id: lessonsTable.id });
 
-      return lesson;
+      return { id: lesson.id, videoId: createdVideoId };
     });
+
+    // Attribute the new video to the admin who added it (workload/owner stats).
+    if (created.videoId) {
+      void logContentAudit(req, actor, {
+        actionType: "content_create", actionLabel: "أضاف فيديو تعليمي",
+        entityType: "video", entityId: created.videoId, entityLabel: normalizedVideo?.title ?? title,
+      });
+    }
 
     const lesson = await getLessonWithVideo(created.id, false);
     const segmentSeed = getSegmentThumbnailSeed(lesson?.video);
@@ -2722,7 +2767,8 @@ router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
 
 router.put("/admin/academic/lessons/:id", async (req, res) => {
   try {
-    if (!(await requireAdmin(req, res))) return;
+    const actor = await requireAdmin(req, res);
+    if (!actor) return;
 
     const lessonId = parsePositiveInt(req.params.id);
     if (!lessonId) return res.status(400).json({ error: "معرف الدرس غير صالح" });
@@ -2754,6 +2800,7 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
       fallbackPublishStatus: toBool(req.body?.isPublished, false) ? "published" : "draft",
     });
 
+    let newVideoId: number | null = null;
     const updated = await db.transaction(async (tx) => {
       const updateData: Record<string, unknown> = {};
       if (title !== undefined) updateData.title = title;
@@ -2824,6 +2871,7 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
             .returning({ id: videosTable.id });
 
           updateData.videoId = createdVideo.id;
+          newVideoId = createdVideo.id;
 
           if (normalizedVideo.hasSegmentsField && normalizedVideo.segments.length > 0) {
             await tx.insert(videoSegmentsTable).values(
@@ -2858,6 +2906,13 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
     });
 
     if (!updated) return res.status(404).json({ error: "الدرس غير موجود" });
+    // A brand-new video was attached during this update — attribute it.
+    if (newVideoId) {
+      void logContentAudit(req, actor, {
+        actionType: "content_create", actionLabel: "أضاف فيديو تعليمي",
+        entityType: "video", entityId: newVideoId, entityLabel: normalizedVideo?.title ?? null,
+      });
+    }
     const segmentSeed = getSegmentThumbnailSeed(updated.video);
     if (segmentSeed) {
       void primeVideoSegmentThumbnails(segmentSeed).catch((err) => {

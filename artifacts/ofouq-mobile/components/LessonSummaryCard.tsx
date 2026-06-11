@@ -218,7 +218,17 @@ export function LessonSummaryCard({
       {/* Morphing image — travels between the header thumbnail and the body. */}
       <Animated.View style={[styles.image, imageStyle]} pointerEvents="none">
         {thumbnailUrl ? (
-          <Image source={{ uri: thumbnailUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          // The frame morphs from a 96px thumbnail to full width. Without this,
+          // expo-image decodes at the small collapsed size and upscales that
+          // bitmap as the frame grows → pixelated until it re-decodes. Decoding
+          // at source resolution keeps it crisp at every size in the animation.
+          <Image
+            source={{ uri: thumbnailUrl }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            allowDownscaling={false}
+            cachePolicy="memory-disk"
+          />
         ) : (
           <View style={[StyleSheet.absoluteFill, styles.imageFallback]}>
             <Feather name="play" size={20} color={COLORS.primary} />

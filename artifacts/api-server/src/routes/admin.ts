@@ -547,7 +547,7 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
 
     const target = alias(usersTable, "target_user");
 
-    const [supportReplies, subReviews, subGrants, requestsMade, messagesSent, lessonsWatched] = await Promise.all([
+    const [supportReplies, subReviews, subGrants, requestsMade, messagesSent, lessonsWatched, videosAdded] = await Promise.all([
       db.select({ at: supportMessagesTable.createdAt, body: supportMessagesTable.body, who: target.name })
         .from(supportMessagesTable)
         .innerJoin(supportConversationsTable, eq(supportMessagesTable.conversationId, supportConversationsTable.id))
@@ -580,6 +580,11 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
         .leftJoin(lessonsTable, eq(lessonWatchProgressTable.lessonId, lessonsTable.id))
         .where(eq(lessonWatchProgressTable.studentId, userId))
         .orderBy(desc(lessonWatchProgressTable.lastWatchedAt)).limit(40),
+      // Educational videos this admin added — attributed via the audit log.
+      db.select({ at: adminAuditLogTable.createdAt, label: adminAuditLogTable.entityLabel })
+        .from(adminAuditLogTable)
+        .where(and(eq(adminAuditLogTable.actorUserId, userId), eq(adminAuditLogTable.actionType, "content_create"), eq(adminAuditLogTable.entityType, "video")))
+        .orderBy(desc(adminAuditLogTable.createdAt)).limit(50),
     ]);
 
     const trunc = (value: string | null | undefined, max = 160) => {
@@ -597,6 +602,7 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
     for (const r of requestsMade) timeline.push({ type: "request_submitted", at: r.at as any, title: `طلب اشتراك${r.subject ? ` في ${r.subject}` : ""}`, detail: `الحالة: ${statusAr(r.status)}` });
     for (const r of messagesSent) timeline.push({ type: "support_message", at: r.at as any, title: "أرسل رسالة دعم", detail: trunc(r.body) });
     for (const r of lessonsWatched) timeline.push({ type: "lesson_watch", at: r.at as any, title: `شاهد درس ${r.lesson || ""}`.trim(), detail: r.completed ? "اكتمل" : "قيد المشاهدة" });
+    for (const r of videosAdded) timeline.push({ type: "content_create", at: r.at as any, title: `أضاف فيديو تعليمي${r.label ? `: ${r.label}` : ""}`, detail: "محتوى أكاديمي" });
 
     timeline.sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
 
@@ -608,6 +614,7 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
         subscriptionsGranted: subGrants.length,
         requestsSubmitted: requestsMade.length,
         lessonsWatched: lessonsWatched.length,
+        videosAdded: videosAdded.length,
       },
       timeline: timeline.slice(0, 150),
     });
@@ -884,6 +891,7 @@ router.get("/admin/reports/activity", async (req, res) => {
       supportResolved: auditCount((t) => t === "support_resolve"),
       notificationsSent: auditCount((t) => t.startsWith("notification")),
       contentActions: auditCount((t) => t.startsWith("content")),
+      videosAdded: auditRows.filter((a) => a.actionType === "content_create" && a.entityType === "video").length,
       usersCreated: auditCount((t) => t === "user_create"),
       usersSuspended: auditCount((t) => t === "user_suspend"),
       usersDeleted: auditCount((t) => t === "user_delete"),
