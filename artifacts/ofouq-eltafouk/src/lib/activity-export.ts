@@ -35,6 +35,7 @@ export type ReportData = {
     totalActions: number; subscriptionsReviewed: number; subscriptionsApproved: number;
     subscriptionsRejected: number; subscriptionsGranted: number; supportReplies: number;
     supportResolved: number; notificationsSent: number; contentActions: number;
+    videosAdded: number;
     usersCreated: number; usersSuspended: number; usersDeleted: number;
     requestsSubmitted: number; lessonsWatched: number; activeDays: number;
   };
@@ -127,6 +128,7 @@ export function exportExcel(report: ReportData): void {
     ["محادثات دعم تم حلّها", s.supportResolved],
     ["إشعارات مُرسلة", s.notificationsSent],
     ["إجراءات محتوى أكاديمي", s.contentActions],
+    ["فيديوهات تعليمية مُضافة", s.videosAdded],
     ["مستخدمون أُنشئوا", s.usersCreated],
     ["مستخدمون أُوقفوا", s.usersSuspended],
     ["مستخدمون حُذفوا", s.usersDeleted],
@@ -231,6 +233,7 @@ function buildPdfHtml(report: ReportData): string {
       ${statItem("منح اشتراك", s.subscriptionsGranted, "#ca8a04")}
       ${statItem("ردود دعم", s.supportReplies, "#2563eb")}
       ${statItem("إشعارات", s.notificationsSent, "#db2777")}
+      ${statItem("فيديوهات مُضافة", s.videosAdded, "#0d9488")}
     </div>
 
     <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:18px;margin-bottom:24px;">

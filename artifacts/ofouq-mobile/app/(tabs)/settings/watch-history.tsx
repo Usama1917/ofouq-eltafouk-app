@@ -173,10 +173,6 @@ function SubjectHistoryCard({
     inputRange: [0, 1],
     outputRange: [16, 0],
   });
-  const detailsScale = motion.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.985, 1],
-  });
   const pressScale = pressMotion.interpolate({
     inputRange: [0, 1],
     outputRange: [1, 0.985],
@@ -292,7 +288,10 @@ function SubjectHistoryCard({
             styles.subjectExpandedContent,
             {
               opacity: detailsOpacity,
-              transform: [{ translateY: detailsTranslateY }, { scale: detailsScale }],
+              // Slide + fade only — NO scale. Scaling this subtree rasterizes the
+              // text and lesson thumbnails to a texture and stretches it for the
+              // duration, which is what made the whole card look pixelated on open.
+              transform: [{ translateY: detailsTranslateY }],
             },
           ]}
         >

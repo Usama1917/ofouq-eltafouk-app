@@ -1,14 +1,17 @@
-import { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect, useRef, useLayoutEffect } from "react";
+import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import {
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, Layers,
   GraduationCap, TicketPercent, Send, FileBarChart, Crown, ShieldCheck,
   TrendingUp, BarChart3, Plus, LogOut, Bell, AlertTriangle,
   CheckCircle2, Clock, FolderTree, ListVideo, Sun, Moon, Info, X, History,
   Download, FileSpreadsheet, FileText, Loader2, Star, Snowflake,
+  Search, SlidersHorizontal, GripVertical,
 } from "lucide-react";
 import { fetchReport, exportExcel, exportPdf } from "@/lib/activity-export";
+import { numTick, numAxisWidth, catAxisWidth, AXIS_GAP } from "@/lib/chart-axis";
 import { EgyptHeatmap } from "@/components/egypt-heatmap";
+import { InternalChatWidget } from "@/components/internal-chat-widget";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -31,6 +34,17 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
 ];
 
 const COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#EF4444", "#06B6D4", "#EC4899"];
+
+// Directional vertical page transition between tabs. dir = +1 means navigating
+// DOWN the tab list (forward) → both pages slide UP (the new page comes in from
+// below, the old one leaves through the top — like dragging the stack upward).
+// dir = -1 (backward) slides everything DOWN. Distance is the page's own height
+// (100%) so it reads as a full swap; opacity keeps the far ends from snapping.
+const pageVariants = {
+  enter: (dir: number) => ({ y: dir >= 0 ? "100%" : "-100%", opacity: 0 }),
+  center: { y: "0%", opacity: 1 },
+  exit: (dir: number) => ({ y: dir >= 0 ? "-100%" : "100%", opacity: 0 }),
+};
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const apiPath = (path: string) => `${BASE}${path}`;
 const authHeader = (): Record<string, string> => {
@@ -146,20 +160,145 @@ function KpiCard({ label, value, icon: Icon, color, bg, sub }: any) {
   );
 }
 
-function ChartCard({ title, icon: Icon, iconClass, children, empty }: any) {
+// ── Resizable chart cards ──────────────────────────────────────────────────────
+// Four area-based sizes on a 4-col grid: the larger the tier, the more grid cells
+// the card spans, and the grid reflows to fill gaps (fixed order). Sizes persist.
+export type CardSize = "small" | "medium" | "large" | "xlarge";
+const CARD_ORDER: CardSize[] = ["small", "medium", "large", "xlarge"];
+// Literal class strings (kept whole so Tailwind's JIT can see them).
+const CARD_SPAN: Record<CardSize, string> = {
+  small: "col-span-1 row-span-1",
+  medium: "col-span-2 row-span-1",
+  large: "col-span-4 row-span-1",
+  xlarge: "col-span-4 row-span-2",
+};
+const CARD_SIZES_KEY = "ofouq-owner-chart-sizes:v1";
+function loadCardSizes(): Record<string, CardSize> {
+  try { const raw = localStorage.getItem(CARD_SIZES_KEY); if (raw) return JSON.parse(raw) || {}; } catch { /* ignore */ }
+  return {};
+}
+
+// Card display order (persisted, drag-to-reorder). Unknown/missing ids are
+// reconciled against DEFAULT_ORDER so new charts always appear.
+const CARD_ORDER_KEY = "ofouq-owner-chart-order:v1";
+const DEFAULT_ORDER = ["growth", "roles", "subs", "academic", "topSubjects", "activity"];
+function loadCardOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(CARD_ORDER_KEY);
+    if (raw) {
+      const a = JSON.parse(raw);
+      if (Array.isArray(a)) {
+        const merged = [...a.filter((id: string) => DEFAULT_ORDER.includes(id)), ...DEFAULT_ORDER.filter((id) => !a.includes(id))];
+        if (merged.length) return merged;
+      }
+    }
+  } catch { /* ignore */ }
+  return DEFAULT_ORDER;
+}
+
+// Pixel span of each tier on the grid (columns × rows). Used to translate a live
+// drag size back into the nearest discrete tier.
+const TIER_SPAN: Record<CardSize, [number, number]> = { small: [1, 1], medium: [2, 1], large: [4, 1], xlarge: [4, 2] };
+
+// Corner grip (bottom-left): invisible until the card is hovered, glows blue when
+// approached/grabbed. It forwards raw pointer drag to the card, which resizes the
+// card live (following the cursor) and snaps to the nearest tier on release.
+function ResizeGrip({ onDown, onMove, onUp, active }: {
+  onDown: (e: React.PointerEvent) => void; onMove: (e: React.PointerEvent) => void; onUp: (e: React.PointerEvent) => void; active: boolean;
+}) {
   return (
-    <div className="glass-card p-5">
-      <h3 className="font-display font-bold text-base text-foreground mb-4 flex items-center gap-2">
+    <div
+      onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
+      onClick={(e) => e.stopPropagation()}
+      title="اسحب لتغيير الحجم"
+      className={`absolute bottom-0 left-0 z-30 h-8 w-8 cursor-nesw-resize transition-opacity duration-150 ${active ? "opacity-100" : "opacity-0 group-hover/card:opacity-100"}`}
+    >
+      <svg viewBox="0 0 24 24" fill="none"
+        className={`absolute bottom-1 left-1 h-5 w-5 rotate-180 transition-colors ${active ? "text-primary drop-shadow-[0_0_6px_rgba(59,130,246,0.85)]" : "text-muted-foreground/50 hover:text-primary hover:drop-shadow-[0_0_6px_rgba(59,130,246,0.85)]"}`}>
+        <path d="M6 4 A14 14 0 0 1 20 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+      </svg>
+    </div>
+  );
+}
+
+function ChartCard({ title, icon: Icon, iconClass, children, empty, size = "medium", onResize, isDragging, onReorderStart, onReorderMove, onReorderEnd, cardRef }: any) {
+  const resizable = typeof onResize === "function";
+  const sortable = typeof onReorderStart === "function";
+  const interactive = resizable || sortable;
+  const controls = useDragControls();
+  const elRef = useRef<HTMLDivElement | null>(null);
+  const setRef = (el: HTMLDivElement | null) => { elRef.current = el; if (typeof cardRef === "function") cardRef(el); };
+
+  // ── Live resize (follows the cursor; snaps to nearest tier on release) ──
+  const [livePx, setLivePx] = useState<{ w: number; h: number } | null>(null);
+  const resizeStart = useRef<{ x: number; y: number; w: number; h: number; colUnit: number; rowUnit: number } | null>(null);
+  const onGripDown = (e: React.PointerEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    const el = elRef.current; if (!el) return;
+    const r = el.getBoundingClientRect();
+    const [cs, rs] = TIER_SPAN[size as CardSize];
+    resizeStart.current = { x: e.clientX, y: e.clientY, w: r.width, h: r.height, colUnit: r.width / cs, rowUnit: r.height / rs };
+    setLivePx({ w: r.width, h: r.height });
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+  };
+  const onGripMove = (e: React.PointerEvent) => {
+    const s = resizeStart.current; if (!s) return;
+    setLivePx({
+      w: Math.max(s.colUnit * 0.6, s.w + (s.x - e.clientX)), // grow leftward
+      h: Math.max(s.rowUnit * 0.6, s.h + (e.clientY - s.y)), // grow downward
+    });
+  };
+  const onGripUp = () => {
+    const s = resizeStart.current, lp = livePx;
+    if (s && lp && resizable) {
+      const liveCol = lp.w / s.colUnit;
+      const nearestCol = [1, 2, 4].reduce((a, b) => (Math.abs(b - liveCol) < Math.abs(a - liveCol) ? b : a), 1);
+      const dbl = lp.h / s.rowUnit >= 1.5;
+      onResize(nearestCol <= 1 ? "small" : nearestCol === 2 ? "medium" : dbl ? "xlarge" : "large");
+    }
+    resizeStart.current = null; setLivePx(null);
+  };
+  const resizing = livePx !== null;
+
+  return (
+    <motion.div
+      ref={setRef}
+      layout={sortable && !resizing ? true : undefined}
+      drag={sortable ? true : undefined}
+      dragControls={controls}
+      dragListener={false}
+      dragMomentum={false}
+      dragElastic={0}
+      dragSnapToOrigin
+      onDragStart={() => onReorderStart?.()}
+      onDrag={() => onReorderMove?.()}
+      onDragEnd={() => onReorderEnd?.()}
+      whileDrag={{ scale: 1.03, zIndex: 50 }}
+      transition={{ layout: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } }}
+      style={resizing && livePx ? { width: livePx.w, height: livePx.h, zIndex: 50 } : undefined}
+      className={`glass-card p-5 relative flex h-full flex-col overflow-hidden ${interactive ? `group/card ${CARD_SPAN[size as CardSize]}` : ""} ${(isDragging || resizing) ? "shadow-2xl ring-2 ring-primary/40" : ""}`}
+    >
+      <h3 className="font-display font-bold text-base text-foreground mb-4 flex items-center gap-2 shrink-0">
         <Icon className={`w-5 h-5 ${iconClass}`} />
-        {title}
+        <span className="flex-1 truncate">{title}</span>
+        {sortable ? (
+          <button onPointerDown={(e) => controls.start(e)} title="اسحب لتغيير ترتيب البطاقة" aria-label="اسحب لتغيير الترتيب"
+            style={{ touchAction: "none" }}
+            className="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-lg text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-primary group-hover/card:opacity-100 active:cursor-grabbing">
+            <GripVertical className="h-4 w-4" />
+          </button>
+        ) : null}
       </h3>
       {empty ? (
-        <div className="h-[200px] flex flex-col items-center justify-center text-center gap-2 text-muted-foreground">
+        <div className="flex h-full min-h-[160px] flex-1 flex-col items-center justify-center text-center gap-2 text-muted-foreground">
           <BarChart3 className="w-8 h-8 opacity-30" />
           <p className="text-sm">لا توجد بيانات كافية لعرض هذا التقرير حاليًا</p>
         </div>
-      ) : children}
-    </div>
+      ) : (
+        <div className="min-h-0 flex-1">{children}</div>
+      )}
+      {resizable ? <ResizeGrip onDown={onGripDown} onMove={onGripMove} onUp={onGripUp} active={resizing} /> : null}
+    </motion.div>
   );
 }
 
@@ -179,6 +318,58 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
   // Chart axis labels readable on both themes; grid stays a subtle gray.
   const axisColor = isDark ? "#E5E7EB" : "#475569";
   const gridColor = isDark ? "rgba(255,255,255,0.14)" : "#EEF0F2";
+
+  // Per-chart size tiers (persisted). `sizeProps(id)` wires a card to its size.
+  const [cardSizes, setCardSizes] = useState<Record<string, CardSize>>(loadCardSizes);
+  const sizeProps = (id: string) => ({
+    size: cardSizes[id] ?? "medium" as CardSize,
+    onResize: (s: CardSize) => setCardSizes((prev) => {
+      const next = { ...prev, [id]: s };
+      try { localStorage.setItem(CARD_SIZES_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    }),
+  });
+
+  // ── Drag-to-reorder (the grabbed card pixel-follows the cursor; on release it
+  // snaps into the nearest slot and the others ease out of the way). ──
+  const [order, setOrder] = useState<string[]>(loadCardOrder);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const cardRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const dragCenter = useRef<{ x: number; y: number } | null>(null);      // live centre of the grabbed card
+  const dragStartCenter = useRef<{ x: number; y: number } | null>(null); // where the drag began
+  const setCardRef = (id: string) => (el: HTMLElement | null) => { if (el) cardRefs.current.set(id, el); else cardRefs.current.delete(id); };
+  const centerOf = (el: HTMLElement) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
+  const onReorderStart = (id: string) => () => {
+    const el = cardRefs.current.get(id);
+    dragStartCenter.current = dragCenter.current = el ? centerOf(el) : null;
+    setDraggingId(id);
+  };
+  // Only TRACK the grabbed card while it follows the cursor — no reordering yet, so
+  // nothing competes with the drag (that was what made it stick near a neighbour).
+  const onReorderMove = (id: string) => () => { const el = cardRefs.current.get(id); if (el) dragCenter.current = centerOf(el); };
+  // On release: drop into the slot of the nearest other card; the rest ease over.
+  const onReorderEnd = (id: string) => () => {
+    const c = dragCenter.current, s = dragStartCenter.current;
+    setDraggingId(null); dragCenter.current = dragStartCenter.current = null;
+    if (!c || !s || Math.hypot(c.x - s.x, c.y - s.y) < 40) return; // tiny nudge → keep place
+    let target: string | null = null, best = Infinity;
+    for (const [oid, el] of cardRefs.current) {
+      if (oid === id) continue;
+      const oc = centerOf(el);
+      const d = (oc.x - c.x) ** 2 + (oc.y - c.y) ** 2;
+      if (d < best) { best = d; target = oid; }
+    }
+    if (!target) return;
+    setOrder((cur) => {
+      const from = cur.indexOf(id), to = cur.indexOf(target!);
+      if (from < 0 || to < 0 || from === to) return cur;
+      const next = [...cur];
+      next.splice(from, 1);
+      next.splice(to, 0, id);
+      try { localStorage.setItem(CARD_ORDER_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   if (isLoading) {
     return (
@@ -230,6 +421,122 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
     { label: "إضافة مستخدم", icon: Plus, onClick: () => go("admins"), accent: "from-sky-500 to-cyan-600" },
     { label: "تقرير المستخدمين", icon: FileBarChart, onClick: () => go("reports"), accent: "from-rose-500 to-pink-600" },
   ];
+
+  // Chart descriptors keyed by id — rendered in `order` so they can be reordered.
+  const chartCards: Record<string, { title: string; icon: any; iconClass: string; empty: boolean; children: React.ReactNode }> = {
+    growth: {
+      title: "نمو المستخدمين حسب الشهر", icon: TrendingUp, iconClass: "text-primary", empty: growthData.length === 0,
+      children: (
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={growthData}>
+            <defs>
+              {[["gS", "#3B82F6"], ["gT", "#10B981"], ["gO", "#F59E0B"]].map(([id, c]) => (
+                <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={c} stopOpacity={0.25} /><stop offset="95%" stopColor={c} stopOpacity={0} />
+                </linearGradient>
+              ))}
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+            <XAxis dataKey="month" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} />
+            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(growthData.flatMap((g) => [g.طلاب, g.معلمون, g.أخرى]))} />
+            <Tooltip content={<CustomTooltip />} />
+            <Legend wrapperStyle={{ fontFamily: "Cairo", fontSize: 12 }} />
+            <Area type="monotone" dataKey="طلاب" stroke="#3B82F6" fill="url(#gS)" strokeWidth={2.5} />
+            <Area type="monotone" dataKey="معلمون" stroke="#10B981" fill="url(#gT)" strokeWidth={2.5} />
+            <Area type="monotone" dataKey="أخرى" stroke="#F59E0B" fill="url(#gO)" strokeWidth={2.5} />
+          </AreaChart>
+        </ResponsiveContainer>
+      ),
+    },
+    roles: {
+      title: "توزيع المستخدمين حسب الدور", icon: Users, iconClass: "text-violet-500", empty: roleData.every((r) => r.value === 0),
+      children: (
+        <div className="flex h-full items-center gap-4">
+          <ResponsiveContainer width={180} height={200}>
+            <PieChart>
+              <Pie data={roleData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} innerRadius={48}>
+                {roleData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+              </Pie>
+              <Tooltip content={<CustomTooltip />} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="flex-1 space-y-2">
+            {roleData.map((d, i) => (
+              <div key={d.name} className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />{d.name}</span>
+                <span className="font-bold" style={{ color: COLORS[i % COLORS.length] }}>{fmt(d.value)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ),
+    },
+    subs: {
+      title: "الاشتراكات حسب الحالة", icon: TicketPercent, iconClass: "text-emerald-500", empty: subsData.every((s) => s.value === 0),
+      children: (
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={subsData}>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+            <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} />
+            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(subsData.map((s) => s.value))} />
+            <Tooltip content={<CustomTooltip />} />
+            <Bar dataKey="value" name="العدد" radius={[6, 6, 0, 0]}>
+              {subsData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      ),
+    },
+    academic: {
+      title: "المحتوى الأكاديمي", icon: GraduationCap, iconClass: "text-blue-500", empty: academicData.every((c) => c.value === 0),
+      children: (
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={academicData}>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+            <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} />
+            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(academicData.map((c) => c.value))} />
+            <Tooltip content={<CustomTooltip />} />
+            <Bar dataKey="value" name="العدد" fill="#3B82F6" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      ),
+    },
+    topSubjects: {
+      title: "أكثر المواد اشتراكًا", icon: BarChart3, iconClass: "text-amber-500", empty: data.charts.topSubjects.length === 0,
+      children: (
+        <div dir="ltr" className="h-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data.charts.topSubjects} layout="vertical" margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickFormatter={numTick} tickMargin={AXIS_GAP} />
+              <YAxis dataKey="name" type="category" orientation="left" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} tickMargin={AXIS_GAP} width={catAxisWidth(data.charts.topSubjects.map((s) => s.name))} interval={0} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="value" name="مشتركون" radius={[0, 6, 6, 0]}>
+                {data.charts.topSubjects.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      ),
+    },
+    activity: {
+      title: "النشاط خلال آخر 7 أيام", icon: TrendingUp, iconClass: "text-sky-500", empty: activityData.every((d) => d.مشاهدات === 0 && d.اشتراكات === 0 && d.رسائل === 0),
+      children: (
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={activityData}>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+            <XAxis dataKey="day" tick={{ fontSize: 11, fontFamily: "Cairo", fill: axisColor }} />
+            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(activityData.flatMap((d) => [d.مشاهدات, d.اشتراكات, d.رسائل]))} />
+            <Tooltip content={<CustomTooltip />} />
+            <Legend wrapperStyle={{ fontFamily: "Cairo", fontSize: 12 }} />
+            <Area type="monotone" dataKey="مشاهدات" stroke="#06B6D4" fill="#06B6D433" strokeWidth={2} />
+            <Area type="monotone" dataKey="اشتراكات" stroke="#10B981" fill="#10B98133" strokeWidth={2} />
+            <Area type="monotone" dataKey="رسائل" stroke="#F59E0B" fill="#F59E0B33" strokeWidth={2} />
+          </AreaChart>
+        </ResponsiveContainer>
+      ),
+    },
+  };
 
   return (
     <div className="space-y-6">
@@ -306,108 +613,24 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
       {/* ── Geographic distribution (Egypt heatmap) ── */}
       <EgyptHeatmap isDark={isDark} />
 
-      {/* ── Charts ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <ChartCard title="نمو المستخدمين حسب الشهر" icon={TrendingUp} iconClass="text-primary" empty={growthData.length === 0}>
-          <ResponsiveContainer width="100%" height={240}>
-            <AreaChart data={growthData}>
-              <defs>
-                {[["gS", "#3B82F6"], ["gT", "#10B981"], ["gO", "#F59E0B"]].map(([id, c]) => (
-                  <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={c} stopOpacity={0.25} /><stop offset="95%" stopColor={c} stopOpacity={0} />
-                  </linearGradient>
-                ))}
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-              <XAxis dataKey="month" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} />
-              <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickMargin={8} width={40} />
-              <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontFamily: "Cairo", fontSize: 12 }} />
-              <Area type="monotone" dataKey="طلاب" stroke="#3B82F6" fill="url(#gS)" strokeWidth={2.5} />
-              <Area type="monotone" dataKey="معلمون" stroke="#10B981" fill="url(#gT)" strokeWidth={2.5} />
-              <Area type="monotone" dataKey="أخرى" stroke="#F59E0B" fill="url(#gO)" strokeWidth={2.5} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="توزيع المستخدمين حسب الدور" icon={Users} iconClass="text-violet-500" empty={roleData.every((r) => r.value === 0)}>
-          <div className="flex items-center gap-4">
-            <ResponsiveContainer width={180} height={200}>
-              <PieChart>
-                <Pie data={roleData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} innerRadius={48}>
-                  {roleData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                </Pie>
-                <Tooltip content={<CustomTooltip />} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex-1 space-y-2">
-              {roleData.map((d, i) => (
-                <div key={d.name} className="flex items-center justify-between text-sm">
-                  <span className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />{d.name}</span>
-                  <span className="font-bold" style={{ color: COLORS[i % COLORS.length] }}>{fmt(d.value)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </ChartCard>
-
-        <ChartCard title="الاشتراكات حسب الحالة" icon={TicketPercent} iconClass="text-emerald-500" empty={subsData.every((s) => s.value === 0)}>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={subsData}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-              <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} />
-              <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickMargin={8} width={40} />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="value" name="العدد" radius={[6, 6, 0, 0]}>
-                {subsData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="المحتوى الأكاديمي" icon={GraduationCap} iconClass="text-blue-500" empty={academicData.every((c) => c.value === 0)}>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={academicData}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-              <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} />
-              <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickMargin={8} width={40} />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="value" name="العدد" fill="#3B82F6" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="أكثر المواد اشتراكًا" icon={BarChart3} iconClass="text-amber-500" empty={data.charts.topSubjects.length === 0}>
-          <div dir="ltr">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={data.charts.topSubjects} layout="vertical" margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} />
-              <YAxis dataKey="name" type="category" orientation="left" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} tickMargin={8} width={130} interval={0} />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="value" name="مشتركون" radius={[0, 6, 6, 0]}>
-                {data.charts.topSubjects.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-          </div>
-        </ChartCard>
-
-        <ChartCard title="النشاط خلال آخر 7 أيام" icon={TrendingUp} iconClass="text-sky-500" empty={activityData.every((d) => d.مشاهدات === 0 && d.اشتراكات === 0 && d.رسائل === 0)}>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={activityData}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-              <XAxis dataKey="day" tick={{ fontSize: 11, fontFamily: "Cairo", fill: axisColor }} />
-              <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickMargin={8} width={40} />
-              <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontFamily: "Cairo", fontSize: 12 }} />
-              <Area type="monotone" dataKey="مشاهدات" stroke="#06B6D4" fill="#06B6D433" strokeWidth={2} />
-              <Area type="monotone" dataKey="اشتراكات" stroke="#10B981" fill="#10B98133" strokeWidth={2} />
-              <Area type="monotone" dataKey="رسائل" stroke="#F59E0B" fill="#F59E0B33" strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </ChartCard>
-      </div>
+      {/* ── Charts (resizable + drag-to-reorder, reflowing 4-col grid) ── */}
+      <motion.div layout className="grid grid-cols-1 lg:grid-cols-4 gap-5 auto-rows-[330px]">
+        {order.map((id) => {
+          const c = chartCards[id];
+          if (!c) return null;
+          return (
+            <ChartCard key={id} title={c.title} icon={c.icon} iconClass={c.iconClass} empty={c.empty}
+              {...sizeProps(id)}
+              cardRef={setCardRef(id)}
+              isDragging={draggingId === id}
+              onReorderStart={onReorderStart(id)}
+              onReorderMove={onReorderMove(id)}
+              onReorderEnd={onReorderEnd(id)}>
+              {c.children}
+            </ChartCard>
+          );
+        })}
+      </motion.div>
 
       <p className="text-center text-xs text-muted-foreground">آخر تحديث للبيانات: {fmtDate(data.generatedAt)} · جميع الأرقام حقيقية من قاعدة البيانات</p>
     </div>
@@ -502,13 +725,14 @@ function EmptyRow() {
 // ── Per-user details + activity timeline drawer (owner only) ───────────────
 type ActivityResponse = {
   user: { id: number; name: string; email: string; role: string; status: string; phone: string | null; governorate: string | null; joinedAt: string; lastActiveAt: string | null; expectationStars?: number; scoringFrozen?: boolean };
-  stats: { supportReplies: number; subscriptionsReviewed: number; subscriptionsGranted: number; requestsSubmitted: number; lessonsWatched: number };
+  stats: { supportReplies: number; subscriptionsReviewed: number; subscriptionsGranted: number; requestsSubmitted: number; lessonsWatched: number; videosAdded: number };
   timeline: { type: string; at: string | null; title: string; detail: string }[];
 };
 const ACTIVITY_ICON: Record<string, React.ElementType> = {
   support_reply: MessageSquare, support_message: MessageSquare,
   subscription_review: TicketPercent, request_submitted: TicketPercent,
   subscription_grant: CheckCircle2, lesson_watch: Video,
+  content_create: Video,
 };
 function fmtDateTime(value: string | null | undefined) {
   if (!value) return "—";
@@ -744,7 +968,7 @@ function ActivityDrawer({ userId, onClose }: { userId: number | null; onClose: (
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
-                    {([["ردود دعم", data.stats.supportReplies], ["مراجعات", data.stats.subscriptionsReviewed], ["منح اشتراك", data.stats.subscriptionsGranted], ["طلبات", data.stats.requestsSubmitted], ["دروس", data.stats.lessonsWatched]] as [string, number][]).map(([l, v]) => (
+                    {([["ردود دعم", data.stats.supportReplies], ["مراجعات", data.stats.subscriptionsReviewed], ["منح اشتراك", data.stats.subscriptionsGranted], ["فيديوهات مُضافة", data.stats.videosAdded], ["طلبات", data.stats.requestsSubmitted], ["دروس", data.stats.lessonsWatched]] as [string, number][]).map(([l, v]) => (
                       <div key={l} className="glass-card p-3 text-center"><p className="font-display font-black text-xl text-primary">{fmt(v)}</p><p className="text-[11px] text-muted-foreground">{l}</p></div>
                     ))}
                   </div>
@@ -855,31 +1079,116 @@ function AdminsTab() {
 }
 
 // ── All Users Tab (real) ───────────────────────────────────────────────────
+const ROLE_FILTERS: [string, string][] = [["all", "الكل"], ["student", "طلاب"], ["teacher", "معلمون"], ["parent", "أولياء"], ["admin", "مشرفون"]];
+const STATUS_FILTERS: [string, string][] = [["all", "الكل"], ["active", "نشط"], ["suspended", "موقوف"]];
+const PAGE_SIZES = [20, 50, 100, 500];
+
 function AllUsersTab() {
   const { data: users = [], refetch } = useListAdminUsers();
   const updateUser = useUpdateAdminUser();
-  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [govFilter, setGovFilter] = useState("all");
+  const [pageSize, setPageSize] = useState(20);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [detailsId, setDetailsId] = useState<number | null>(null);
   const ROLE_LABELS_T: Record<string, string> = { student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", owner: "مالك", moderator: "مشرف محتوى" };
   const ROLE_COLORS: Record<string, string> = { student: "bg-blue-100 text-blue-700", teacher: "bg-emerald-100 text-emerald-700", parent: "bg-amber-100 text-amber-700", admin: "bg-violet-100 text-violet-700", owner: "bg-rose-100 text-rose-700", moderator: "bg-cyan-100 text-cyan-700" };
-  const filtered = filter === "all" ? users : users.filter((u) => u.role === filter);
+
+  // Governorates actually present in the data → the filter only offers real options.
+  const govOptions = Array.from(new Set(users.map((u) => (u as any).governorate).filter(Boolean) as string[])).sort();
+  const q = search.trim().toLowerCase();
+  const filtered = users.filter((u) => {
+    if (roleFilter !== "all" && u.role !== roleFilter) return false;
+    if (statusFilter !== "all" && u.status !== statusFilter) return false;
+    if (govFilter !== "all" && ((u as any).governorate || "") !== govFilter) return false;
+    if (q && !`${u.name} ${u.email}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  // Only render a capped slice so a large directory stays light; the count picker
+  // (in the actions header) raises the cap on demand.
+  const visible = filtered.slice(0, pageSize);
+  const activeFilterCount = (roleFilter !== "all" ? 1 : 0) + (statusFilter !== "all" ? 1 : 0) + (govFilter !== "all" ? 1 : 0);
+  const clearFilters = () => { setRoleFilter("all"); setStatusFilter("all"); setGovFilter("all"); };
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h2 className="text-xl font-display font-bold">جميع المستخدمين ({filtered.length})</h2>
-        <div className="flex gap-2 flex-wrap">
-          {[["all", "الكل"], ["student", "طلاب"], ["teacher", "معلمون"], ["parent", "أولياء"], ["admin", "مشرفون"]].map(([v, l]) => (
-            <button key={v} onClick={() => setFilter(v)} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${filter === v ? "bg-primary text-white shadow-md" : "bg-white/60 border border-white/70 text-muted-foreground hover:text-foreground"}`}>{l}</button>
-          ))}
+        <h2 className="text-xl font-display font-bold">جميع المستخدمين ({fmt(filtered.length)})</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Search by name / email */}
+          <div className="relative">
+            <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="بحث بالاسم أو البريد…"
+              className="w-56 max-w-[60vw] pr-9 pl-3 py-2 rounded-xl text-sm bg-white/60 dark:bg-white/[0.06] border border-white/70 dark:border-white/10 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+            />
+          </div>
+          {/* Filter button → floating conditions card */}
+          <div className="relative">
+            <button
+              onClick={() => setFilterOpen((o) => !o)}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all ${activeFilterCount || filterOpen ? "bg-primary text-white border-primary shadow-md" : "bg-white/60 dark:bg-white/[0.06] border-white/70 dark:border-white/10 text-muted-foreground hover:text-foreground"}`}>
+              <SlidersHorizontal className="w-4 h-4" /> فلترة
+              {activeFilterCount > 0 ? (
+                <span className="w-4 h-4 rounded-full bg-white/90 text-primary text-[10px] font-black flex items-center justify-center">{activeFilterCount}</span>
+              ) : null}
+            </button>
+            {filterOpen ? (
+              <>
+                {/* click-away backdrop */}
+                <div className="fixed inset-0 z-30" onClick={() => setFilterOpen(false)} />
+                <div className="absolute left-0 top-full mt-2 z-40 w-72 rounded-2xl bg-white/97 dark:bg-[#11151b]/97 backdrop-blur border border-white/70 dark:border-white/10 shadow-2xl p-4 space-y-4" dir="rtl">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-foreground">شروط الفلترة</p>
+                    {activeFilterCount > 0 ? (
+                      <button onClick={clearFilters} className="text-[11px] font-bold text-primary hover:underline">مسح الكل</button>
+                    ) : null}
+                  </div>
+                  <FilterGroup label="الدور" options={ROLE_FILTERS} value={roleFilter} onChange={setRoleFilter} />
+                  <FilterGroup label="الحالة" options={STATUS_FILTERS} value={statusFilter} onChange={setStatusFilter} />
+                  {govOptions.length > 0 ? (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-bold text-muted-foreground">المحافظة</p>
+                      <select
+                        value={govFilter}
+                        onChange={(e) => setGovFilter(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-white/70 dark:bg-white/[0.06] border border-white/70 dark:border-white/10 text-foreground focus:outline-none focus:border-primary/50">
+                        <option value="all">كل المحافظات</option>
+                        {govOptions.map((g) => <option key={g} value={g}>{g}</option>)}
+                      </select>
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
+          </div>
         </div>
       </div>
       <div className="glass-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-right">
-            <thead><tr className="border-b border-white/40">{["الاسم", "البريد", "الدور", "الحالة", "المحافظة", "إجراءات"].map((h) => <th key={h} className="px-5 py-4 font-bold text-muted-foreground text-xs whitespace-nowrap">{h}</th>)}</tr></thead>
+            <thead><tr className="border-b border-white/40">
+              {["الاسم", "البريد", "الدور", "الحالة", "المحافظة"].map((h) => <th key={h} className="px-5 py-4 font-bold text-muted-foreground text-xs whitespace-nowrap">{h}</th>)}
+              <th className="px-5 py-3 font-bold text-muted-foreground text-xs whitespace-nowrap">
+                <div className="flex items-center justify-between gap-2">
+                  <span>إجراءات</span>
+                  {/* How many rows to render — keeps a big directory light. */}
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    title="عدد النتائج المعروضة"
+                    className="px-2 py-1 rounded-lg text-[11px] font-bold bg-white/70 dark:bg-white/[0.06] border border-white/70 dark:border-white/10 text-foreground focus:outline-none focus:border-primary/50">
+                    {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>
+              </th>
+            </tr></thead>
             <tbody className="divide-y divide-white/30">
-              {filtered.map((u) => (
+              {visible.map((u) => (
                 <tr key={u.id} className="hover:bg-white/30 transition-colors">
                   <td className="px-5 py-3.5"><div className="flex items-center gap-2.5"><div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold ${ROLE_COLORS[u.role]?.replace("bg-", "bg-gradient-to-br from-").replace(" text-", "") || "bg-gray-400"}`}>{u.name.charAt(0)}</div><span className="font-semibold text-foreground">{u.name}</span></div></td>
                   <td className="px-5 py-3.5 text-muted-foreground">{u.email}</td>
@@ -892,8 +1201,32 @@ function AllUsersTab() {
             </tbody>
           </table>
         </div>
+        {filtered.length === 0 ? (
+          <div className="px-5 py-10 text-center text-sm text-muted-foreground">لا يوجد مستخدمون مطابقون للبحث أو الفلترة</div>
+        ) : filtered.length > visible.length ? (
+          <div className="px-5 py-3 text-center text-xs text-muted-foreground border-t border-white/30">
+            عرض {fmt(visible.length)} من {fmt(filtered.length)} — اختر عددًا أكبر من قائمة العدد بالأعلى لعرض المزيد
+          </div>
+        ) : null}
       </div>
       <ActivityDrawer userId={detailsId} onClose={() => setDetailsId(null)} />
+    </div>
+  );
+}
+
+// Small chip group used inside the users filter popover.
+function FilterGroup({ label, options, value, onChange }: { label: string; options: [string, string][]; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[11px] font-bold text-muted-foreground">{label}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map(([v, l]) => (
+          <button key={v} onClick={() => onChange(v)}
+            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${value === v ? "bg-primary text-white shadow" : "bg-white/60 dark:bg-white/[0.06] border border-white/70 dark:border-white/10 text-muted-foreground hover:text-foreground"}`}>
+            {l}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -905,6 +1238,28 @@ export default function OwnerPanel() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [adminTheme, setAdminTheme] = useState<AdminTheme>(getInitialAdminTheme);
   const isDarkAdmin = adminTheme === "dark";
+
+  // Pick the slide direction from the tab's position in TABS — only the source
+  // and destination pages animate, any tabs jumped over never render.
+  const tabIndex = TABS.findIndex((t) => t.id === tab);
+  const navDirRef = useRef(0);
+  const prevTabIndexRef = useRef(tabIndex);
+  if (tabIndex !== prevTabIndexRef.current) {
+    navDirRef.current = tabIndex > prevTabIndexRef.current ? 1 : -1;
+    prevTabIndexRef.current = tabIndex;
+  }
+  const navDir = navDirRef.current;
+  // The slide wrapper is `overflow-hidden` ONLY while a transition is running so
+  // it clips the two sliding pages. At rest it must be visible — otherwise it
+  // would shear off button shadows, popovers and dropdowns at the page edges.
+  // Skip the very first mount (there's no slide to clip then).
+  const [animating, setAnimating] = useState(false);
+  const firstTabRender = useRef(true);
+  useLayoutEffect(() => {
+    if (firstTabRender.current) { firstTabRender.current = false; return; }
+    setAnimating(true);
+    window.scrollTo(0, 0); // start each vertical slide from the top
+  }, [tab]);
 
   useEffect(() => {
     window.localStorage.setItem(ADMIN_THEME_STORAGE_KEY, adminTheme);
@@ -974,16 +1329,33 @@ export default function OwnerPanel() {
             </button>
           </div>
           <div className="px-3 py-2 mb-2"><p className="text-xs font-semibold text-foreground">{user.name}</p><p className="text-xs text-muted-foreground">{user.email}</p></div>
-          <button onClick={() => { logout(); setLocation("/"); }} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-all"><LogOut className="w-4 h-4" /> خروج</button>
+          <button onClick={() => { logout(); setLocation("/login"); }} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-all"><LogOut className="w-4 h-4" /> خروج</button>
         </div>
       </aside>
       <main className="flex-1 md:mr-64 p-5 md:p-8 max-w-full overflow-x-hidden">
-        <AnimatePresence mode="wait">
-          <motion.div key={tab} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
-            {TAB_CONTENT[tab]}
-          </motion.div>
-        </AnimatePresence>
+        {/* Clip the sliding pages to this area; popLayout lets the outgoing and
+            incoming page move together (vertical carousel) instead of waiting. */}
+        <div className={`relative ${animating ? "overflow-hidden" : ""}`}>
+          <AnimatePresence mode="popLayout" initial={false} custom={navDir} onExitComplete={() => setAnimating(false)}>
+            <motion.div
+              key={tab}
+              custom={navDir}
+              variants={pageVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ type: "tween", ease: [0.4, 0, 0.2, 1], duration: 0.42 }}
+              // Keep the page at least viewport-tall so the overflow-hidden clip
+              // (needed for the slide) doesn't cut floating popovers when a tab's
+              // content is short.
+              className="min-h-[calc(100vh-4rem)]"
+            >
+              {TAB_CONTENT[tab]}
+            </motion.div>
+          </AnimatePresence>
+        </div>
       </main>
+      <InternalChatWidget isDark={isDarkAdmin} />
     </div>
   );
 }

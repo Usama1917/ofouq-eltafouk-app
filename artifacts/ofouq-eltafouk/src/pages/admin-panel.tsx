@@ -19,6 +19,7 @@ import {
   customFetch,
 } from "@workspace/api-client-react";
 import { Logo } from "@/components/logo";
+import { InternalChatWidget } from "@/components/internal-chat-widget";
 import { AcademicTab } from "./admin-academic";
 import { toEnglishDigits } from "@/lib/format";
 
@@ -224,46 +225,23 @@ const TAB_TRANSITION_ORDER: Tab[] = [
   "banners",
 ];
 
+// Vertical page carousel — identical feel to the owner panel: navigating DOWN
+// the tab list (direction +1) slides both pages UP (new enters from below, old
+// leaves through the top); navigating UP slides them DOWN. Paired with
+// AnimatePresence mode="popLayout" so the two pages move together. Honors the
+// OS "reduce motion" setting with a plain crossfade.
+const TAB_SLIDE_TRANSITION = { type: "tween" as const, ease: [0.4, 0, 0.2, 1] as const, duration: 0.42 };
 const adminTabContentVariants: Variants = {
   initial: ({ direction, reduceMotion }: TabMotionCustom) =>
-    reduceMotion
-      ? { opacity: 0 }
-      : {
-          opacity: 0,
-          x: direction > 0 ? -28 : 28,
-          y: 10,
-          scale: 0.985,
-          filter: "blur(8px)",
-        },
+    reduceMotion ? { opacity: 0 } : { opacity: 0, y: direction >= 0 ? "100%" : "-100%" },
   animate: ({ reduceMotion }: TabMotionCustom) =>
     reduceMotion
-      ? { opacity: 1, transition: { duration: 0.12 } }
-      : {
-          opacity: 1,
-          x: 0,
-          y: 0,
-          scale: 1,
-          filter: "blur(0px)",
-          transition: {
-            type: "spring",
-            stiffness: 340,
-            damping: 34,
-            mass: 0.8,
-            opacity: { duration: 0.16 },
-            filter: { duration: 0.18 },
-          },
-        },
+      ? { opacity: 1, y: "0%", transition: { duration: 0.12 } }
+      : { opacity: 1, y: "0%", transition: TAB_SLIDE_TRANSITION },
   exit: ({ direction, reduceMotion }: TabMotionCustom) =>
     reduceMotion
       ? { opacity: 0, transition: { duration: 0.1 } }
-      : {
-          opacity: 0,
-          x: direction > 0 ? 22 : -22,
-          y: -8,
-          scale: 0.99,
-          filter: "blur(6px)",
-          transition: { duration: 0.16, ease: [0.4, 0, 0.2, 1] },
-        },
+      : { opacity: 0, y: direction >= 0 ? "-100%" : "100%", transition: TAB_SLIDE_TRANSITION },
 };
 
 function getTabTransitionIndex(tab: Tab) {
@@ -4572,6 +4550,7 @@ export default function AdminPanel() {
     return requested && TABS.some((t) => t.id === requested) ? (requested as Tab) : "dashboard";
   });
   const [transitionDirection, setTransitionDirection] = useState(1);
+  const [tabAnimating, setTabAnimating] = useState(false);
   const [supportUnreadChatCount, setSupportUnreadChatCount] = useState(0);
   const [adminTheme, setAdminTheme] = useState<AdminTheme>(getInitialAdminTheme);
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
@@ -4585,7 +4564,9 @@ export default function AdminPanel() {
   const selectTab = (nextTab: Tab) => {
     if (nextTab === tab) return;
     setTransitionDirection(getTabTransitionIndex(nextTab) >= getTabTransitionIndex(tab) ? 1 : -1);
+    setTabAnimating(true); // clip only during the slide (see wrapper below)
     setTab(nextTab);
+    window.scrollTo(0, 0); // start each vertical slide from the top
   };
 
   const openBroadcastForUsers = (users: AdminUserListItem[]) => {
@@ -4823,7 +4804,7 @@ export default function AdminPanel() {
                 <Crown className="w-3.5 h-3.5" /> لوحة المالك
               </button>
             )}
-            <button onClick={() => { logout(); setLocation("/"); }}
+            <button onClick={() => { logout(); setLocation("/login"); }}
               className="flex-1 flex items-center justify-center gap-1 py-2 rounded-xl text-xs font-bold text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-all dark:hover:bg-rose-400/10 dark:hover:text-rose-200">
               <LogOut className="w-3.5 h-3.5" /> خروج
             </button>
@@ -4833,20 +4814,25 @@ export default function AdminPanel() {
 
       {/* Main */}
       <main className="flex-1 md:mr-64 p-5 md:p-8 max-w-full overflow-x-hidden">
-        <AnimatePresence mode="wait" initial={false} custom={{ direction: transitionDirection, reduceMotion: Boolean(shouldReduceMotion) }}>
-          <motion.div
-            key={tab}
-            custom={{ direction: transitionDirection, reduceMotion: Boolean(shouldReduceMotion) }}
-            variants={adminTabContentVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            className="admin-page-transition min-h-[calc(100vh-4rem)]"
-          >
-            {TAB_CONTENT[tab]}
-          </motion.div>
-        </AnimatePresence>
+        {/* Clip the sliding pages here; popLayout lets the outgoing and incoming
+            page move together (vertical carousel) instead of one-after-another. */}
+        <div className={`relative ${tabAnimating ? "overflow-hidden" : ""}`}>
+          <AnimatePresence mode="popLayout" initial={false} custom={{ direction: transitionDirection, reduceMotion: Boolean(shouldReduceMotion) }} onExitComplete={() => setTabAnimating(false)}>
+            <motion.div
+              key={tab}
+              custom={{ direction: transitionDirection, reduceMotion: Boolean(shouldReduceMotion) }}
+              variants={adminTabContentVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="admin-page-transition min-h-[calc(100vh-4rem)]"
+            >
+              {TAB_CONTENT[tab]}
+            </motion.div>
+          </AnimatePresence>
+        </div>
       </main>
+      <InternalChatWidget isDark={isDarkAdmin} />
     </div>
   );
 }

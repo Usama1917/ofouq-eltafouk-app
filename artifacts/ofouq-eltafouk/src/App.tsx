@@ -27,6 +27,7 @@ import NotFound from "@/pages/not-found";
 // Panel pages (have their own layout)
 import AdminPanel from "@/pages/admin-panel";
 import OwnerPanel from "@/pages/owner-panel";
+import TeamChatPage from "@/pages/team-chat";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -73,6 +74,8 @@ function Router() {
       {/* Panel pages — have their own layout with sidebar */}
       <Route path="/admin" component={AdminPanel} />
       <Route path="/owner" component={OwnerPanel} />
+      {/* Standalone team chat (owner/admin) — opened in its own tab */}
+      <Route path="/team-chat" component={TeamChatPage} />
 
       {/* Main app pages — wrapped in shared Layout */}
       <Route>

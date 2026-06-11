@@ -16,3 +16,4 @@ export * from "./notifications";
 export * from "./support";
 export * from "./onboarding";
 export * from "./audit";
+export * from "./internal-chat";
