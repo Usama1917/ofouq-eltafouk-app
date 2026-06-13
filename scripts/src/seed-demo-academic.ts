@@ -1,7 +1,9 @@
 import { pool } from "@workspace/db";
 import { seedDemoAcademic } from "@workspace/db/seeds/demo-academic";
+import { assertSeedAllowed } from "./seed-guard";
 
 async function main() {
+  assertSeedAllowed("seed-demo-academic");
   const result = await seedDemoAcademic();
   console.log(
     `[seed-demo-academic] years=${result.years} subjects=${result.subjects} units=${result.units} lessons=${result.lessons} videos=${result.videos} segments=${result.segments} subscriptions=${result.subscriptions}`,

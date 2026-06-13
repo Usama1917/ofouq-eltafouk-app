@@ -102,13 +102,7 @@ function normalizeDeviceInfo(value: unknown) {
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
-function getSessionUserId(req: any) {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token?.startsWith("session_")) return null;
-
-  const userId = parsePositiveInt(token.replace("session_", ""));
-  return userId ?? null;
-}
+import { getSessionUserId } from "../lib/auth";
 
 async function requireAuthenticatedUser(req: any, res: any) {
   const userId = getSessionUserId(req);

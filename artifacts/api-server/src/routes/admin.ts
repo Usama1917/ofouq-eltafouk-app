@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { getSessionUserId } from "../lib/auth";
 import {
   db,
   booksTable,
@@ -115,10 +116,7 @@ async function ensureDefaultMaterials() {
 // Safe for the admin web: it already sends a valid admin token (the academic
 // routes sharing the same token already enforce requireAdmin successfully).
 function adminActorIdFromReq(req: any): number | null {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token?.startsWith("session_")) return null;
-  const parsed = Number.parseInt(token.replace("session_", ""), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  return getSessionUserId(req);
 }
 
 async function requireAdminGate(req: any, res: any, next: any) {
@@ -1093,15 +1091,8 @@ router.get("/admin/users", async (req, res) => {
 
 // --- Admin auth helpers (the legacy CRUD routes above predate auth; the detail
 //     endpoint below is admin/owner-only). Mirrors the pattern in notifications.ts. ---
-function parseSessionUserId(req: any): number | null {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token?.startsWith("session_")) return null;
-  const parsed = Number.parseInt(token.replace("session_", ""), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
 async function requireAdminActor(req: any, res: any) {
-  const actorId = parseSessionUserId(req);
+  const actorId = getSessionUserId(req);
   if (!actorId) {
     res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
     return null;
@@ -1357,6 +1348,14 @@ router.get("/admin/users/:userId/details", async (req, res) => {
 router.post("/admin/users", async (req, res) => {
   try {
     const { name, email, role = "student", status = "active" } = req.body;
+    const VALID_ROLES = new Set(["student", "teacher", "parent", "admin", "owner", "moderator"]);
+    const PRIVILEGED_ROLES = new Set(["admin", "owner", "moderator"]);
+    if (!VALID_ROLES.has(String(role))) {
+      return res.status(400).json({ error: "دور غير صالح" });
+    }
+    if (PRIVILEGED_ROLES.has(String(role)) && (req as any).adminActor?.role !== "owner") {
+      return res.status(403).json({ error: "إنشاء حسابات إدارية متاح للمالك فقط" });
+    }
     const [user] = await db.insert(usersTable).values({ name, email, role, status }).returning();
     await logAudit(req, { actionType: "user_create", actionLabel: `أنشأ مستخدمًا (${role})`, entityType: "user", entityId: user.id, entityLabel: name || email, newValue: `${role}/${status}`, metadata: { email, role, status } });
     res.status(201).json(user);
@@ -1371,6 +1370,22 @@ router.put("/admin/users/:id", async (req, res) => {
     const id = parseInt(req.params.id);
     const { name, role, status } = req.body;
     const [before] = await db.select({ name: usersTable.name, role: usersTable.role, status: usersTable.status }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    // Role changes: validate against an allowlist, and only the OWNER may grant or
+    // revoke privileged roles (admin/owner/moderator). This prevents an admin from
+    // self-escalating to owner or minting other admins.
+    const VALID_ROLES = new Set(["student", "teacher", "parent", "admin", "owner", "moderator"]);
+    const PRIVILEGED_ROLES = new Set(["admin", "owner", "moderator"]);
+    if (role !== undefined) {
+      const actor = (req as any).adminActor;
+      if (!VALID_ROLES.has(String(role))) {
+        return res.status(400).json({ error: "دور غير صالح" });
+      }
+      const grantsPrivilege = PRIVILEGED_ROLES.has(String(role));
+      const removesPrivilege = before ? PRIVILEGED_ROLES.has(String(before.role)) : false;
+      if ((grantsPrivilege || removesPrivilege) && actor?.role !== "owner") {
+        return res.status(403).json({ error: "تغيير الأدوار الإدارية متاح للمالك فقط" });
+      }
+    }
     const updateData: Record<string, unknown> = {};
     if (name !== undefined) updateData.name = name;
     if (role !== undefined) updateData.role = role;

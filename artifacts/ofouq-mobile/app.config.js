@@ -119,8 +119,27 @@ module.exports = ({ config }) => {
 
   const googleServicesFile = resolveGoogleServicesFile();
 
+  // iOS App Transport Security: keep HTTPS enforced in shipped builds. Only relax
+  // it (allow cleartext / local networking) for local-HTTP dev/preview testing, so
+  // the App Store build is not submitted with ATS disabled.
+  const iosInfoPlist = {
+    ...(config.ios?.infoPlist ?? {}),
+    ...(isLocalHttpTesting
+      ? {
+          NSAppTransportSecurity: {
+            NSAllowsArbitraryLoads: true,
+            NSAllowsLocalNetworking: true,
+          },
+        }
+      : {}),
+  };
+
   const nextConfig = {
     ...config,
+    ios: {
+      ...config.ios,
+      infoPlist: iosInfoPlist,
+    },
     android: {
       ...config.android,
       usesCleartextTraffic: isLocalHttpTesting,

@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, gamesTable, questionsTable, pointsAccountTable, pointsTransactionsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { getSessionUserId } from "../lib/auth";
 
 const router: IRouter = Router();
 
@@ -29,6 +30,9 @@ router.get("/games/:id", async (req, res) => {
 });
 
 router.post("/games/:id/submit", async (req, res) => {
+  // Deferred feature: still credits a single shared points account. Require login
+  // so it isn't anonymously abusable until the per-user redesign lands.
+  if (!getSessionUserId(req)) return res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
   try {
     const gameId = parseInt(req.params.id);
     const { answers } = req.body as { answers: { questionId: number; selectedIndex: number }[] };

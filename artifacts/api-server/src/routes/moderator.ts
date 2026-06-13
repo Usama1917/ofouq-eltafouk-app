@@ -1,11 +1,54 @@
 import { Router, type IRouter } from "express";
-import { db, postsTable, commentsTable, reportsTable, postLikesTable } from "@workspace/db";
+import { db, postsTable, commentsTable, reportsTable, postLikesTable, usersTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
+import { getSessionUserId } from "../lib/auth";
 
 const router: IRouter = Router();
 
+const MODERATOR_ROLES = new Set(["admin", "owner", "moderator"]);
+
+// Moderation actions (listing/deleting content, resolving reports) require an
+// authenticated staff member. Returns the actor, or null after sending 401/403.
+async function requireModerator(req: any, res: any) {
+  const userId = getSessionUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
+    return null;
+  }
+  const [user] = await db
+    .select({ id: usersTable.id, role: usersTable.role, status: usersTable.status })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  if (!user || user.status !== "active" || !MODERATOR_ROLES.has(user.role)) {
+    res.status(403).json({ error: "هذا الإجراء متاح للمشرفين فقط" });
+    return null;
+  }
+  return user;
+}
+
+// Any active, authenticated user (used for submitting a content report).
+async function requireUser(req: any, res: any) {
+  const userId = getSessionUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
+    return null;
+  }
+  const [user] = await db
+    .select({ id: usersTable.id, name: usersTable.name, status: usersTable.status })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  if (!user || user.status !== "active") {
+    res.status(401).json({ error: "غير مصرح" });
+    return null;
+  }
+  return user;
+}
+
 // Posts
 router.get("/moderator/posts", async (req, res) => {
+  if (!(await requireModerator(req, res))) return;
   try {
     const posts = await db.select().from(postsTable).orderBy(desc(postsTable.createdAt));
     const postsWithLiked = posts.map(p => ({ ...p, isLiked: false }));
@@ -17,6 +60,7 @@ router.get("/moderator/posts", async (req, res) => {
 });
 
 router.delete("/moderator/posts/:id", async (req, res) => {
+  if (!(await requireModerator(req, res))) return;
   try {
     const id = parseInt(req.params.id);
     await db.delete(postLikesTable).where(eq(postLikesTable.postId, id));
@@ -31,6 +75,7 @@ router.delete("/moderator/posts/:id", async (req, res) => {
 
 // Comments
 router.get("/moderator/comments", async (req, res) => {
+  if (!(await requireModerator(req, res))) return;
   try {
     const comments = await db.select().from(commentsTable).orderBy(desc(commentsTable.createdAt));
     res.json(comments);
@@ -41,6 +86,7 @@ router.get("/moderator/comments", async (req, res) => {
 });
 
 router.delete("/moderator/comments/:id", async (req, res) => {
+  if (!(await requireModerator(req, res))) return;
   try {
     const id = parseInt(req.params.id);
     const [comment] = await db.select().from(commentsTable).where(eq(commentsTable.id, id));
@@ -61,6 +107,7 @@ router.delete("/moderator/comments/:id", async (req, res) => {
 
 // Reports
 router.get("/moderator/reports", async (req, res) => {
+  if (!(await requireModerator(req, res))) return;
   try {
     const reports = await db.select().from(reportsTable).orderBy(desc(reportsTable.createdAt));
     res.json(reports);
@@ -71,8 +118,12 @@ router.get("/moderator/reports", async (req, res) => {
 });
 
 router.post("/moderator/reports", async (req, res) => {
+  const actor = await requireUser(req, res);
+  if (!actor) return;
   try {
-    const { targetType, targetId, reason, description, reportedBy = "anonymous" } = req.body;
+    const { targetType, targetId, reason, description } = req.body;
+    // Attribute the report to the authenticated user, not a client-supplied value.
+    const reportedBy = actor.name || `user:${actor.id}`;
     const [report] = await db.insert(reportsTable).values({ targetType, targetId, reason, description, reportedBy, status: "pending" }).returning();
     res.status(201).json(report);
   } catch (err) {
@@ -82,6 +133,7 @@ router.post("/moderator/reports", async (req, res) => {
 });
 
 router.put("/moderator/reports/:id", async (req, res) => {
+  if (!(await requireModerator(req, res))) return;
   try {
     const id = parseInt(req.params.id);
     const { status, resolvedBy } = req.body;

@@ -1,8 +1,18 @@
 import { Router, type IRouter } from "express";
 import { db, pointsAccountTable, pointsTransactionsTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
+import { getSessionUserId } from "../lib/auth";
 
 const router: IRouter = Router();
+
+// NOTE: the points/wallet feature is deferred (single shared account, client-set
+// amounts). Until it is redesigned per-user, at minimum require authentication so
+// the endpoints aren't anonymously abusable. Scoped to /points so it doesn't gate
+// other routers (this router is mounted at the API root).
+router.use("/points", (req, res, next) => {
+  if (!getSessionUserId(req)) return res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
+  next();
+});
 
 async function getOrCreateAccount() {
   const accounts = await db.select().from(pointsAccountTable).limit(1);

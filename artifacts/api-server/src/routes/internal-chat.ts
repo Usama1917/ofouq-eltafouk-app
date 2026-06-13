@@ -38,11 +38,7 @@ function parsePositiveInt(value: string | undefined) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
-function getSessionUserId(req: any) {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token?.startsWith("session_")) return null;
-  return parsePositiveInt(token.replace("session_", ""));
-}
+import { getSessionUserId } from "../lib/auth";
 type Staff = { id: number; name: string; email: string; role: string; status: string; avatarUrl: string | null };
 async function requireStaff(req: any, res: any): Promise<Staff | null> {
   const userId = getSessionUserId(req);

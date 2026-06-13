@@ -19,8 +19,20 @@
       }
     },
     "production": {
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.eltafouk.com",
+        "EXPO_PUBLIC_BUILD_PROFILE": "production",
+        "NODE_ENV": "production"
+      },
       "android": {
         "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal"
       }
     }
   }
