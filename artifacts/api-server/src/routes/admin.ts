@@ -11,6 +11,7 @@ import {
   lessonsTable,
   postsTable,
   gamesTable,
+  questionsTable,
   rewardsTable,
   usersTable,
   bannersTable,
@@ -1347,13 +1348,29 @@ router.get("/admin/users/:userId/details", async (req, res) => {
 
 router.post("/admin/users", async (req, res) => {
   try {
-    const { name, email, role = "student", status = "active" } = req.body;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    // Whitelist + coerce: never feed raw req.body into db.insert (mass-assignment +
+    // crashes on non-string types). Only these four fields may be set on create.
+    const name = String(body.name ?? "").trim();
+    const email = String(body.email ?? "").trim();
+    const role = body.role === undefined ? "student" : String(body.role);
+    const status = body.status === undefined ? "active" : String(body.status);
     const VALID_ROLES = new Set(["student", "teacher", "parent", "admin", "owner", "moderator"]);
+    const VALID_STATUSES = new Set(["active", "suspended", "inactive"]);
     const PRIVILEGED_ROLES = new Set(["admin", "owner", "moderator"]);
-    if (!VALID_ROLES.has(String(role))) {
+    if (!name) {
+      return res.status(400).json({ error: "الاسم مطلوب" });
+    }
+    if (!email) {
+      return res.status(400).json({ error: "البريد الإلكتروني مطلوب" });
+    }
+    if (!VALID_ROLES.has(role)) {
       return res.status(400).json({ error: "دور غير صالح" });
     }
-    if (PRIVILEGED_ROLES.has(String(role)) && (req as any).adminActor?.role !== "owner") {
+    if (!VALID_STATUSES.has(status)) {
+      return res.status(400).json({ error: "حالة غير صالحة" });
+    }
+    if (PRIVILEGED_ROLES.has(role) && (req as any).adminActor?.role !== "owner") {
       return res.status(403).json({ error: "إنشاء حسابات إدارية متاح للمالك فقط" });
     }
     const [user] = await db.insert(usersTable).values({ name, email, role, status }).returning();
@@ -1368,22 +1385,42 @@ router.post("/admin/users", async (req, res) => {
 router.put("/admin/users/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { name, role, status } = req.body;
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: "معرف غير صالح" });
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    // Whitelist + coerce: never feed raw req.body into db.update. Only name/role/status
+    // may be changed here. `undefined` means "leave unchanged" and is preserved below.
+    const name = body.name === undefined ? undefined : String(body.name).trim();
+    const role = body.role === undefined ? undefined : String(body.role);
+    const status = body.status === undefined ? undefined : String(body.status);
     const [before] = await db.select({ name: usersTable.name, role: usersTable.role, status: usersTable.status }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    const actor = (req as any).adminActor;
+    const VALID_ROLES = new Set(["student", "teacher", "parent", "admin", "owner", "moderator"]);
+    const VALID_STATUSES = new Set(["active", "suspended", "inactive"]);
+    const PRIVILEGED_ROLES = new Set(["admin", "owner", "moderator"]);
     // Role changes: validate against an allowlist, and only the OWNER may grant or
     // revoke privileged roles (admin/owner/moderator). This prevents an admin from
     // self-escalating to owner or minting other admins.
-    const VALID_ROLES = new Set(["student", "teacher", "parent", "admin", "owner", "moderator"]);
-    const PRIVILEGED_ROLES = new Set(["admin", "owner", "moderator"]);
     if (role !== undefined) {
-      const actor = (req as any).adminActor;
-      if (!VALID_ROLES.has(String(role))) {
+      if (!VALID_ROLES.has(role)) {
         return res.status(400).json({ error: "دور غير صالح" });
       }
-      const grantsPrivilege = PRIVILEGED_ROLES.has(String(role));
+      const grantsPrivilege = PRIVILEGED_ROLES.has(role);
       const removesPrivilege = before ? PRIVILEGED_ROLES.has(String(before.role)) : false;
       if ((grantsPrivilege || removesPrivilege) && actor?.role !== "owner") {
         return res.status(403).json({ error: "تغيير الأدوار الإدارية متاح للمالك فقط" });
+      }
+    }
+    // Status changes (suspend/activate) on a privileged TARGET (admin/owner/moderator)
+    // are owner-only too — otherwise a plain admin could suspend the owner or a peer.
+    if (status !== undefined) {
+      if (!VALID_STATUSES.has(status)) {
+        return res.status(400).json({ error: "حالة غير صالحة" });
+      }
+      const targetIsPrivileged = before ? PRIVILEGED_ROLES.has(String(before.role)) : false;
+      if (targetIsPrivileged && actor?.role !== "owner") {
+        return res.status(403).json({ error: "هذا الإجراء متاح للمالك فقط" });
       }
     }
     const updateData: Record<string, unknown> = {};
@@ -1412,7 +1449,24 @@ router.put("/admin/users/:id", async (req, res) => {
 router.delete("/admin/users/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: "معرف غير صالح" });
+    }
+    const actor = (req as any).adminActor;
+    // Never let an admin delete their own account (would lock them out / orphan audit).
+    if (actor?.id === id) {
+      return res.status(403).json({ error: "لا يمكنك حذف حسابك الخاص" });
+    }
     const [before] = await db.select({ name: usersTable.name, email: usersTable.email, role: usersTable.role }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    if (!before) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    // Deleting a privileged target (admin/owner/moderator) is owner-only — a plain
+    // admin must not be able to remove the owner or a peer admin/moderator.
+    const PRIVILEGED_ROLES = new Set(["admin", "owner", "moderator"]);
+    if (PRIVILEGED_ROLES.has(String(before.role)) && actor?.role !== "owner") {
+      return res.status(403).json({ error: "هذا الإجراء متاح للمالك فقط" });
+    }
     await db.delete(usersTable).where(eq(usersTable.id, id));
     await logAudit(req, { actionType: "user_delete", actionLabel: "حذف مستخدمًا", entityType: "user", entityId: id, entityLabel: before?.name || before?.email || String(id), oldValue: before ? `${before.role}` : "" });
     res.status(204).send();
@@ -1645,9 +1699,14 @@ router.put("/admin/books/:id", async (req, res) => {
 router.delete("/admin/books/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "معرف غير صالح" });
+    // Remove child rows first so the FK references don't make the book undeletable.
+    await db.delete(bookPurchasesTable).where(eq(bookPurchasesTable.bookId, id));
+    await db.delete(bookReservationsTable).where(eq(bookReservationsTable.bookId, id));
     await db.delete(booksTable).where(eq(booksTable.id, id));
     res.status(204).send();
   } catch (err) {
+    req.log.error({ err }, "Delete book error");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -1916,9 +1975,13 @@ router.put("/admin/rewards/:id", async (req, res) => {
 router.delete("/admin/rewards/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "معرف غير صالح" });
+    // Remove child redemption rows first (FK) so the reward can be deleted.
+    await db.delete(redemptionsTable).where(eq(redemptionsTable.rewardId, id));
     await db.delete(rewardsTable).where(eq(rewardsTable.id, id));
     res.status(204).send();
   } catch (err) {
+    req.log.error({ err }, "Delete reward error");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -1957,9 +2020,13 @@ router.put("/admin/games/:id", async (req, res) => {
 router.delete("/admin/games/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "معرف غير صالح" });
+    // Remove child question rows first (FK) so the game can be deleted.
+    await db.delete(questionsTable).where(eq(questionsTable.gameId, id));
     await db.delete(gamesTable).where(eq(gamesTable.id, id));
     res.status(204).send();
   } catch (err) {
+    req.log.error({ err }, "Delete game error");
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -844,7 +844,7 @@ async function requireStudentSubjectAccess(req: any, res: any, subjectId: number
   const user = await requireAuthenticatedUser(req, res);
   if (!user) return null;
 
-  if (user.role !== "student") return user;
+  if (user.role === "admin" || user.role === "owner") return user;
 
   const hasAccess = await userHasSubjectAccess(user.id, subjectId);
   if (!hasAccess) {

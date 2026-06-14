@@ -36,9 +36,15 @@ router.get("/points", async (req, res) => {
   }
 });
 
+// Guard against NaN/negative/oversized values flowing into the integer balance.
+const MAX_PURCHASE_AMOUNT = 1_000_000;
+
 router.post("/points/purchase", async (req, res) => {
   try {
     const { amount, packageName } = req.body;
+    if (!Number.isInteger(amount) || amount <= 0 || amount > MAX_PURCHASE_AMOUNT) {
+      return res.status(400).json({ error: "قيمة غير صالحة" });
+    }
     const account = await getOrCreateAccount();
 
     const newBalance = account.balance + amount;

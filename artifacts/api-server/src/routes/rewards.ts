@@ -2,8 +2,17 @@ import { Router, type IRouter } from "express";
 import { db, rewardsTable, redemptionsTable, pointsAccountTable, pointsTransactionsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { desc } from "drizzle-orm";
+import { getSessionUserId } from "../lib/auth";
 
 const router: IRouter = Router();
+
+// DEFERRED: the rewards economy currently runs on a single shared/global points
+// account and a world-shaped redemptions table (no userId column), so every
+// redemption draws from and is visible against the same balance. The per-user
+// wallet redesign (per-user balance + ownership column on redemptions) needs a
+// DB schema migration and is intentionally NOT done here. For now we at least
+// require authentication so only logged-in users can spend points or read the
+// redemption history.
 
 router.get("/rewards", async (req, res) => {
   try {
@@ -17,6 +26,9 @@ router.get("/rewards", async (req, res) => {
 
 router.get("/rewards/redemptions", async (req, res) => {
   try {
+    const userId = getSessionUserId(req);
+    if (!userId) return res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
+
     const redemptions = await db.select().from(redemptionsTable).orderBy(desc(redemptionsTable.createdAt));
     res.json(redemptions);
   } catch (err) {
@@ -27,6 +39,9 @@ router.get("/rewards/redemptions", async (req, res) => {
 
 router.post("/rewards/:id/redeem", async (req, res) => {
   try {
+    const userId = getSessionUserId(req);
+    if (!userId) return res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
+
     const rewardId = parseInt(req.params.id);
     const [reward] = await db.select().from(rewardsTable).where(eq(rewardsTable.id, rewardId));
     if (!reward) return res.status(404).json({ error: "Reward not found" });

@@ -122,9 +122,19 @@ router.post("/moderator/reports", async (req, res) => {
   if (!actor) return;
   try {
     const { targetType, targetId, reason, description } = req.body;
+    // targetId feeds a NOT-NULL integer column; targetType/reason are NOT-NULL
+    // text. Reject bad input with 400 instead of letting it 500 at insert time.
+    const parsedTargetId = Number.parseInt(targetId, 10);
+    if (
+      !Number.isInteger(parsedTargetId) || parsedTargetId <= 0 ||
+      typeof targetType !== "string" || targetType.trim() === "" ||
+      typeof reason !== "string" || reason.trim() === ""
+    ) {
+      return res.status(400).json({ error: "قيمة غير صالحة" });
+    }
     // Attribute the report to the authenticated user, not a client-supplied value.
     const reportedBy = actor.name || `user:${actor.id}`;
-    const [report] = await db.insert(reportsTable).values({ targetType, targetId, reason, description, reportedBy, status: "pending" }).returning();
+    const [report] = await db.insert(reportsTable).values({ targetType: targetType.trim(), targetId: parsedTargetId, reason: reason.trim(), description, reportedBy, status: "pending" }).returning();
     res.status(201).json(report);
   } catch (err) {
     req.log.error({ err }, "Moderator create report error");
