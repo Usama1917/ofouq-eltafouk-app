@@ -77,7 +77,7 @@ export default function Login() {
               <label className="block pr-1 text-[15px] font-bold text-foreground/90">البريد الإلكتروني</label>
               <div className="relative">
                 <Mail className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                <input type="email" dir="ltr" required value={email} onChange={e => setEmail(e.target.value)}
                   className="w-full pr-11 pl-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur border border-white/70 focus:border-primary/50 focus:ring-4 focus:ring-primary/10 outline-none transition-all font-medium text-sm"
                   placeholder="example@email.com" />
               </div>
@@ -87,7 +87,7 @@ export default function Login() {
               <label className="block pr-1 text-[15px] font-bold text-foreground/90">كلمة المرور</label>
               <div className="relative">
                 <Lock className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input type={showPw ? "text" : "password"} required value={password} onChange={e => setPassword(e.target.value)}
+                <input type={showPw ? "text" : "password"} dir="ltr" required value={password} onChange={e => setPassword(e.target.value)}
                   className="w-full pr-11 pl-11 py-3.5 rounded-2xl bg-white/70 backdrop-blur border border-white/70 focus:border-primary/50 focus:ring-4 focus:ring-primary/10 outline-none transition-all font-medium text-sm"
                   placeholder="••••••••" />
                 <button type="button" onClick={() => setShowPw(!showPw)} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">

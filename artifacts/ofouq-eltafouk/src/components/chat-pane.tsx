@@ -42,7 +42,7 @@ export async function chatReq(path: string, init?: RequestInit) {
 
 function timeLabel(iso: string | null) {
   if (!iso) return "";
-  return new Date(iso).toLocaleString("ar-EG", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
+  return new Date(iso).toLocaleString("ar-EG-u-nu-latn", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
 }
 function initials(name: string) { return (name || "?").trim().charAt(0); }
 

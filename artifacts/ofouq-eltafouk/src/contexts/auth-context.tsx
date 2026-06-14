@@ -141,12 +141,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
     (async () => {
       try {
-        const profile = await apiCall("/api/auth/me", {
+        const raw = await apiCall("/api/auth/me", {
           method: "GET",
           headers: { Authorization: `Bearer ${storedToken}` },
         });
         if (!active) return;
-        applyAuthState(profile as AuthUser, storedToken);
+        // Accept either an enveloped { user } or a bare user object so a
+        // response-shape drift doesn't silently sign everyone out.
+        const profile = (raw?.user ?? raw) as AuthUser | null | undefined;
+        if (profile && profile.id != null && profile.role) {
+          applyAuthState(profile, storedToken);
+        } else {
+          clearAuthState();
+        }
       } catch {
         if (!active) return;
         clearAuthState();

@@ -199,8 +199,8 @@ export default function Register() {
                   </label>
                 </Field>
                 <Field label="الاسم الكامل"><Input placeholder="أحمد محمد" value={form.name} onChange={e => set("name", e.target.value)} required /></Field>
-                <Field label="البريد الإلكتروني"><Input type="email" placeholder="example@email.com" value={form.email} onChange={e => set("email", e.target.value)} required /></Field>
-                <Field label="كلمة المرور"><Input type="password" placeholder="••••••••" value={form.password} onChange={e => set("password", e.target.value)} required /></Field>
+                <Field label="البريد الإلكتروني"><Input type="email" dir="ltr" placeholder="example@email.com" value={form.email} onChange={e => set("email", e.target.value)} required /></Field>
+                <Field label="كلمة المرور"><Input type="password" dir="ltr" placeholder="••••••••" value={form.password} onChange={e => set("password", e.target.value)} required /></Field>
               </motion.div>
             )}
 
@@ -210,9 +210,9 @@ export default function Register() {
                 <h2 className="text-2xl font-display font-black text-foreground">معلومات الطالب</h2>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="العمر"><Input type="number" placeholder="16" min="5" max="100" value={toEnglishDigits(form.age)} onChange={e => set("age", toEnglishDigits(e.target.value))} /></Field>
-                  <Field label="رقم الهاتف"><Input placeholder="01000000000" value={form.phone} onChange={e => set("phone", e.target.value)} /></Field>
+                  <Field label="رقم الهاتف"><Input type="tel" inputMode="tel" dir="ltr" placeholder="01000000000" value={form.phone} onChange={e => set("phone", e.target.value)} /></Field>
                 </div>
-                <Field label="هاتف ولي الأمر"><Input placeholder="01000000000" value={form.parentPhone} onChange={e => set("parentPhone", e.target.value)} /></Field>
+                <Field label="هاتف ولي الأمر"><Input type="tel" inputMode="tel" dir="ltr" placeholder="01000000000" value={form.parentPhone} onChange={e => set("parentPhone", e.target.value)} /></Field>
                 <Field label="العنوان"><Input placeholder="المدينة، الشارع" value={form.address} onChange={e => set("address", e.target.value)} /></Field>
                 <Field label="المحافظة">
                   <Select value={form.governorate} onChange={e => set("governorate", e.target.value)}>
@@ -234,7 +234,7 @@ export default function Register() {
                 <h2 className="text-2xl font-display font-black text-foreground">معلومات المعلم</h2>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="العمر"><Input type="number" placeholder="30" value={toEnglishDigits(form.age)} onChange={e => set("age", toEnglishDigits(e.target.value))} /></Field>
-                  <Field label="رقم الهاتف"><Input placeholder="01000000000" value={form.phone} onChange={e => set("phone", e.target.value)} /></Field>
+                  <Field label="رقم الهاتف"><Input type="tel" inputMode="tel" dir="ltr" placeholder="01000000000" value={form.phone} onChange={e => set("phone", e.target.value)} /></Field>
                 </div>
                 <Field label="العنوان"><Input placeholder="المدينة، الشارع" value={form.address} onChange={e => set("address", e.target.value)} /></Field>
                 <Field label="التخصص الأكاديمي"><Input placeholder="الرياضيات، الفيزياء..." value={form.specialty} onChange={e => set("specialty", e.target.value)} /></Field>

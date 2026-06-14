@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Link } from "wouter";
-import { ArrowLeft, GraduationCap, PlayCircle, Sparkles, Video } from "lucide-react";
+import { AlertTriangle, ArrowLeft, GraduationCap, PlayCircle, RotateCcw, Sparkles, Video } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { formatNumber, toEnglishDigits } from "@/lib/format";
 
@@ -36,8 +36,30 @@ function LessonsEmptyState() {
   );
 }
 
+function LessonsErrorState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="glass-card p-8 md:p-10 text-center">
+      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-destructive/10 text-destructive">
+        <AlertTriangle className="h-8 w-8" />
+      </div>
+      <h3 className="font-display text-lg font-black text-foreground">تعذر تحميل الدروس المرئية</h3>
+      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+        حدث خطأ أثناء جلب الدروس. تحقق من اتصالك بالإنترنت وحاول مرة أخرى.
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="btn-primary mx-auto mt-5 text-sm"
+      >
+        <RotateCcw className="h-4 w-4" />
+        إعادة المحاولة
+      </button>
+    </div>
+  );
+}
+
 export default function Dashboard() {
-  const { data: years = [], isLoading, isError } = useQuery({
+  const { data: years = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["soft-launch", "academic-years"],
     queryFn: fetchAcademicYears,
   });
@@ -113,7 +135,9 @@ export default function Dashboard() {
           </div>
         ) : null}
 
-        {!isLoading && (isError || years.length === 0) ? <LessonsEmptyState /> : null}
+        {!isLoading && isError ? <LessonsErrorState onRetry={() => refetch()} /> : null}
+
+        {!isLoading && !isError && years.length === 0 ? <LessonsEmptyState /> : null}
 
         {!isLoading && featuredYears.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-3">
