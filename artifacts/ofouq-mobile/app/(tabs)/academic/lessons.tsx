@@ -280,27 +280,40 @@ export default function LessonsScreen() {
                 <Text style={[styles.stateTitle, { color: colors.text }]}>{strings.common.loading}</Text>
               </>
             ) : isError ? (
-              <>
-                <Feather name="lock" size={32} color="#B45309" />
-                <Text style={[styles.stateTitle, { color: colors.text }]}>{strings.academic.loadLessonsError}</Text>
-                <Text style={[styles.stateText, { color: colors.textSecondary }]}>
-                  {error instanceof Error ? error.message : strings.academic.needsLessonsSubscription}
-                </Text>
-                <Pressable
-                  onPress={() => {
-                    if (token) router.push(subscribePath as any);
-                    else router.push("/login");
-                  }}
-                  style={styles.retryButton}
-                >
-                  <Text style={styles.retryText}>
-                    {token ? strings.academic.requestSubjectSubscription : strings.common.signIn}
-                  </Text>
-                </Pressable>
-                <Pressable onPress={() => void refetch()} disabled={isFetching} style={styles.secondaryButton}>
-                  <Text style={styles.secondaryText}>{isFetching ? strings.common.retrying : strings.common.retry}</Text>
-                </Pressable>
-              </>
+              (() => {
+                // Distinguish an expired/invalid session (401) from a genuine
+                // "needs subscription" (403). A 401 must route to login, NOT push
+                // the user into the subscribe flow (which would also fail).
+                const sessionExpired = (error as { status?: number } | undefined)?.status === 401;
+                const goToLogin = sessionExpired || !token;
+                return (
+                  <>
+                    <Feather name="lock" size={32} color="#B45309" />
+                    <Text style={[styles.stateTitle, { color: colors.text }]}>{strings.academic.loadLessonsError}</Text>
+                    <Text style={[styles.stateText, { color: colors.textSecondary }]}>
+                      {sessionExpired
+                        ? strings.academic.signInToContinue
+                        : error instanceof Error
+                          ? error.message
+                          : strings.academic.needsLessonsSubscription}
+                    </Text>
+                    <Pressable
+                      onPress={() => {
+                        if (goToLogin) router.push("/login");
+                        else router.push(subscribePath as any);
+                      }}
+                      style={styles.retryButton}
+                    >
+                      <Text style={styles.retryText}>
+                        {goToLogin ? strings.common.signIn : strings.academic.requestSubjectSubscription}
+                      </Text>
+                    </Pressable>
+                    <Pressable onPress={() => void refetch()} disabled={isFetching} style={styles.secondaryButton}>
+                      <Text style={styles.secondaryText}>{isFetching ? strings.common.retrying : strings.common.retry}</Text>
+                    </Pressable>
+                  </>
+                );
+              })()
             ) : (
               <>
                 <Ionicons name="play-circle-outline" size={42} color={colors.textTertiary} />

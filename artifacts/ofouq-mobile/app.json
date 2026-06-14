@@ -15,11 +15,9 @@
     },
     "ios": {
       "supportsTablet": false,
+      "bundleIdentifier": "com.ofouqeltafouk.mobile",
       "infoPlist": {
-        "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true,
-          "NSAllowsLocalNetworking": true
-        }
+        "NSPhotoLibraryUsageDescription": "نحتاج الوصول إلى صورك لاختيار صورة الملف الشخصي أو إرفاق إثبات الدفع. We need access to your photos to set a profile picture or attach a payment receipt."
       }
     },
     "android": {
@@ -52,7 +50,7 @@
       [
         "expo-router",
         {
-          "origin": "https://replit.com/"
+          "origin": "https://eltafouk.com/"
         }
       ],
       [

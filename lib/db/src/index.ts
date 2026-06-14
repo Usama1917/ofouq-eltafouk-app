@@ -21,7 +21,25 @@ if (!DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: DATABASE_URL });
+// Enable TLS when the connection string asks for it (managed Postgres such as
+// DigitalOcean appends `?sslmode=require`) or when DATABASE_SSL=true is set.
+// If a CA certificate is provided we verify it; otherwise we still encrypt the
+// connection but skip chain verification (managed providers often use a private CA).
+const wantsSsl = /sslmode=require/i.test(DATABASE_URL) || process.env.DATABASE_SSL === "true";
+const caCert = process.env.DATABASE_CA_CERT;
+const sslOption = wantsSsl
+  ? caCert
+    ? { ca: caCert, rejectUnauthorized: true }
+    : { rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === "true" }
+  : undefined;
+
+export const pool = new Pool({
+  connectionString: DATABASE_URL,
+  ssl: sslOption,
+  max: Number.parseInt(process.env.DATABASE_POOL_MAX ?? "10", 10),
+  connectionTimeoutMillis: Number.parseInt(process.env.DATABASE_CONNECTION_TIMEOUT_MS ?? "10000", 10),
+  idleTimeoutMillis: Number.parseInt(process.env.DATABASE_IDLE_TIMEOUT_MS ?? "30000", 10),
+});
 export const db = drizzle(pool, { schema });
 export const databaseUrlSource = DATABASE_URL_SOURCE;
 

@@ -5,12 +5,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   Easing,
+  FlatList,
   PanResponder,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -352,6 +353,7 @@ export default function NotificationsScreen() {
     colors,
     resolvedScheme,
     strings,
+    language,
     isRTL,
     textAlign,
     direction,
@@ -449,34 +451,84 @@ export default function NotificationsScreen() {
     }
   }
 
-  function renderNotificationItems(items: AppNotification[]) {
-    return items.map((item) => {
-      const tone = getToneMeta(normalizeTone(item.tone));
-      const isUnread = !item.readAt;
+  function confirmClearReadNotifications() {
+    if (isClearingRead || readNotifications.length === 0) return;
 
-      return (
-        <NotificationCard
-          key={item.id}
-          item={item}
-          tone={tone}
-          isUnread={isUnread}
-          colors={colors}
-          titleDirection={titleDirection}
-          direction={direction}
-          alignStart={alignStart}
-          textAlign={textAlign}
-          locale={strings.locale}
-          resolvedScheme={resolvedScheme}
-          deleteLabel={strings.notifications.delete}
-          markReadLabel={strings.notifications.markAsRead}
-          deleting={deletingIds.has(item.id)}
-          onPress={openNotification}
-          onDismiss={dismissNotification}
-          onMarkRead={markReadNotification}
-        />
-      );
-    });
+    const isArabic = language === "ar";
+    Alert.alert(
+      isArabic ? "مسح الإشعارات المقروءة" : "Clear read notifications",
+      isArabic
+        ? "سيتم حذف جميع الإشعارات التي تمت قراءتها. لا يمكن التراجع عن هذا الإجراء."
+        : "All read notifications will be permanently removed. This action cannot be undone.",
+      [
+        { text: strings.common.cancel, style: "cancel" },
+        {
+          text: strings.notifications.clear,
+          style: "destructive",
+          onPress: () => void clearReadNotifications(),
+        },
+      ],
+    );
   }
+
+  function renderNotificationCard(item: AppNotification) {
+    const tone = getToneMeta(normalizeTone(item.tone));
+    const isUnread = !item.readAt;
+
+    return (
+      <NotificationCard
+        item={item}
+        tone={tone}
+        isUnread={isUnread}
+        colors={colors}
+        titleDirection={titleDirection}
+        direction={direction}
+        alignStart={alignStart}
+        textAlign={textAlign}
+        locale={strings.locale}
+        resolvedScheme={resolvedScheme}
+        deleteLabel={strings.notifications.delete}
+        markReadLabel={strings.notifications.markAsRead}
+        deleting={deletingIds.has(item.id)}
+        onPress={openNotification}
+        onDismiss={dismissNotification}
+        onMarkRead={markReadNotification}
+      />
+    );
+  }
+
+  // Flatten the (header summary + sections + state cards) into a single data
+  // source so the list can virtualize. The summary card lives in the list
+  // header; everything below it (state cards, section headers, notification
+  // rows, empty card) is a typed row here.
+  type ListRow =
+    | { type: "state-loading"; key: string }
+    | { type: "state-error"; key: string }
+    | { type: "section-header"; key: string; section: "unread" | "read" }
+    | { type: "notification"; key: string; item: AppNotification }
+    | { type: "empty"; key: string };
+
+  const listData = React.useMemo<ListRow[]>(() => {
+    if (isLoading) return [{ type: "state-loading", key: "state-loading" }];
+    if (isError) return [{ type: "state-error", key: "state-error" }];
+
+    if (!hasNotifications) return [{ type: "empty", key: "empty" }];
+
+    const rows: ListRow[] = [];
+    if (unreadNotifications.length > 0) {
+      rows.push({ type: "section-header", key: "header-unread", section: "unread" });
+      for (const item of unreadNotifications) {
+        rows.push({ type: "notification", key: `notification-${item.id}`, item });
+      }
+    }
+    if (readNotifications.length > 0) {
+      rows.push({ type: "section-header", key: "header-read", section: "read" });
+      for (const item of readNotifications) {
+        rows.push({ type: "notification", key: `notification-${item.id}`, item });
+      }
+    }
+    return rows;
+  }, [hasNotifications, isError, isLoading, readNotifications, unreadNotifications]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -531,106 +583,112 @@ export default function NotificationsScreen() {
         </View>
       </View>
 
-      <ScrollView
+      <FlatList
+        data={listData}
+        keyExtractor={(row) => row.key}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingTop: headerOverlayHeight + 18,
           paddingHorizontal: 18,
           paddingBottom: insets.bottom + 118,
-          gap: 18,
         }}
-      >
-        <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.summaryIcon}>
-            <Feather name="inbox" size={21} color={COLORS.primary} />
+        ListHeaderComponent={
+          <View style={[styles.summaryCard, styles.summaryCardSpacing, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.summaryIcon}>
+              <Feather name="inbox" size={21} color={COLORS.primary} />
+            </View>
+            <View style={[styles.summaryText, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+              <Text style={[styles.summaryNumber, { color: colors.text, textAlign, writingDirection: direction }]}>
+                {toEnglishDigits(String(unreadCount))}
+              </Text>
+              <Text style={[styles.summaryLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                {strings.notifications.unread}
+              </Text>
+            </View>
           </View>
-          <View style={[styles.summaryText, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-            <Text style={[styles.summaryNumber, { color: colors.text, textAlign, writingDirection: direction }]}>
-              {toEnglishDigits(String(unreadCount))}
-            </Text>
-            <Text style={[styles.summaryLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-              {strings.notifications.unread}
-            </Text>
-          </View>
-        </View>
+        }
+        renderItem={({ item: row }) => {
+          if (row.type === "state-loading") {
+            return (
+              <View style={[styles.stateCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <ActivityIndicator color={COLORS.primary} />
+                <Text style={[styles.stateText, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                  {strings.common.loading}
+                </Text>
+              </View>
+            );
+          }
 
-        {isLoading ? (
-          <View style={[styles.stateCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <ActivityIndicator color={COLORS.primary} />
-            <Text style={[styles.stateText, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-              {strings.common.loading}
-            </Text>
-          </View>
-        ) : null}
+          if (row.type === "state-error") {
+            return (
+              <View style={[styles.stateCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Feather name="wifi-off" size={28} color={COLORS.warning} />
+                <Text style={[styles.stateText, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                  {strings.common.unexpectedError}
+                </Text>
+                <Pressable onPress={() => void refetch()} disabled={isFetching} style={styles.retryButton}>
+                  <Text style={styles.retryText}>{isFetching ? strings.common.retrying : strings.common.retry}</Text>
+                </Pressable>
+              </View>
+            );
+          }
 
-        {!isLoading && isError ? (
-          <View style={[styles.stateCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Feather name="wifi-off" size={28} color={COLORS.warning} />
-            <Text style={[styles.stateText, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-              {strings.common.unexpectedError}
-            </Text>
-            <Pressable onPress={() => void refetch()} disabled={isFetching} style={styles.retryButton}>
-              <Text style={styles.retryText}>{isFetching ? strings.common.retrying : strings.common.retry}</Text>
-            </Pressable>
-          </View>
-        ) : null}
+          if (row.type === "empty") {
+            return (
+              <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={styles.emptyIcon}>
+                  <Feather name="bell-off" size={30} color={COLORS.primary} />
+                </View>
+                <Text style={[styles.emptyTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+                  {strings.notifications.emptyTitle}
+                </Text>
+                <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                  {strings.notifications.emptyText}
+                </Text>
+              </View>
+            );
+          }
 
-        {hasNotifications ? (
-          <View style={styles.sections}>
-            {unreadNotifications.length > 0 ? (
-              <View style={styles.notificationSection}>
-                <View style={styles.sectionHeader}>
+          if (row.type === "section-header") {
+            if (row.section === "unread") {
+              return (
+                <View style={[styles.sectionHeader, styles.sectionHeaderSpacing]}>
                   <Text style={[styles.sectionTitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
                     {strings.notifications.unreadSection} ({toEnglishDigits(String(unreadNotifications.length))})
                   </Text>
                 </View>
-                <View style={styles.sectionList}>{renderNotificationItems(unreadNotifications)}</View>
-              </View>
-            ) : null}
-
-            {readNotifications.length > 0 ? (
-              <View style={styles.notificationSection}>
-                <View style={[styles.sectionHeader, styles.readSectionHeader]}>
-                  <Pressable
-                    disabled={isClearingRead}
-                    onPress={() => void clearReadNotifications()}
-                    style={({ pressed }) => [
-                      styles.clearButton,
-                      {
-                        backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
-                        borderColor: resolvedScheme === "dark" ? "rgba(255,255,255,0.2)" : colors.border,
-                        opacity: isClearingRead ? 0.58 : 1,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.clearButtonText, { color: colors.text }]}>
-                      {strings.notifications.clear}
-                    </Text>
-                  </Pressable>
-                  <View style={styles.readSectionTitleSlot}>
-                    <Text style={[styles.sectionTitle, styles.readSectionTitle, { color: colors.textSecondary, writingDirection: direction }]}>
-                      {strings.notifications.readSection} ({toEnglishDigits(String(readNotifications.length))})
-                    </Text>
-                  </View>
+              );
+            }
+            return (
+              <View style={[styles.sectionHeader, styles.readSectionHeader, styles.sectionHeaderSpacing, styles.readSectionHeaderSpacing]}>
+                <Pressable
+                  disabled={isClearingRead}
+                  onPress={confirmClearReadNotifications}
+                  style={({ pressed }) => [
+                    styles.clearButton,
+                    {
+                      backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
+                      borderColor: resolvedScheme === "dark" ? "rgba(255,255,255,0.2)" : colors.border,
+                      opacity: isClearingRead ? 0.58 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.clearButtonText, { color: colors.text }]}>
+                    {strings.notifications.clear}
+                  </Text>
+                </Pressable>
+                <View style={styles.readSectionTitleSlot}>
+                  <Text style={[styles.sectionTitle, styles.readSectionTitle, { color: colors.textSecondary, writingDirection: direction }]}>
+                    {strings.notifications.readSection} ({toEnglishDigits(String(readNotifications.length))})
+                  </Text>
                 </View>
-                <View style={styles.sectionList}>{renderNotificationItems(readNotifications)}</View>
               </View>
-            ) : null}
-          </View>
-        ) : !isLoading && !isError ? (
-          <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={styles.emptyIcon}>
-              <Feather name="bell-off" size={30} color={COLORS.primary} />
-            </View>
-            <Text style={[styles.emptyTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
-              {strings.notifications.emptyTitle}
-            </Text>
-            <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-              {strings.notifications.emptyText}
-            </Text>
-          </View>
-        ) : null}
-      </ScrollView>
+            );
+          }
+
+          return <View style={styles.notificationRowSpacing}>{renderNotificationCard(row.item)}</View>;
+        }}
+      />
     </View>
   );
 }
@@ -745,11 +803,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 22,
   },
-  sections: {
-    gap: 20,
+  // Spacing helpers replace the ScrollView/section flex gaps now that rows are
+  // laid out individually inside the FlatList.
+  summaryCardSpacing: {
+    marginBottom: 18,
   },
-  notificationSection: {
-    gap: 10,
+  sectionHeaderSpacing: {
+    marginBottom: 10,
+  },
+  readSectionHeaderSpacing: {
+    marginTop: 20,
+  },
+  notificationRowSpacing: {
+    marginBottom: 12,
   },
   sectionHeader: {
     minHeight: 38,
@@ -787,9 +853,6 @@ const styles = StyleSheet.create({
     ...FONT.bold,
     fontSize: 12,
     lineHeight: 18,
-  },
-  sectionList: {
-    gap: 12,
   },
   swipeFrame: {
     position: "relative",

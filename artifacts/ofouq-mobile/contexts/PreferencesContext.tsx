@@ -125,9 +125,25 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
 
   const setLanguage = useCallback(
     async (nextLanguage: AppLanguage) => {
-      await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage);
+      if (nextLanguage === language) return;
+
+      // Update the in-memory state immediately so the UI re-renders in the new
+      // language right away. The app uses a per-component direction model
+      // (getAppIsRTL + usePreferences direction), so we sync the app-wide RTL
+      // flag instead of forcing a native reload via I18nManager.forceRTL.
+      const previousLanguage = language;
+      setLanguageState(nextLanguage);
+      setAppIsRTL(nextLanguage === "ar");
+
+      try {
+        await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage);
+      } catch (error) {
+        setLanguageState(previousLanguage);
+        setAppIsRTL(previousLanguage === "ar");
+        throw error;
+      }
     },
-    [],
+    [language],
   );
 
   const setThemePreference = useCallback(

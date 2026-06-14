@@ -1,20 +1,9 @@
 import { Router, type IRouter } from "express";
 import { db, usersTable, studentOnboardingResponsesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { getSessionUserId } from "../lib/auth";
 
 const router: IRouter = Router();
-
-// ---- Auth helpers (same session_<id> bearer scheme used across the API) ----
-function parsePositiveInt(value: unknown) {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function getSessionUserId(req: any) {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token?.startsWith("session_")) return null;
-  return parsePositiveInt(token.replace("session_", ""));
-}
 
 async function requireStudent(req: any, res: any) {
   const userId = getSessionUserId(req);

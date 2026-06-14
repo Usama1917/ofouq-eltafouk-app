@@ -4,6 +4,17 @@ import { eq } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import {
+  hashPassword,
+  verifyPassword,
+  needsRehash,
+  issueToken,
+  getSessionUserId as resolveSessionUserId,
+} from "../lib/auth";
+
+// Public self-registration may only create non-privileged accounts. Admin/owner/
+// moderator accounts are created through authenticated owner-only flows.
+const PUBLIC_REGISTRATION_ROLES = new Set(["student", "teacher", "parent"]);
 
 const router: IRouter = Router();
 const profilePhotosUploadDir = path.resolve(process.cwd(), "uploads/profile-photos");
@@ -66,15 +77,6 @@ function sendRegisterConflict(res: any, fields: { email: boolean; phone: boolean
   });
 }
 
-// NOTE: Keeping simple text passwords for the current project behavior.
-function hashPassword(password: string) {
-  return password;
-}
-
-function checkPassword(plain: string, stored: string) {
-  return plain === stored;
-}
-
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   owner: ["admin:full", "owner:full"],
   admin: ["admin:full"],
@@ -91,11 +93,7 @@ function withPermissions<T extends { role: string }>(safeUser: T) {
 }
 
 function getSessionUserId(req: any) {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token?.startsWith("session_")) return null;
-
-  const id = Number.parseInt(token.replace("session_", ""), 10);
-  return Number.isFinite(id) && id > 0 ? id : null;
+  return resolveSessionUserId(req);
 }
 
 async function touchUserActivity(userId: number) {
@@ -200,6 +198,10 @@ function sendDatabaseError(res: any, err: unknown) {
   return res.status(503).json({ error: "تعذّر الاتصال بقاعدة البيانات" });
 }
 
+// Intentionally public: the registration screen uploads the avatar BEFORE the
+// account exists (no token yet). Abuse is bounded by the image-only filter, the
+// 5MB size limit, and the global rate limiter. (Tighter per-IP upload caps +
+// orphan cleanup are a later hardening step.)
 router.post("/auth/profile-photo/upload", (req, res) => {
   uploadProfilePhotoFile.single("avatar")(req, res, (err) => {
     if (err) {
@@ -238,6 +240,9 @@ router.post("/auth/register", async (req, res) => {
     if (!name || !normalizedEmail || !password) {
       return res.status(400).json({ error: "الاسم والبريد الإلكتروني وكلمة المرور مطلوبة" });
     }
+    // Never trust a client-supplied privileged role on public registration.
+    const requestedRole = String(role);
+    const safeRole = PUBLIC_REGISTRATION_ROLES.has(requestedRole) ? requestedRole : "student";
 
     const [existingEmail, existingPhone] = await Promise.all([
       db
@@ -267,7 +272,7 @@ router.post("/auth/register", async (req, res) => {
         name: String(name),
         email: normalizedEmail,
         password: hashPassword(String(password)),
-        role: String(role),
+        role: safeRole,
         status: "active",
         lastActiveAt: new Date(),
         phone: normalizedPhone || undefined,
@@ -284,7 +289,7 @@ router.post("/auth/register", async (req, res) => {
       .returning();
 
     const { password: _pw, ...safeUser } = user;
-    return res.status(201).json({ user: withPermissions(safeUser), token: `session_${user.id}` });
+    return res.status(201).json({ user: withPermissions(safeUser), token: issueToken(user.id) });
   } catch (err) {
     req.log.error({ err: getErrorDetails(err) }, "Register error");
     if (isDatabaseUnavailableError(err)) {
@@ -328,12 +333,21 @@ router.post("/auth/login", async (req, res) => {
       }
     }
     if (!user) return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
-    if (!checkPassword(plainPassword, user.password)) return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
+    if (!verifyPassword(plainPassword, user.password)) return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
     if (user.status === "suspended") return res.status(403).json({ error: "الحساب موقوف" });
+
+    // Upgrade legacy plaintext passwords to a hash on first successful login.
+    if (needsRehash(user.password)) {
+      try {
+        await db.update(usersTable).set({ password: hashPassword(plainPassword) }).where(eq(usersTable.id, user.id));
+      } catch (rehashErr) {
+        req.log.warn({ err: getErrorDetails(rehashErr), userId: user.id }, "Password rehash on login failed");
+      }
+    }
 
     const activeUser = await touchUserActivity(user.id);
     const { password: _pw, ...safeUser } = activeUser ?? user;
-    return res.json({ user: withPermissions(safeUser), token: `session_${user.id}` });
+    return res.json({ user: withPermissions(safeUser), token: issueToken(user.id) });
   } catch (err) {
     const errorDetails = getErrorDetails(err);
     req.log.error({ err: errorDetails, email: normalizedEmail }, "Login error");

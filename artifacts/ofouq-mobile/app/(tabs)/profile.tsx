@@ -25,7 +25,7 @@ import { COLORS } from "@/constants/colors";
 import { useAuth, type User } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
-import { EGYPT_GOVERNORATES } from "@/lib/egyptGovernorates";
+import { EGYPT_GOVERNORATES, governorateLabel } from "@/lib/egyptGovernorates";
 import { formatDate, toEnglishDigits } from "@/lib/format";
 import {
   createImageFormDataFile,
@@ -139,6 +139,7 @@ export default function ProfileScreen() {
     rowDirection,
     alignStart,
     alignEnd,
+    language,
   } = usePreferences();
   const { user, token, logout, updateUser, isLoading } = useAuth();
   const insets = useSafeAreaInsets();
@@ -219,6 +220,7 @@ export default function ProfileScreen() {
       logImageUploadDebug("profile-avatar", "upload_start", asset);
       const upload = await apiFetch<{ url: string }>("/api/auth/profile-photo/upload", {
         method: "POST",
+        token,
         body: fd,
       });
       logImageUploadDebug("profile-avatar", "upload_success", asset);
@@ -565,7 +567,11 @@ export default function ProfileScreen() {
                         ]}
                         numberOfLines={1}
                       >
-                        {form.governorate || (isRTL ? "اختر المحافظة" : "Select governorate")}
+                        {form.governorate
+                          ? governorateLabel(form.governorate, language)
+                          : isRTL
+                            ? "اختر المحافظة"
+                            : "Select governorate"}
                       </Text>
                     </Pressable>
                   ) : (
@@ -609,7 +615,11 @@ export default function ProfileScreen() {
                 valueDirection="rtl"
                 wrapRtlValue
               />
-              <FieldDisplay icon="map-pin" label={strings.profile.governorate} value={user.governorate} />
+              <FieldDisplay
+                icon="map-pin"
+                label={strings.profile.governorate}
+                value={governorateLabel(user.governorate, language)}
+              />
               {user.bio ? <FieldDisplay icon="file-text" label={strings.profile.bio} value={user.bio} /> : null}
             </View>
           )}
@@ -659,15 +669,15 @@ export default function ProfileScreen() {
               contentContainerStyle={styles.governorateListContent}
               showsVerticalScrollIndicator={false}
             >
-              {EGYPT_GOVERNORATES.map((governorate, index) => {
-                const selected = form.governorate === governorate;
+              {EGYPT_GOVERNORATES.map((item, index) => {
+                const selected = form.governorate === item.value;
                 const isLast = index === EGYPT_GOVERNORATES.length - 1;
 
                 return (
                   <Pressable
-                    key={governorate}
+                    key={item.value}
                     onPress={() => {
-                      setForm((prev) => ({ ...prev, governorate }));
+                      setForm((prev) => ({ ...prev, governorate: item.value }));
                       setGovernoratePickerOpen(false);
                     }}
                     style={({ pressed }) => [
@@ -690,12 +700,12 @@ export default function ProfileScreen() {
                         styles.governorateOptionText,
                         {
                           color: selected ? COLORS.primary : colors.text,
-                          textAlign: "right",
+                          textAlign: isRTL ? "right" : "left",
                           writingDirection: direction,
                         },
                       ]}
                     >
-                      {governorate}
+                      {governorateLabel(item.value, language)}
                     </Text>
                     {selected ? (
                       <Feather

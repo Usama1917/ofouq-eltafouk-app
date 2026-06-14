@@ -15,6 +15,7 @@ import { InternalChatWidget } from "@/components/internal-chat-widget";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   useListAdminUsers, useUpdateAdminUser, useDeleteAdminUser, useCreateAdminUser,
 } from "@workspace/api-client-react";
@@ -891,7 +892,7 @@ function ScoringControl({ userId, stars, frozen, onChanged }: { userId: number; 
       });
       if (!res.ok) throw new Error();
       onChanged();
-    } catch { revert(); } finally { setBusy(false); }
+    } catch { revert(); toast.error("تعذّر حفظ التقييم"); } finally { setBusy(false); }
   };
   const setStar = (s: number) => { const prev = localStars; setLocalStars(s); patch({ expectationStars: s }, () => setLocalStars(prev)); };
   const toggleFreeze = () => { const nf = !localFrozen; setLocalFrozen(nf); patch({ scoringFrozen: nf }, () => setLocalFrozen(!nf)); };
@@ -1062,7 +1063,7 @@ function AdminsTab() {
               </div>
               <div className="flex flex-col gap-2 flex-shrink-0">
                 {!isOwner && (
-                  <button onClick={() => updateUser.mutate({ id: u.id, data: { role: "owner" } as any }, { onSuccess: () => refetch() })} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition-all">ترقية لمالك</button>
+                  <button onClick={() => { if (confirm(`ترقية ${u.name} إلى مالك بصلاحيات كاملة؟`)) updateUser.mutate({ id: u.id, data: { role: "owner" } as any }, { onSuccess: () => refetch() }); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition-all">ترقية لمالك</button>
                 )}
                 <button onClick={() => { if (confirm(`إزالة ${u.name} من المشرفين؟`)) updateUser.mutate({ id: u.id, data: { role: "student" } as any }, { onSuccess: () => refetch() }); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all">إزالة الصلاحيات</button>
               </div>
@@ -1233,7 +1234,7 @@ function FilterGroup({ label, options, value, onChange }: { label: string; optio
 
 // ── Main Owner Panel ───────────────────────────────────────────────────────
 export default function OwnerPanel() {
-  const { user, logout } = useAuth();
+  const { user, logout, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState<Tab>("dashboard");
   const [adminTheme, setAdminTheme] = useState<AdminTheme>(getInitialAdminTheme);
@@ -1265,8 +1266,15 @@ export default function OwnerPanel() {
     window.localStorage.setItem(ADMIN_THEME_STORAGE_KEY, adminTheme);
   }, [adminTheme]);
 
-  if (!user || user.role !== "owner") {
-    setLocation("/login");
+  // Wait for session restore before deciding, so a hard refresh doesn't bounce
+  // a logged-in owner to login while the token is still being validated.
+  useEffect(() => {
+    if (!authLoading && (!user || user.role !== "owner")) {
+      setLocation("/login");
+    }
+  }, [authLoading, user, setLocation]);
+
+  if (authLoading || !user || user.role !== "owner") {
     return null;
   }
 

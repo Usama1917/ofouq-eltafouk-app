@@ -28,7 +28,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { type ApiError, apiFetch } from "@/lib/api";
 import { isValidEmail, isValidPhone, PASSWORD_MIN_LENGTH } from "@/lib/authValidation";
-import { EGYPT_GOVERNORATES } from "@/lib/egyptGovernorates";
+import { EGYPT_GOVERNORATES, governorateLabel } from "@/lib/egyptGovernorates";
 import { FONT } from "@/constants/typography";
 import { toEnglishDigits } from "@/lib/format";
 import {
@@ -47,7 +47,7 @@ type FieldErrors = {
 };
 
 export default function RegisterScreen() {
-  const { colors, resolvedScheme, strings, isRTL, textAlign, direction } = usePreferences();
+  const { colors, resolvedScheme, strings, isRTL, textAlign, direction, language } = usePreferences();
   const insets = useSafeAreaInsets();
   const { register } = useAuth();
   // Physical placement inside the modal (see AuthTextField for the rationale).
@@ -310,7 +310,7 @@ export default function RegisterScreen() {
               style={[styles.selectValue, { color: governorate ? colors.text : colors.textTertiary, textAlign, writingDirection: direction }]}
               numberOfLines={1}
             >
-              {governorate || strings.register.governoratePlaceholder}
+              {governorate ? governorateLabel(governorate, language) : strings.register.governoratePlaceholder}
             </Text>
             <Feather name="chevron-down" size={18} color={colors.textTertiary} />
           </Pressable>
@@ -398,13 +398,13 @@ export default function RegisterScreen() {
               showsVerticalScrollIndicator={false}
             >
               {EGYPT_GOVERNORATES.map((item, index) => {
-                const selected = governorate === item;
+                const selected = governorate === item.value;
                 const isLast = index === EGYPT_GOVERNORATES.length - 1;
                 return (
                   <Pressable
-                    key={item}
+                    key={item.value}
                     onPress={() => {
-                      setGovernorate(item);
+                      setGovernorate(item.value);
                       setGovernoratePickerOpen(false);
                     }}
                     style={({ pressed }) => [
@@ -423,9 +423,9 @@ export default function RegisterScreen() {
                     ]}
                   >
                     <Text
-                      style={[styles.governorateOptionText, { color: selected ? COLORS.primary : colors.text, textAlign: "right", writingDirection: direction }]}
+                      style={[styles.governorateOptionText, { color: selected ? COLORS.primary : colors.text, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}
                     >
-                      {item}
+                      {governorateLabel(item.value, language)}
                     </Text>
                     {selected ? (
                       <Feather

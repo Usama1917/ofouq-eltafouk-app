@@ -1,17 +1,61 @@
 import { Router, type IRouter } from "express";
-import { and, asc, desc, eq, ilike, or } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, lt, or, sql } from "drizzle-orm";
 import {
   bookPurchasesTable,
   bookReservationsTable,
   bookVouchersTable,
   booksTable,
   materialsTable,
+  usersTable,
   db,
 } from "@workspace/db";
+import { getSessionUserId } from "../lib/auth";
 
 const router: IRouter = Router();
 
 const DEFAULT_SHIPPING_EGP = 50;
+
+const ADMIN_ROLES = new Set(["admin", "owner"]);
+
+// Creating/editing catalog books is a staff-only action. Returns the actor, or
+// null after sending 401/403. Mirrors moderator.ts requireModerator.
+async function requireAdmin(req: any, res: any) {
+  const userId = getSessionUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
+    return null;
+  }
+  const [user] = await db
+    .select({ id: usersTable.id, role: usersTable.role, status: usersTable.status })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  if (!user || user.status !== "active" || !ADMIN_ROLES.has(user.role)) {
+    res.status(403).json({ error: "هذا الإجراء متاح للمشرفين فقط" });
+    return null;
+  }
+  return user;
+}
+
+// Reserving/purchasing a book requires any active, authenticated user so that
+// orders are never anonymous. Returns the actor, or null after sending 401.
+async function requireUser(req: any, res: any) {
+  const userId = getSessionUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
+    return null;
+  }
+  const [user] = await db
+    .select({ id: usersTable.id, status: usersTable.status })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  if (!user || user.status !== "active") {
+    res.status(401).json({ error: "غير مصرح" });
+    return null;
+  }
+  return user;
+}
 
 function asPositiveInt(value: unknown, fallback = 0): number {
   const n = Number(value);
@@ -108,6 +152,7 @@ router.get("/books", async (req, res) => {
 });
 
 router.post("/books", async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
   try {
     const body = req.body ?? {};
     const subject = typeof body.subject === "string" ? body.subject : typeof body.category === "string" ? body.category : "علوم";
@@ -151,6 +196,7 @@ router.get("/books/:id", async (req, res) => {
 });
 
 router.post("/books/:id/reserve", async (req, res) => {
+  if (!(await requireUser(req, res))) return;
   try {
     const bookId = Number.parseInt(req.params.id, 10);
     const [reservation] = await db.insert(bookReservationsTable).values({ bookId, status: "pending" }).returning();
@@ -162,6 +208,7 @@ router.post("/books/:id/reserve", async (req, res) => {
 });
 
 router.post("/books/:id/purchase", async (req, res) => {
+  if (!(await requireUser(req, res))) return;
   try {
     const bookId = Number.parseInt(req.params.id, 10);
     const [book] = await db.select().from(booksTable).where(eq(booksTable.id, bookId));
@@ -176,6 +223,10 @@ router.post("/books/:id/purchase", async (req, res) => {
     let discountType: "percent" | "amount" | "free_shipping" | null = null;
     let discountValue = 0;
     let voucherForcesFreeShipping = false;
+    // The validated voucher row, captured here but NOT yet consumed. We only burn
+    // a use atomically (and record voucherCode on the purchase) once we know the
+    // voucher actually grants value, after all validation succeeds.
+    let appliedVoucher: typeof bookVouchersTable.$inferSelect | null = null;
 
     if (normalizedVoucherCode.length > 0) {
       const [voucher] = await db.select().from(bookVouchersTable).where(eq(bookVouchersTable.code, normalizedVoucherCode)).limit(1);
@@ -190,7 +241,7 @@ router.post("/books/:id/purchase", async (req, res) => {
         return res.status(400).json({ error: "كود الخصم لا يطبق على هذا الكتاب" });
       }
 
-      voucherCode = voucher.code;
+      appliedVoucher = voucher;
       const rawType = String(voucher.discountType ?? "percent").trim().toLowerCase();
       discountType = rawType === "amount" || rawType === "free_shipping" ? rawType : "percent";
       const storedDiscountValue = typeof voucher.discountValue === "number" ? voucher.discountValue : 0;
@@ -201,11 +252,6 @@ router.post("/books/:id/purchase", async (req, res) => {
       } else if (discountType === "free_shipping") {
         voucherForcesFreeShipping = true;
       }
-
-      await db
-        .update(bookVouchersTable)
-        .set({ usedCount: voucher.usedCount + 1 })
-        .where(eq(bookVouchersTable.id, voucher.id));
     }
 
     let discountAmountEgp = 0;
@@ -215,8 +261,39 @@ router.post("/books/:id/purchase", async (req, res) => {
       discountAmountEgp = Math.round((basePriceEgp * discountPercent) / 100);
     }
     const finalPriceEgp = Math.max(0, basePriceEgp - discountAmountEgp);
+    // A free_shipping voucher only grants value when the book isn't already free.
+    const voucherSavesShipping = voucherForcesFreeShipping && !book.freeShipping;
     const shippingCostEgp = book.freeShipping || voucherForcesFreeShipping ? 0 : DEFAULT_SHIPPING_EGP;
     const totalPaidEgp = finalPriceEgp + shippingCostEgp;
+
+    // Consume the voucher only when it actually reduces what the buyer pays, and
+    // only as part of this successful purchase. The conditional UPDATE increments
+    // usedCount atomically while still under the limit, closing the TOCTOU window
+    // where two concurrent buyers could both pass the earlier usageLimit check.
+    if (appliedVoucher && (discountAmountEgp > 0 || voucherSavesShipping)) {
+      const consumed =
+        appliedVoucher.usageLimit === null
+          ? await db
+              .update(bookVouchersTable)
+              .set({ usedCount: sql`${bookVouchersTable.usedCount} + 1` })
+              .where(eq(bookVouchersTable.id, appliedVoucher.id))
+              .returning()
+          : await db
+              .update(bookVouchersTable)
+              .set({ usedCount: sql`${bookVouchersTable.usedCount} + 1` })
+              .where(
+                and(
+                  eq(bookVouchersTable.id, appliedVoucher.id),
+                  lt(bookVouchersTable.usedCount, bookVouchersTable.usageLimit),
+                ),
+              )
+              .returning();
+
+      if (consumed.length === 0) {
+        return res.status(400).json({ error: "كود الخصم غير صالح أو منتهي" });
+      }
+      voucherCode = appliedVoucher.code;
+    }
 
     const [purchase] = await db
       .insert(bookPurchasesTable)

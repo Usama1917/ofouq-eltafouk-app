@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { setAuthTokenGetter } from "@workspace/api-client-react";
+import { installUnauthorizedInterceptor, setSessionExpiredHandler } from "@/lib/session";
 
 interface AuthUser {
   id: number;
@@ -110,6 +111,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setAuthTokenGetter(null);
   }, []);
 
+  // Session-expiry safety net: any protected request returning 401 (e.g. an
+  // expired/invalid token) signs the user out and sends them to login, instead
+  // of leaving the app in a half-logged-in broken state.
+  useEffect(() => {
+    installUnauthorizedInterceptor();
+    let redirecting = false;
+    setSessionExpiredHandler(() => {
+      clearAuthState();
+      if (redirecting) return;
+      const loginPath = `${BASE}/login`;
+      const ownerLoginPath = `${BASE}/owner-login`;
+      if (window.location.pathname !== loginPath && window.location.pathname !== ownerLoginPath) {
+        redirecting = true;
+        window.location.assign(loginPath);
+      }
+    });
+    return () => setSessionExpiredHandler(null);
+  }, []);
+
   // Restore session from localStorage
   useEffect(() => {
     const storedToken = localStorage.getItem("ofouq_token");
@@ -121,12 +141,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
     (async () => {
       try {
-        const profile = await apiCall("/api/auth/me", {
+        const raw = await apiCall("/api/auth/me", {
           method: "GET",
           headers: { Authorization: `Bearer ${storedToken}` },
         });
         if (!active) return;
-        applyAuthState(profile as AuthUser, storedToken);
+        // Accept either an enveloped { user } or a bare user object so a
+        // response-shape drift doesn't silently sign everyone out.
+        const profile = (raw?.user ?? raw) as AuthUser | null | undefined;
+        if (profile && profile.id != null && profile.role) {
+          applyAuthState(profile, storedToken);
+        } else {
+          clearAuthState();
+        }
       } catch {
         if (!active) return;
         clearAuthState();

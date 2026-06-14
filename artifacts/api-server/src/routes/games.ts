@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, gamesTable, questionsTable, pointsAccountTable, pointsTransactionsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { getSessionUserId } from "../lib/auth";
 
 const router: IRouter = Router();
 
@@ -29,9 +30,22 @@ router.get("/games/:id", async (req, res) => {
 });
 
 router.post("/games/:id/submit", async (req, res) => {
+  // Deferred feature: still credits a single shared points account. Require login
+  // so it isn't anonymously abusable until the per-user redesign lands.
+  if (!getSessionUserId(req)) return res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
   try {
     const gameId = parseInt(req.params.id);
-    const { answers } = req.body as { answers: { questionId: number; selectedIndex: number }[] };
+    const { answers } = req.body as { answers?: unknown };
+
+    if (!Array.isArray(answers)) {
+      return res.status(400).json({ error: "قيمة غير صالحة" });
+    }
+    // Coerce client-supplied ids to integers; entries that don't resolve to a
+    // real question simply won't match below.
+    const parsedAnswers = answers.map((a: any) => ({
+      questionId: Number.parseInt(a?.questionId, 10),
+      selectedIndex: Number.parseInt(a?.selectedIndex, 10),
+    }));
 
     const [game] = await db.select().from(gamesTable).where(eq(gamesTable.id, gameId));
     if (!game) return res.status(404).json({ error: "Game not found" });
@@ -39,7 +53,7 @@ router.post("/games/:id/submit", async (req, res) => {
     const questions = await db.select().from(questionsTable).where(eq(questionsTable.gameId, gameId));
 
     let correctCount = 0;
-    for (const answer of answers) {
+    for (const answer of parsedAnswers) {
       const question = questions.find(q => q.id === answer.questionId);
       if (question && question.correctIndex === answer.selectedIndex) {
         correctCount++;

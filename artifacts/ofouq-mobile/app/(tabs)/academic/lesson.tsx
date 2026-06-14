@@ -276,27 +276,38 @@ export default function LessonDetailScreen() {
         ) : null}
 
         {isError ? (
-          <View style={[styles.stateCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Feather name="lock" size={32} color="#B45309" />
-            <Text style={[styles.stateTitle, { color: colors.text }]}>{strings.academic.loadLessonError}</Text>
-            <Text style={[styles.stateText, { color: colors.textSecondary }]}>
-              {error instanceof Error ? error.message : strings.academic.needsLessonSubscription}
-            </Text>
-            <Pressable
-              onPress={() => {
-                if (token) router.push(subscribePath as any);
-                else router.push("/login");
-              }}
-              style={styles.primaryButton}
-            >
-              <Text style={styles.primaryButtonText}>
-                {token ? strings.academic.requestSubjectSubscription : strings.common.signIn}
-              </Text>
-            </Pressable>
-            <Pressable onPress={() => void refetch()} disabled={isFetching} style={styles.secondaryButton}>
-              <Text style={styles.secondaryText}>{isFetching ? strings.common.retrying : strings.common.retry}</Text>
-            </Pressable>
-          </View>
+          (() => {
+            // 401 (expired/invalid session) → route to login, not the subscribe flow.
+            const sessionExpired = (error as { status?: number } | undefined)?.status === 401;
+            const goToLogin = sessionExpired || !token;
+            return (
+              <View style={[styles.stateCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Feather name="lock" size={32} color="#B45309" />
+                <Text style={[styles.stateTitle, { color: colors.text }]}>{strings.academic.loadLessonError}</Text>
+                <Text style={[styles.stateText, { color: colors.textSecondary }]}>
+                  {sessionExpired
+                    ? strings.academic.signInToContinue
+                    : error instanceof Error
+                      ? error.message
+                      : strings.academic.needsLessonSubscription}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    if (goToLogin) router.push("/login");
+                    else router.push(subscribePath as any);
+                  }}
+                  style={styles.primaryButton}
+                >
+                  <Text style={styles.primaryButtonText}>
+                    {goToLogin ? strings.common.signIn : strings.academic.requestSubjectSubscription}
+                  </Text>
+                </Pressable>
+                <Pressable onPress={() => void refetch()} disabled={isFetching} style={styles.secondaryButton}>
+                  <Text style={styles.secondaryText}>{isFetching ? strings.common.retrying : strings.common.retry}</Text>
+                </Pressable>
+              </View>
+            );
+          })()
         ) : null}
 
         {lesson ? (

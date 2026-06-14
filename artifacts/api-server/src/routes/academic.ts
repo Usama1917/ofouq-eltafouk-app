@@ -709,13 +709,7 @@ async function primeVideoSegmentThumbnails(args: {
 }
 
 async function requireAdmin(req: any, res: any) {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token?.startsWith("session_")) {
-    res.status(401).json({ error: "غير مصرح" });
-    return null;
-  }
-
-  const userId = parsePositiveInt(token.replace("session_", ""));
+  const userId = getSessionUserId(req);
   if (!userId) {
     res.status(401).json({ error: "غير مصرح" });
     return null;
@@ -738,6 +732,18 @@ async function requireAdmin(req: any, res: any) {
   }
 
   return user;
+}
+
+// Express middleware form of requireAdmin — used to reject unauthorized callers
+// BEFORE the multer upload middleware runs, so no bytes are written to disk first.
+async function requireAdminMw(req: any, res: any, next: any) {
+  if (await requireAdmin(req, res)) next();
+}
+
+// Any authenticated user — gates uploads before multer writes the file to disk.
+function requireAuthMw(req: any, res: any, next: any) {
+  if (getSessionUserId(req)) return next();
+  return res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
 }
 
 // Append-only audit entry attributing an academic-content action to the admin
@@ -781,13 +787,7 @@ type SessionUser = {
   status: string;
 };
 
-function getSessionUserId(req: any) {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token?.startsWith("session_")) return null;
-
-  const userId = parsePositiveInt(token.replace("session_", ""));
-  return userId ?? null;
-}
+import { getSessionUserId } from "../lib/auth";
 
 async function getSessionUser(req: any): Promise<SessionUser | null> {
   const userId = getSessionUserId(req);
@@ -844,7 +844,7 @@ async function requireStudentSubjectAccess(req: any, res: any, subjectId: number
   const user = await requireAuthenticatedUser(req, res);
   if (!user) return null;
 
-  if (user.role !== "student") return user;
+  if (user.role === "admin" || user.role === "owner") return user;
 
   const hasAccess = await userHasSubjectAccess(user.id, subjectId);
   if (!hasAccess) {
@@ -1115,7 +1115,7 @@ async function getLessonWithVideo(lessonId: number, publishedOnly: boolean) {
 
 // ── Subscription requests (student + admin review) ───────────────────────
 
-router.post("/academic/subscription-requests/upload-code-image", uploadCodeImageFile.single("image"), async (req, res) => {
+router.post("/academic/subscription-requests/upload-code-image", requireAuthMw, uploadCodeImageFile.single("image"), async (req, res) => {
   try {
     const student = await requireStudent(req, res);
     if (!student) return;
@@ -2174,9 +2174,8 @@ router.get("/academic/videos/:videoId/segments/:segmentId/thumbnail", async (req
 
 // ── Admin routes (year -> subject -> unit -> lesson -> video) ────────────
 
-router.post("/admin/academic/media/upload-video", uploadVideoFile.single("video"), async (req, res) => {
+router.post("/admin/academic/media/upload-video", requireAdminMw, uploadVideoFile.single("video"), async (req, res) => {
   try {
-    if (!(await requireAdmin(req, res))) return;
     if (!req.file) return res.status(400).json({ error: "No video file provided" });
 
     const url = `/api/uploads/videos/${req.file.filename}`;
@@ -2187,9 +2186,8 @@ router.post("/admin/academic/media/upload-video", uploadVideoFile.single("video"
   }
 });
 
-router.post("/admin/academic/media/upload-thumbnail", uploadThumbnailFile.single("thumbnail"), async (req, res) => {
+router.post("/admin/academic/media/upload-thumbnail", requireAdminMw, uploadThumbnailFile.single("thumbnail"), async (req, res) => {
   try {
-    if (!(await requireAdmin(req, res))) return;
     if (!req.file) return res.status(400).json({ error: "No thumbnail file provided" });
 
     const url = `/api/uploads/thumbnails/${req.file.filename}`;

@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, 
   Flag, Megaphone, Plus, Edit, Trash2, Eye, Check, X, ArrowUp, ArrowDown,
   TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap, ImagePlus, TicketPercent, Truck, Send, ChevronDown,
-  Sun, Moon, Bot, Search, Info, Phone, MapPin, BookMarked, Activity, Bell, Smartphone, Mail, CalendarClock, ShieldCheck
+  Sun, Moon, Bot, Search, Info, Phone, MapPin, BookMarked, Activity, Bell, Smartphone, Mail, CalendarClock, ShieldCheck, AlertTriangle
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
@@ -841,7 +841,7 @@ function SubjectInsightsTimeline({
 
 // ── Dashboard Tab ─────────────────────────────────────────────────────────
 function DashboardTab({ onOpenMaterials }: { onOpenMaterials: () => void }) {
-  const { data: stats } = useGetAdminStats();
+  const { data: stats, isLoading: statsLoading, isError: statsError, error: statsErrorObj, refetch: refetchStats } = useGetAdminStats();
   const [subjectInsights, setSubjectInsights] = useState<SubjectInsightItem[]>([]);
   const [subjectInsightsLoading, setSubjectInsightsLoading] = useState(false);
   const [subjectInsightsError, setSubjectInsightsError] = useState("");
@@ -874,6 +874,19 @@ function DashboardTab({ onOpenMaterials }: { onOpenMaterials: () => void }) {
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-display font-bold">نظرة عامة على المنصة</h2>
+      {statsLoading ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="glass-card p-5 animate-pulse h-24" />
+          ))}
+        </div>
+      ) : statsError ? (
+        <div className="glass-card p-8 text-center space-y-3">
+          <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto" />
+          <p className="font-bold text-foreground">{(statsErrorObj as Error)?.message || "تعذر تحميل إحصائيات المنصة"}</p>
+          <button onClick={() => refetchStats()} className="btn-primary text-sm py-2 px-5 mx-auto">إعادة المحاولة</button>
+        </div>
+      ) : (
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="المستخدمون" value={stats?.totalUsers} icon={Users} color="text-primary" bg="from-blue-50/80 to-indigo-50/60" />
         <StatCard label="الكتب" value={stats?.totalBooks} icon={BookOpen} color="text-violet-600" bg="from-violet-50/80 to-purple-50/60" />
@@ -884,6 +897,7 @@ function DashboardTab({ onOpenMaterials }: { onOpenMaterials: () => void }) {
         <StatCard label="النقاط المتداولة" value={stats?.totalPointsCirculating} icon={Coins} color="text-amber-600" bg="from-amber-50/80 to-orange-50/60" />
         <StatCard label="التقارير المعلقة" value={stats?.pendingReports} icon={Flag} color="text-rose-500" bg="from-rose-50/80 to-pink-50/60" />
       </div>
+      )}
       <SubjectInsightsTimeline items={subjectInsights} loading={subjectInsightsLoading} error={subjectInsightsError} />
       <div className="glass-card p-5 border-primary/20">
         <button
@@ -1468,7 +1482,7 @@ function UsersTab({
   onSendNotification: (users: AdminUserListItem[]) => void;
   onSendSupportMessage: (users: AdminUserListItem[]) => void;
 }) {
-  const { data: rawUsers = [], refetch } = useListAdminUsers();
+  const { data: rawUsers = [], isLoading, isError, error, refetch } = useListAdminUsers();
   const users = rawUsers as AdminUserListItem[];
   const deleteUser = useDeleteAdminUser();
   const updateUser = useUpdateAdminUser();
@@ -1482,6 +1496,10 @@ function UsersTab({
   const [customActivityDays, setCustomActivityDays] = useState("");
   const [contactOpen, setContactOpen] = useState(false);
   const [detailUser, setDetailUser] = useState<AdminUserListItem | null>(null);
+  // Render only a capped slice so a large user directory stays light; the "عرض"
+  // picker raises the cap on demand (mirrors the owner dashboard users table).
+  const PAGE_SIZES = [20, 50, 100, 500];
+  const [pageSize, setPageSize] = useState(20);
 
   const ROLE_COLORS: Record<string, string> = { student: "bg-blue-100 text-blue-700", teacher: "bg-emerald-100 text-emerald-700", parent: "bg-amber-100 text-amber-700", admin: "bg-violet-100 text-violet-700", owner: "bg-rose-100 text-rose-700" };
   const ROLE_LABELS: Record<string, string> = { student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", owner: "مالك" };
@@ -1502,6 +1520,9 @@ function UsersTab({
     return true;
   });
   const visibleSelected = filteredUsers.length > 0 && filteredUsers.every((user) => selectedIdSet.has(user.id));
+  // Only the first `pageSize` rows are rendered (selection/bulk actions still
+  // operate over the full filtered set, so messaging a whole cohort keeps working).
+  const visibleUsers = filteredUsers.slice(0, pageSize);
 
   useEffect(() => {
     const currentIds = new Set(users.map((user) => user.id));
@@ -1553,6 +1574,16 @@ function UsersTab({
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground" title="عدد النتائج المعروضة">
+            عرض
+            <select
+              value={pageSize}
+              onChange={(event) => setPageSize(Number(event.target.value))}
+              className="h-11 rounded-2xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
+            >
+              {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
           <button
             onClick={() => setContactOpen(true)}
             disabled={selectedUsers.length === 0}
@@ -1593,6 +1624,25 @@ function UsersTab({
           </div>
         </div>
       )}
+      {isLoading ? (
+        <div className="glass-card overflow-hidden">
+          <div className="divide-y divide-white/30">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-5 py-4 animate-pulse">
+                <div className="h-4 w-4 rounded bg-muted" />
+                <div className="h-4 flex-1 rounded bg-muted" />
+                <div className="h-4 w-24 rounded bg-muted" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : isError ? (
+        <div className="glass-card p-8 text-center space-y-3">
+          <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto" />
+          <p className="font-bold text-foreground">{(error as Error)?.message || "تعذر تحميل المستخدمين"}</p>
+          <button onClick={() => refetch()} className="btn-primary text-sm py-2 px-5 mx-auto">إعادة المحاولة</button>
+        </div>
+      ) : (
       <div className="glass-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-right">
@@ -1675,7 +1725,7 @@ function UsersTab({
               </th>
             </tr></thead>
             <tbody className="divide-y divide-white/30">
-              {filteredUsers.map(u => {
+              {visibleUsers.map(u => {
                 const activity = getUserActivityInfo(u.lastActiveAt, activityDays);
                 return (
                 <tr key={u.id} className={`hover:bg-white/30 transition-colors ${selectedIdSet.has(u.id) ? "bg-primary/5" : ""}`}>
@@ -1708,7 +1758,7 @@ function UsersTab({
                       <div className="flex items-center gap-2">
                         <button onClick={() => updateUser.mutate({ id: u.id, data: { status: u.status === "active" ? "suspended" : "active" } as any }, { onSuccess: () => refetch() })}
                           className="px-3 py-1.5 rounded-lg text-xs font-bold bg-muted hover:bg-muted/80 transition-all">{u.status === "active" ? "تعليق" : "تفعيل"}</button>
-                        <button onClick={() => { if(confirm("هل أنت متأكد؟")) deleteUser.mutate({ id: u.id }, { onSuccess: () => refetch() }); }}
+                        <button onClick={() => { if(confirm(`حذف المستخدم ${u.name} (${u.email})؟`)) deleteUser.mutate({ id: u.id }, { onSuccess: () => refetch() }); }}
                           className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all">حذف</button>
                       </div>
                     </div>
@@ -1725,7 +1775,13 @@ function UsersTab({
             </tbody>
           </table>
         </div>
+        {filteredUsers.length > visibleUsers.length ? (
+          <div className="px-5 py-3 text-center text-xs text-muted-foreground border-t border-white/30">
+            عرض {formatAdminNumber(visibleUsers.length)} من {formatAdminNumber(filteredUsers.length)} — اختر عددًا أكبر من قائمة «عرض» بالأعلى لرؤية المزيد
+          </div>
+        ) : null}
       </div>
+      )}
 
       <AnimatePresence>
         {contactOpen ? (
@@ -2541,6 +2597,10 @@ function SubscriptionRequestsTab({
   const [previewImage, setPreviewImage] = useState<{ src: string; title?: string } | null>(null);
   const [expandedStudentIds, setExpandedStudentIds] = useState<number[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  // Cap how many student groups render so a large queue stays light; the "عرض"
+  // picker raises the cap on demand (mirrors the users table).
+  const PAGE_SIZES = [20, 50, 100, 500];
+  const [pageSize, setPageSize] = useState(20);
 
   const loadRequests = async () => {
     if (!token) return;
@@ -2658,6 +2718,10 @@ function SubscriptionRequestsTab({
       .values(),
   ).sort((a, b) => new Date(b.latestSubmittedAt).getTime() - new Date(a.latestSubmittedAt).getTime());
 
+  // Only render the first `pageSize` student groups; the count in the header
+  // still reflects the full filtered set.
+  const visibleStudentGroups = studentGroups.slice(0, pageSize);
+
   const toggleStudentSlide = (studentId: number) => {
     setExpandedStudentIds((current) =>
       current.includes(studentId) ? current.filter((id) => id !== studentId) : [...current, studentId],
@@ -2685,6 +2749,16 @@ function SubscriptionRequestsTab({
               dir="rtl"
             />
           </div>
+          <label className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground" title="عدد الطلاب المعروضين">
+            عرض
+            <select
+              value={pageSize}
+              onChange={(event) => setPageSize(Number(event.target.value))}
+              className="h-10 rounded-xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
+            >
+              {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
           <button onClick={() => void loadRequests()} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold hover:bg-muted transition-all">
             تحديث
           </button>
@@ -2710,7 +2784,7 @@ function SubscriptionRequestsTab({
           <div className="glass-card p-7 text-center text-sm text-muted-foreground">لا توجد نتائج مطابقة للبحث</div>
         ) : null}
 
-        {studentGroups.map((group) => {
+        {visibleStudentGroups.map((group) => {
           const isExpanded = expandedStudentIds.includes(group.student.id);
           const pendingCount = group.requests.filter((request) => request.status === "pending").length;
           const approvedCount = group.requests.filter((request) => request.status === "approved").length;
@@ -2877,6 +2951,12 @@ function SubscriptionRequestsTab({
             </div>
           );
         })}
+
+        {studentGroups.length > visibleStudentGroups.length ? (
+          <div className="glass-card px-5 py-3 text-center text-xs text-muted-foreground">
+            عرض {formatAdminNumber(visibleStudentGroups.length)} من {formatAdminNumber(studentGroups.length)} طالب — اختر عددًا أكبر من قائمة «عرض» بالأعلى لرؤية المزيد
+          </div>
+        ) : null}
       </div>
 
       <AnimatePresence>
@@ -3604,8 +3684,14 @@ function SupportMessagesTab({
   const [directMessageSending, setDirectMessageSending] = useState(false);
   const [directMessageSuccess, setDirectMessageSuccess] = useState("");
   const [messageActionId, setMessageActionId] = useState<number | null>(null);
+  // Cap how many conversations render so a long list stays light; the "عرض"
+  // picker raises the cap on demand (mirrors the users table).
+  const CONVERSATION_PAGE_SIZES = [20, 50, 100, 500];
+  const [conversationPageSize, setConversationPageSize] = useState(20);
 
   const selectedConversation = conversations.find((item) => item.id === selectedId) ?? null;
+  // Selecting a conversation still works on the full list; only rendering is capped.
+  const visibleConversations = conversations.slice(0, conversationPageSize);
   const activeQuickReplies = quickReplies[quickReplyLanguage] ?? [];
   const quickReplyDirection = quickReplyLanguage === "ar" ? "rtl" : "ltr";
   const targetUserIds = targetUsers.map((user) => user.id);
@@ -4104,12 +4190,24 @@ function SupportMessagesTab({
 
       <div className="grid grid-cols-1 xl:grid-cols-[340px_minmax(0,1fr)] gap-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
         <div className="glass-card flex min-h-[580px] flex-col p-3 xl:h-full xl:min-h-0 xl:overflow-hidden">
-          <div className="px-2 pb-3 flex shrink-0 items-center justify-between">
+          <div className="px-2 pb-3 flex shrink-0 items-center justify-between gap-2">
             <p className="text-sm font-bold text-foreground">المحادثات</p>
-            <span className="text-xs text-muted-foreground">{conversations.length}</span>
+            <div className="flex items-center gap-2">
+              <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground" title="عدد المحادثات المعروضة">
+                عرض
+                <select
+                  value={conversationPageSize}
+                  onChange={(event) => setConversationPageSize(Number(event.target.value))}
+                  className="h-8 rounded-lg border border-border bg-background px-1.5 text-[11px] font-bold text-foreground outline-none"
+                >
+                  {CONVERSATION_PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <span className="text-xs text-muted-foreground">{formatAdminNumber(conversations.length, "0")}</span>
+            </div>
           </div>
           <div className="space-y-2 max-h-[520px] overflow-y-auto overscroll-contain hide-scrollbar xl:max-h-none xl:min-h-0 xl:flex-1">
-            {conversations.map((conversation) => {
+            {visibleConversations.map((conversation) => {
               const active = conversation.id != null && conversation.id === selectedId;
               const lastText = conversation.lastMessage?.body ?? "لا توجد رسائل بعد";
               const automaticLastMessage = isAutomaticSupportMessage(conversation.lastMessage);
@@ -4174,6 +4272,12 @@ function SupportMessagesTab({
               <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                 {activeConversationSearchTerm ? "لا توجد نتائج مطابقة للبحث." : "لا يوجد مستخدمون بعد."}
               </div>
+            ) : null}
+
+            {conversations.length > visibleConversations.length ? (
+              <p className="px-2 py-2 text-center text-[11px] text-muted-foreground">
+                عرض {formatAdminNumber(visibleConversations.length)} من {formatAdminNumber(conversations.length)} — اختر عددًا أكبر من قائمة «عرض» بالأعلى
+              </p>
             ) : null}
           </div>
         </div>
@@ -4542,7 +4646,7 @@ function SupportMessagesTab({
 
 // ── Main Admin Panel ──────────────────────────────────────────────────────
 export default function AdminPanel() {
-  const { user, token, logout } = useAuth();
+  const { user, token, logout, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState<Tab>(() => {
     // Allow deep links from the owner dashboard quick actions: /admin?tab=academic
@@ -4632,8 +4736,15 @@ export default function AdminPanel() {
     window.localStorage.setItem(ADMIN_THEME_STORAGE_KEY, adminTheme);
   }, [adminTheme]);
 
-  if (!user || (user.role !== "admin" && user.role !== "owner")) {
-    setLocation("/login");
+  // Wait for the session to finish restoring before deciding — otherwise a hard
+  // refresh (where `user` is briefly null) would bounce a logged-in admin to login.
+  useEffect(() => {
+    if (!authLoading && (!user || (user.role !== "admin" && user.role !== "owner"))) {
+      setLocation("/login");
+    }
+  }, [authLoading, user, setLocation]);
+
+  if (authLoading || !user || (user.role !== "admin" && user.role !== "owner")) {
     return null;
   }
 

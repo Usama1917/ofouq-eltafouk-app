@@ -33,6 +33,7 @@ import { COLORS } from "@/constants/colors";
 import { getBaseUrl } from "@/constants/api";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { localizeAcademicText } from "@/lib/academicContentLocalization";
+import type { AppLanguage } from "@/lib/i18n";
 import { toEnglishDigits } from "@/lib/format";
 
 type VideoType = "youtube" | "upload";
@@ -553,7 +554,7 @@ function SheetSegmentsContent({
   currentTime: number;
   onSeek: (time: number) => void;
   segmentLabel: (type: AcademicVideoSegment["segmentType"]) => string;
-  language: string;
+  language: AppLanguage;
   isRTL: boolean;
   strings: any;
 }) {
@@ -666,6 +667,8 @@ export function AcademicVideoPlayer({
   const [segmentPanelSize, setSegmentPanelSize] = useState<{ width: number; height: number } | null>(null);
   const [seekToast, setSeekToast] = useState<"-10s" | "+10s" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Bumping this remounts the media source so a failed load can be retried.
+  const [reloadKey, setReloadKey] = useState(0);
   const [optionMenu, setOptionMenu] = useState<ControlOptionMenu | null>(null);
   const [optionMenuOpen, setOptionMenuOpen] = useState(false);
   const [progressTrackWidth, setProgressTrackWidth] = useState(1);
@@ -1102,6 +1105,17 @@ export function AcademicVideoPlayer({
     else void play();
   }
 
+  // Clears the error overlay and re-initializes the media source so a failed
+  // load can be retried without leaving the player.
+  function retryPlayback() {
+    setError(null);
+    setReady(false);
+    setReloadKey((value) => value + 1);
+    if (isYouTube) {
+      webViewRef.current?.reload();
+    }
+  }
+
   function closeSheet() {
     Animated.timing(sheetProgress, {
       toValue: 0,
@@ -1454,6 +1468,8 @@ export function AcademicVideoPlayer({
         setReady(true);
         setHasStarted(true);
         setIsPlaying(true);
+        // A successful playback event clears any stale error overlay.
+        setError(null);
         return;
       }
       if (payload.type === "paused" || payload.type === "ended") {
@@ -1461,7 +1477,7 @@ export function AcademicVideoPlayer({
         return;
       }
       if (payload.type === "error") {
-        setError(payload.message ?? "تعذر تشغيل الفيديو حاليًا");
+        setError(strings.academic.videoPlaybackError);
       }
     } catch {
       // Ignore malformed WebView messages.
@@ -1470,10 +1486,12 @@ export function AcademicVideoPlayer({
 
   function handleUploadStatus(status: AVPlaybackStatus) {
     if (!status.isLoaded) {
-      if ("error" in status && status.error) setError("تعذر تشغيل الفيديو حاليًا");
+      if ("error" in status && status.error) setError(strings.academic.videoPlaybackError);
       return;
     }
     setReady(true);
+    // A successful (loaded) status clears any stale error overlay.
+    setError(null);
     setIsPlaying(status.isPlaying);
     updateDuration((status.durationMillis ?? 0) / 1000);
     const nextTime = status.positionMillis / 1000;
@@ -1572,6 +1590,7 @@ export function AcademicVideoPlayer({
         {isYouTube ? (
           youTubeId && isFullscreen ? (
             <WebView
+              key={reloadKey}
               ref={webViewRef}
               source={{ html: webHtml, baseUrl: "https://www.youtube-nocookie.com" }}
               originWhitelist={["*"]}
@@ -1592,6 +1611,7 @@ export function AcademicVideoPlayer({
           )
         ) : resolvedVideoUrl ? (
           <Video
+            key={reloadKey}
             ref={videoRef}
             source={{ uri: resolvedVideoUrl }}
             style={styles.video}
@@ -1661,7 +1681,17 @@ export function AcademicVideoPlayer({
         {error ? (
           <View style={styles.errorOverlay}>
             <Feather name="alert-triangle" size={24} color="#FDE68A" />
-            <Text style={styles.errorText}>{error}</Text>
+            <Text style={styles.errorText}>{strings.academic.videoPlaybackError}</Text>
+            <AnimatedPressable
+              style={[styles.errorRetryButton, { flexDirection: isRTL ? "row-reverse" : "row" }]}
+              onPress={retryPlayback}
+              pressedScale={0.92}
+              accessibilityRole="button"
+              accessibilityLabel={strings.academic.retry}
+            >
+              <Feather name="rotate-cw" size={14} color="#fff" />
+              <Text style={styles.errorRetryText}>{strings.academic.retry}</Text>
+            </AnimatedPressable>
           </View>
         ) : null}
 
@@ -1717,6 +1747,8 @@ export function AcademicVideoPlayer({
                     onPress={togglePlayback}
                     disabled={!ready && isYouTube}
                     pressedScale={0.9}
+                    accessibilityRole="button"
+                    accessibilityLabel={isPlaying ? strings.academic.a11yPause : strings.academic.a11yPlay}
                   >
                     <Feather
                       name={isPlaying ? "pause" : "play"}
@@ -1730,7 +1762,7 @@ export function AcademicVideoPlayer({
                     onPress={toggleFullscreenOrientation}
                     pressedScale={0.9}
                     accessibilityRole="button"
-                    accessibilityLabel={fullscreenOrientation === "landscape" ? "الرجوع للفول سكرين بالطول" : "الفول سكرين بالعرض"}
+                    accessibilityLabel={fullscreenOrientation === "landscape" ? strings.academic.a11yFullscreenExit : strings.academic.a11yFullscreen}
                   >
                     <Feather name={fullscreenOrientation === "landscape" ? "minimize" : "maximize"} size={15} color="#fff" />
                   </AnimatedPressable>
@@ -1753,8 +1785,8 @@ export function AcademicVideoPlayer({
                     text: `${formatTime(displayedTime)} / ${formatTime(duration)}`,
                   }}
                   accessibilityActions={[
-                    { name: "decrement", label: "رجوع 10 ثوانٍ" },
-                    { name: "increment", label: "تقديم 10 ثوانٍ" },
+                    { name: "decrement", label: strings.academic.a11ySeekBackward },
+                    { name: "increment", label: strings.academic.a11ySeekForward },
                   ]}
                   onAccessibilityAction={(event) => {
                     if (duration <= 0) return;
@@ -1808,10 +1840,22 @@ export function AcademicVideoPlayer({
 
                 {/* Fixed LTR so rewind is always left, forward always right. */}
                 <View pointerEvents="box-none" style={styles.npRowGroupFixed}>
-                  <AnimatedPressable style={styles.npRoundBtn} onPress={() => seekBy(-10)} pressedScale={0.88}>
+                  <AnimatedPressable
+                    style={styles.npRoundBtn}
+                    onPress={() => seekBy(-10)}
+                    pressedScale={0.88}
+                    accessibilityRole="button"
+                    accessibilityLabel={strings.academic.a11ySeekBackward}
+                  >
                     <Feather name="rotate-ccw" size={15} color="#fff" />
                   </AnimatedPressable>
-                  <AnimatedPressable style={styles.npRoundBtn} onPress={() => seekBy(10)} pressedScale={0.88}>
+                  <AnimatedPressable
+                    style={styles.npRoundBtn}
+                    onPress={() => seekBy(10)}
+                    pressedScale={0.88}
+                    accessibilityRole="button"
+                    accessibilityLabel={strings.academic.a11ySeekForward}
+                  >
                     <Feather name="rotate-cw" size={15} color="#fff" />
                   </AnimatedPressable>
                   <View ref={segmentButtonRef} collapsable={false} onLayout={measureSegmentButton}>
@@ -2523,6 +2567,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#fff",
     textAlign: "center",
+  },
+  errorRetryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    marginTop: 4,
+    paddingVertical: 9,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.35)",
+  },
+  errorRetryText: {
+    ...FONT.bold,
+    fontSize: 13,
+    color: "#fff",
   },
   previewCleanLayer: {
     ...StyleSheet.absoluteFillObject,

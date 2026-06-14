@@ -23,12 +23,7 @@ function parsePositiveInt(value: string | undefined) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function getSessionUserId(req: any) {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token?.startsWith("session_")) return null;
-
-  return parsePositiveInt(token.replace("session_", ""));
-}
+import { getSessionUserId } from "../lib/auth";
 
 async function requireAuthenticatedUser(req: any, res: any) {
   const userId = getSessionUserId(req);
