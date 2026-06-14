@@ -1,8 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { router } from "expo-router";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 
-import { apiFetch } from "@/lib/api";
+import { apiFetch, setUnauthorizedHandler, type ApiError } from "@/lib/api";
 import { LANGUAGE_STORAGE_KEY } from "@/contexts/PreferencesContext";
 import { unregisterCurrentPushToken } from "@/lib/pushNotifications";
 
@@ -64,8 +65,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(AUTH_TOKEN_KEY),
         ]);
         if (storedUser && storedToken) {
+          // Show the cached session immediately for a fast launch…
           setUser(JSON.parse(storedUser));
           setToken(storedToken);
+          // …then validate the token. Tokens are now signed + expiring, so a
+          // previously-stored token may be invalid; clear it silently if the
+          // server rejects it (a network failure keeps the cached session so the
+          // app still works offline).
+          try {
+            const fresh = await apiFetch<User>("/api/auth/me", { token: storedToken });
+            setUser(fresh);
+            await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(fresh));
+          } catch (err) {
+            if ((err as ApiError)?.status === 401) {
+              setUser(null);
+              setToken(null);
+              await Promise.all([
+                AsyncStorage.removeItem(AUTH_USER_KEY),
+                AsyncStorage.removeItem(AUTH_TOKEN_KEY),
+              ]);
+            }
+          }
         }
       } catch {
         // ignore
@@ -151,6 +171,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(updatedUser);
     AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser)).catch(() => {});
   }, []);
+
+  // When any protected request returns 401 (expired/invalid token), sign out and
+  // route to login — instead of leaving the user appearing logged-in while every
+  // action silently fails.
+  const redirectingRef = useRef(false);
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      void logout();
+      if (redirectingRef.current) return;
+      redirectingRef.current = true;
+      try {
+        router.replace("/login");
+      } catch {
+        /* router may not be mounted yet */
+      }
+      setTimeout(() => {
+        redirectingRef.current = false;
+      }, 1500);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [logout]);
 
   return (
     <AuthContext.Provider value={{ user, token, isLoading, login, register, logout, updateUser }}>

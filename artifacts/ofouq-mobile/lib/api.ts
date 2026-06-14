@@ -20,6 +20,23 @@ export type ApiError = Error & {
   fields?: Record<string, unknown>;
 };
 
+// Session-expiry hook: when a protected request is rejected with 401 (e.g. an
+// expired/invalid token after the signed-token change), AuthContext registers a
+// handler here to sign the user out instead of leaving the app half-logged-in.
+// Auth endpoints are exempt — a 401 from login/register/me is handled by callers.
+let onUnauthorized: ((path: string) => void) | null = null;
+export function setUnauthorizedHandler(fn: ((path: string) => void) | null) {
+  onUnauthorized = fn;
+}
+function isAuthExemptPath(path: string) {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return (
+    p.startsWith("/api/auth/login") ||
+    p.startsWith("/api/auth/register") ||
+    p.startsWith("/api/auth/me")
+  );
+}
+
 export function getApiUrl(path: string) {
   const baseUrl = getCachedApiBaseUrlOverride() ?? getBaseUrl();
   return `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
@@ -194,6 +211,14 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   }
 
   if (!res.ok) {
+    if (res.status === 401 && !isAuthExemptPath(path)) {
+      // Protected call rejected → token is no longer valid; trigger sign-out.
+      try {
+        onUnauthorized?.(path);
+      } catch {
+        /* never let the hook break error propagation */
+      }
+    }
     const message =
       payload && typeof payload === "object" && "error" in payload
         ? String((payload as { error: unknown }).error)

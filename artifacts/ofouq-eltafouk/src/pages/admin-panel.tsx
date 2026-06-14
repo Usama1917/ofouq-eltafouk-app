@@ -1482,6 +1482,10 @@ function UsersTab({
   const [customActivityDays, setCustomActivityDays] = useState("");
   const [contactOpen, setContactOpen] = useState(false);
   const [detailUser, setDetailUser] = useState<AdminUserListItem | null>(null);
+  // Render only a capped slice so a large user directory stays light; the "عرض"
+  // picker raises the cap on demand (mirrors the owner dashboard users table).
+  const PAGE_SIZES = [20, 50, 100, 500];
+  const [pageSize, setPageSize] = useState(20);
 
   const ROLE_COLORS: Record<string, string> = { student: "bg-blue-100 text-blue-700", teacher: "bg-emerald-100 text-emerald-700", parent: "bg-amber-100 text-amber-700", admin: "bg-violet-100 text-violet-700", owner: "bg-rose-100 text-rose-700" };
   const ROLE_LABELS: Record<string, string> = { student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", owner: "مالك" };
@@ -1502,6 +1506,9 @@ function UsersTab({
     return true;
   });
   const visibleSelected = filteredUsers.length > 0 && filteredUsers.every((user) => selectedIdSet.has(user.id));
+  // Only the first `pageSize` rows are rendered (selection/bulk actions still
+  // operate over the full filtered set, so messaging a whole cohort keeps working).
+  const visibleUsers = filteredUsers.slice(0, pageSize);
 
   useEffect(() => {
     const currentIds = new Set(users.map((user) => user.id));
@@ -1553,6 +1560,16 @@ function UsersTab({
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground" title="عدد النتائج المعروضة">
+            عرض
+            <select
+              value={pageSize}
+              onChange={(event) => setPageSize(Number(event.target.value))}
+              className="h-11 rounded-2xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
+            >
+              {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
           <button
             onClick={() => setContactOpen(true)}
             disabled={selectedUsers.length === 0}
@@ -1675,7 +1692,7 @@ function UsersTab({
               </th>
             </tr></thead>
             <tbody className="divide-y divide-white/30">
-              {filteredUsers.map(u => {
+              {visibleUsers.map(u => {
                 const activity = getUserActivityInfo(u.lastActiveAt, activityDays);
                 return (
                 <tr key={u.id} className={`hover:bg-white/30 transition-colors ${selectedIdSet.has(u.id) ? "bg-primary/5" : ""}`}>
@@ -1725,6 +1742,11 @@ function UsersTab({
             </tbody>
           </table>
         </div>
+        {filteredUsers.length > visibleUsers.length ? (
+          <div className="px-5 py-3 text-center text-xs text-muted-foreground border-t border-white/30">
+            عرض {formatAdminNumber(visibleUsers.length)} من {formatAdminNumber(filteredUsers.length)} — اختر عددًا أكبر من قائمة «عرض» بالأعلى لرؤية المزيد
+          </div>
+        ) : null}
       </div>
 
       <AnimatePresence>
@@ -4542,7 +4564,7 @@ function SupportMessagesTab({
 
 // ── Main Admin Panel ──────────────────────────────────────────────────────
 export default function AdminPanel() {
-  const { user, token, logout } = useAuth();
+  const { user, token, logout, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState<Tab>(() => {
     // Allow deep links from the owner dashboard quick actions: /admin?tab=academic
@@ -4632,8 +4654,15 @@ export default function AdminPanel() {
     window.localStorage.setItem(ADMIN_THEME_STORAGE_KEY, adminTheme);
   }, [adminTheme]);
 
-  if (!user || (user.role !== "admin" && user.role !== "owner")) {
-    setLocation("/login");
+  // Wait for the session to finish restoring before deciding — otherwise a hard
+  // refresh (where `user` is briefly null) would bounce a logged-in admin to login.
+  useEffect(() => {
+    if (!authLoading && (!user || (user.role !== "admin" && user.role !== "owner"))) {
+      setLocation("/login");
+    }
+  }, [authLoading, user, setLocation]);
+
+  if (authLoading || !user || (user.role !== "admin" && user.role !== "owner")) {
     return null;
   }
 

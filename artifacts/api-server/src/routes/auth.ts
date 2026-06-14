@@ -198,8 +198,11 @@ function sendDatabaseError(res: any, err: unknown) {
   return res.status(503).json({ error: "تعذّر الاتصال بقاعدة البيانات" });
 }
 
+// Intentionally public: the registration screen uploads the avatar BEFORE the
+// account exists (no token yet). Abuse is bounded by the image-only filter, the
+// 5MB size limit, and the global rate limiter. (Tighter per-IP upload caps +
+// orphan cleanup are a later hardening step.)
 router.post("/auth/profile-photo/upload", (req, res) => {
-  if (!getSessionUserId(req)) return res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
   uploadProfilePhotoFile.single("avatar")(req, res, (err) => {
     if (err) {
       req.log.error({ err: getErrorDetails(err) }, "Upload profile photo validation error");

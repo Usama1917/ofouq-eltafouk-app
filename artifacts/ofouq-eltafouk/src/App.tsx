@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, MutationCache } from "@tanstack/react-query";
+import { toast, Toaster } from "sonner";
 import { AuthProvider } from "@/contexts/auth-context";
 import { Layout } from "@/components/layout";
 import { SOFT_LAUNCH_MODE, hiddenStudentRouteRedirects } from "@/config/soft-launch";
@@ -33,6 +34,19 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: 1, staleTime: 30_000 },
   },
+  // Global safety net: any react-query mutation that fails now surfaces a toast,
+  // so admin actions (create/update/delete user, resolve report, banners, etc.)
+  // can no longer fail silently. 401s are skipped — the session interceptor
+  // already signs the user out and redirects to login.
+  mutationCache: new MutationCache({
+    onError: (error) => {
+      const status = (error as { status?: number } | undefined)?.status;
+      if (status === 401) return;
+      const message =
+        error instanceof Error && error.message ? error.message : "تعذّر تنفيذ العملية، حاول مرة أخرى";
+      toast.error(message);
+    },
+  }),
 });
 
 function SoftLaunchRedirect({ to }: { to: string }) {
@@ -113,6 +127,7 @@ function App() {
       <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
         <AuthProvider>
           <Router />
+          <Toaster position="top-center" richColors dir="rtl" />
         </AuthProvider>
       </WouterRouter>
     </QueryClientProvider>

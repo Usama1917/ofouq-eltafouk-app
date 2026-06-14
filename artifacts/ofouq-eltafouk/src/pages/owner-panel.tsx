@@ -1233,7 +1233,7 @@ function FilterGroup({ label, options, value, onChange }: { label: string; optio
 
 // ── Main Owner Panel ───────────────────────────────────────────────────────
 export default function OwnerPanel() {
-  const { user, logout } = useAuth();
+  const { user, logout, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState<Tab>("dashboard");
   const [adminTheme, setAdminTheme] = useState<AdminTheme>(getInitialAdminTheme);
@@ -1265,8 +1265,15 @@ export default function OwnerPanel() {
     window.localStorage.setItem(ADMIN_THEME_STORAGE_KEY, adminTheme);
   }, [adminTheme]);
 
-  if (!user || user.role !== "owner") {
-    setLocation("/login");
+  // Wait for session restore before deciding, so a hard refresh doesn't bounce
+  // a logged-in owner to login while the token is still being validated.
+  useEffect(() => {
+    if (!authLoading && (!user || user.role !== "owner")) {
+      setLocation("/login");
+    }
+  }, [authLoading, user, setLocation]);
+
+  if (authLoading || !user || user.role !== "owner") {
     return null;
   }
 
