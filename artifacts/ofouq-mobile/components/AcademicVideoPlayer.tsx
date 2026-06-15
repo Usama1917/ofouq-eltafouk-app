@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import { AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
@@ -8,6 +8,7 @@ import * as ScreenCapture from "expo-screen-capture";
 import * as ScreenOrientation from "expo-screen-orientation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   GestureResponderEvent,
@@ -161,6 +162,10 @@ function AnimatedPressable({
 
 const PLAYER_RATIO = 9 / 16;
 const DOUBLE_TAP_MS = 280;
+// Radius (logical px) of the centre tap zone that toggles YouTube play/pause — sized to roughly
+// match YouTube's own play/pause button, so taps OUTSIDE it stay free for double-tap-seek and
+// show/hide-controls.
+const PLAY_BUTTON_HIT_RADIUS = 70;
 const CONTROLS_DISSOLVE_IN_MS = 210;
 const CONTROLS_DISSOLVE_OUT_MS = 320;
 const SCRUB_LABEL_UPDATE_MS = 120;
@@ -261,6 +266,76 @@ function buildYouTubeHtml(videoId: string) {
     function post(payload) {
       window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(payload));
     }
+    // Best-effort removal of YouTube's own chrome — the centre play/pause "bezel",
+    // the big play button, the buffering spinner and the pause/branding overlays —
+    // by injecting CSS into the embed iframe. The youtube-nocookie baseUrl makes the
+    // iframe same-origin on iOS so this applies; it silently no-ops where the iframe
+    // is cross-origin (e.g. Android), and the native black loader guards the start.
+    var HIDE_CSS = '.ytp-bezel,.ytp-bezel-text-wrapper,.ytp-bezel-text,.ytp-bezel-icon,.ytp-large-play-button,.ytp-large-play-button-bg,.ytp-large-play-button-red-bg,.ytp-cued-thumbnail-overlay,.ytp-cued-thumbnail-overlay-image,.ytp-spinner,.ytp-spinner-container,.ytp-pause-overlay,.ytp-pause-overlay-container,.ytp-play-button,.ytp-gradient-top,.ytp-gradient-bottom,.ytp-chrome-top,.ytp-chrome-bottom,.ytp-chrome-controls,.ytp-watermark,.ytp-ce-element,.ytp-ce-covering-overlay,.ytp-show-cards-title,.ytp-cards-teaser,.ytp-endscreen-content,.html5-endscreen,.annotation,.iv-branding,.branding-img-container{display:none!important;opacity:0!important;visibility:hidden!important;pointer-events:none!important;}';
+    var diagPosted = false;
+    var chromeObserver = null;
+    var rafActive = false;
+    // CSS alone can't beat YouTube's running fade animation + inline styles on the
+    // centre "bezel", so we physically REMOVE those nodes. Removal is purely visual —
+    // playback state lives on the YT.Player object, not these nodes — so it never
+    // affects pause-frame-freeze, seeking or playback. Idempotent (a second pass finds
+    // nothing) and try/caught, so it can run on every observer mutation safely.
+    var KILL = ['.ytp-bezel','.ytp-bezel-text-wrapper','.ytp-bezel-text','.ytp-bezel-icon','.ytp-large-play-button','.ytp-large-play-button-bg','.ytp-large-play-button-red-bg','.ytp-cued-thumbnail-overlay','.ytp-pause-overlay','.ytp-pause-overlay-container','.ytp-spinner','.ytp-spinner-container'];
+    function removeChrome(doc) {
+      for (var i = 0; i < KILL.length; i++) {
+        try {
+          var els = doc.querySelectorAll(KILL[i]);
+          for (var j = 0; j < els.length; j++) {
+            var el = els[j];
+            if (el) { el.remove ? el.remove() : (el.parentNode && el.parentNode.removeChild(el)); }
+          }
+        } catch (e) {}
+      }
+    }
+    function applyHideCss(doc) {
+      if (!doc.getElementById('ofq-hide-chrome')) {
+        var style = doc.createElement('style');
+        style.id = 'ofq-hide-chrome';
+        style.textContent = HIDE_CSS;
+        (doc.head || doc.documentElement).appendChild(style);
+      }
+      removeChrome(doc);
+    }
+    function getIframeDoc() {
+      var frame = document.querySelector('iframe');
+      try {
+        return (frame && (frame.contentDocument || (frame.contentWindow && frame.contentWindow.document))) || null;
+      } catch (e) {
+        return null;
+      }
+    }
+    function hideChrome() {
+      try {
+        var doc = getIframeDoc();
+        if (!diagPosted) {
+          diagPosted = true;
+          post({ type: "diag", canInject: !!(doc && (doc.head || doc.documentElement)) });
+        }
+        if (!doc) return;
+        applyHideCss(doc);
+        // Re-assert if YouTube re-renders its UI layer (class names can be recreated).
+        if (!chromeObserver && doc.body && typeof MutationObserver !== "undefined") {
+          chromeObserver = new MutationObserver(function () { removeChrome(doc); });
+          chromeObserver.observe(doc.documentElement || doc.body, { childList: true, subtree: true });
+        }
+        // Per-frame removal so YouTube's centre bezel is deleted BEFORE it can paint
+        // its fade-out — the user never sees the play/pause button, not even a flash.
+        if (!rafActive && typeof requestAnimationFrame !== "undefined") {
+          rafActive = true;
+          (function loop() {
+            var d = getIframeDoc();
+            if (d) removeChrome(d);
+            requestAnimationFrame(loop);
+          })();
+        }
+      } catch (e) {}
+    }
+    setInterval(hideChrome, 350);
     function current() {
       if (!player || !ready) return;
       post({ type: "time", currentTime: player.getCurrentTime() || 0, duration: player.getDuration() || 0 });
@@ -295,6 +370,7 @@ function buildYouTubeHtml(videoId: string) {
         events: {
           onReady: function(event) {
             ready = true;
+            hideChrome();
             post({
               type: "ready",
               duration: event.target.getDuration() || 0,
@@ -306,6 +382,7 @@ function buildYouTubeHtml(videoId: string) {
             current();
           },
           onStateChange: function(event) {
+            hideChrome();
             if (event.data === YT.PlayerState.PLAYING) {
               post({ type: "playing" });
               startTick();
@@ -650,6 +727,11 @@ export function AcademicVideoPlayer({
   const [ready, setReady] = useState(videoType === "upload" ? false : false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+  // YouTube paints its own centre play/pause "bezel" + spinner during the first
+  // moments of playback (even with controls:0). We keep the clean cover over the
+  // WebView until playback has been running for a short beat, then reveal it.
+  const [youTubeReveal, setYouTubeReveal] = useState(false);
+  const youTubeRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [scrubTime, setScrubTime] = useState<number | null>(null);
@@ -692,9 +774,15 @@ export function AcademicVideoPlayer({
   // back to the secondary (posterUrl) only if no primary was uploaded.
   const posterCandidateUrl = resolveMediaUrl(thumbnailUrl) ?? resolveMediaUrl(posterUrl);
   const resolvedPosterUrl = isYouTube && isYouTubeHostedImage(posterCandidateUrl) ? null : posterCandidateUrl;
-  const shouldShowCleanYouTubeCover = isYouTube && (!isFullscreen || !hasStarted);
+  // Non-fullscreen YouTube: show the lesson poster as the entry thumbnail (the card
+  // preview before the player opens).
+  const shouldShowYouTubePreview = isYouTube && !isFullscreen;
+  // Fullscreen YouTube: a plain BLACK loader (NO thumbnail) shown only until playback
+  // is live, so YouTube's own poster / big play button / centre bezel is never seen at
+  // the start. It is NOT re-shown on pause, so pausing freezes on the current frame.
+  const shouldShowYouTubeLoader = isYouTube && isFullscreen && !youTubeReveal;
   const shouldShowPosterOverlay = Boolean(
-    resolvedPosterUrl && (isYouTube ? shouldShowCleanYouTubeCover : (!isFullscreen || !hasStarted)),
+    resolvedPosterUrl && (isYouTube ? shouldShowYouTubePreview : (!isFullscreen || !hasStarted)),
   );
   const playerWidth = Math.min(width - 36, 760);
   const playerHeight = playerWidth * PLAYER_RATIO;
@@ -1028,6 +1116,24 @@ export function AcademicVideoPlayer({
     })();
   }, [isFullscreen, pendingFullscreenPlay, pendingSeekSeconds, ready]);
 
+  // Reset the YouTube reveal gate whenever a fresh playback session starts
+  // (entering/leaving fullscreen, swapping the video, or retrying) so the clean
+  // cover re-hides YouTube's initial chrome every time.
+  useEffect(() => {
+    setYouTubeReveal(false);
+    if (youTubeRevealTimerRef.current) {
+      clearTimeout(youTubeRevealTimerRef.current);
+      youTubeRevealTimerRef.current = null;
+    }
+  }, [youTubeId, reloadKey, isFullscreen]);
+
+  useEffect(
+    () => () => {
+      if (youTubeRevealTimerRef.current) clearTimeout(youTubeRevealTimerRef.current);
+    },
+    [],
+  );
+
   function inject(command: string) {
     webViewRef.current?.injectJavaScript(`${command}; true;`);
   }
@@ -1252,7 +1358,21 @@ export function AcademicVideoPlayer({
     }
 
     const x = event.nativeEvent.locationX;
+    const y = event.nativeEvent.locationY;
     const surfaceWidth = isFullscreen ? width : playerWidth;
+    const surfaceHeight = isFullscreen ? height : playerHeight;
+
+    // YouTube fullscreen: ONLY the centre circle (≈ YouTube's play/pause button) toggles
+    // playback. Taps anywhere else fall through to the normal behaviour below (double-tap to
+    // seek ±10s on the sides, single tap to show/hide controls).
+    if (isFullscreen && isYouTube) {
+      const distanceFromCentre = Math.hypot(x - surfaceWidth / 2, y - surfaceHeight / 2);
+      if (distanceFromCentre <= PLAY_BUTTON_HIT_RADIUS) {
+        togglePlayback();
+        return;
+      }
+    }
+
     const side = x >= surfaceWidth / 2 ? "right" : "left";
     const now = Date.now();
     const lastTap = lastTapRef.current;
@@ -1464,16 +1584,32 @@ export function AcademicVideoPlayer({
         updateDuration(Number(payload.duration) || duration);
         return;
       }
+      if (payload.type === "diag") {
+        // Diagnostic: tells us whether the WebView can reach the YouTube iframe's
+        // document (same-origin) to inject the chrome-hiding CSS. Shows up in the
+        // Metro/Expo log so we can confirm the suppression strategy on-device.
+        console.log("[ofq-yt-diag] canInjectIntoIframe =", (payload as { canInject?: boolean }).canInject);
+        return;
+      }
       if (payload.type === "playing") {
         setReady(true);
         setHasStarted(true);
         setIsPlaying(true);
         // A successful playback event clears any stale error overlay.
         setError(null);
+        // Reveal the video the instant playback truly starts, so audio + picture come
+        // together (natural start, no mute). YouTube's centre bezel is killed by the
+        // per-frame removeChrome so revealing immediately shows no button. Once
+        // revealed it STAYS revealed — pausing freezes on the current frame.
+        setYouTubeReveal(true);
         return;
       }
       if (payload.type === "paused" || payload.type === "ended") {
+        // Do NOT re-cover — the user wants playback to freeze on the exact frame.
         setIsPlaying(false);
+        // Tapping the video now toggles play/pause (instead of toggling controls), so surface
+        // the controls whenever it pauses — that's how the seek bar / speed / close stay reachable.
+        setShowControls(true);
         return;
       }
       if (payload.type === "error") {
@@ -1626,13 +1762,16 @@ export function AcademicVideoPlayer({
           <View style={styles.videoFallback}><Text style={styles.videoFallbackText}>{strings.academic.invalidVideoUrl}</Text></View>
         )}
 
-        {shouldShowCleanYouTubeCover ? (
+        {shouldShowYouTubeLoader ? (
+          // Plain black loading veil (NO thumbnail) over the fullscreen YouTube WebView
+          // until playback is live — hides YouTube's own poster / big play button / bezel.
+          <View pointerEvents="none" style={styles.youTubeLoader}>
+            <ActivityIndicator size="large" color="#FFFFFF" />
+          </View>
+        ) : shouldShowYouTubePreview ? (
           <View pointerEvents="none" style={styles.posterOverlay}>
             {resolvedPosterUrl ? (
-              <>
-                <Image source={{ uri: resolvedPosterUrl }} style={styles.posterImage} contentFit="cover" />
-                {isFullscreen ? <View style={styles.posterScrim} /> : null}
-              </>
+              <Image source={{ uri: resolvedPosterUrl }} style={styles.posterImage} contentFit="cover" />
             ) : (
               <View style={styles.cleanVideoPlaceholder}>
                 <View style={styles.cleanVideoAccent} />
@@ -1750,9 +1889,9 @@ export function AcademicVideoPlayer({
                     accessibilityRole="button"
                     accessibilityLabel={isPlaying ? strings.academic.a11yPause : strings.academic.a11yPlay}
                   >
-                    <Feather
+                    <Ionicons
                       name={isPlaying ? "pause" : "play"}
-                      size={17}
+                      size={20}
                       color="#fff"
                       style={isPlaying ? undefined : { marginLeft: 2 }}
                     />
@@ -2475,6 +2614,12 @@ const styles = StyleSheet.create({
     color: "rgba(226,232,240,0.7)",
     textAlign: "center",
     writingDirection: "rtl",
+  },
+  youTubeLoader: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#000",
   },
   posterOverlay: {
     ...StyleSheet.absoluteFillObject,
