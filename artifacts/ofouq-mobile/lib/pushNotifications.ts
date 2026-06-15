@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useQueryClient } from "@tanstack/react-query";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as Device from "expo-device";
 import { useEffect, useRef } from "react";
@@ -6,7 +7,12 @@ import { Alert, Platform } from "react-native";
 
 import { SHOULD_SHOW_PREVIEW_API_DEBUG } from "@/constants/api";
 import { apiFetch } from "@/lib/api";
-import { openNotificationTarget, type AppNotification, type NotificationActionData } from "@/lib/notifications";
+import {
+  notificationsQueryKey,
+  openNotificationTarget,
+  type AppNotification,
+  type NotificationActionData,
+} from "@/lib/notifications";
 
 const PUSH_TOKEN_STORAGE_KEY = "ofouq_expo_push_token";
 const PUSH_CHANNEL_ID = "default";
@@ -311,6 +317,7 @@ function openPushNotification(
 
 export function usePushNotifications(authToken: string | null, userId: number | null | undefined) {
   const registeredKeyRef = useRef<string | null>(null);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (Platform.OS === "web") return;
@@ -323,6 +330,12 @@ export function usePushNotifications(authToken: string | null, userId: number | 
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
       openPushNotification(response, Notifications);
     });
+    // A push arriving while the app is foregrounded must refresh the in-app
+    // notifications list immediately — otherwise the new item only shows up
+    // after the user fully restarts the app.
+    const receivedSubscription = Notifications.addNotificationReceivedListener(() => {
+      void queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+    });
     try {
       const lastResponse = Notifications.getLastNotificationResponse();
       if (lastResponse) {
@@ -333,8 +346,11 @@ export function usePushNotifications(authToken: string | null, userId: number | 
       // Native notification response history is unavailable in some runtimes.
     }
 
-    return () => subscription.remove();
-  }, []);
+    return () => {
+      subscription.remove();
+      receivedSubscription.remove();
+    };
+  }, [queryClient]);
 
   useEffect(() => {
     if (!authToken || !userId) {
