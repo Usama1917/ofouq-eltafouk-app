@@ -5,11 +5,11 @@ import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Dimensions,
   Easing,
   FlatList,
+  Modal,
   PanResponder,
   Pressable,
   StyleSheet,
@@ -391,6 +391,7 @@ export default function NotificationsScreen() {
   const headerOverlayHeight = insets.top + 104;
   const [deletingIds, setDeletingIds] = React.useState<Set<number>>(() => new Set());
   const [isClearingRead, setIsClearingRead] = React.useState(false);
+  const [confirmClearOpen, setConfirmClearOpen] = React.useState(false);
 
   async function openNotification(item: AppNotification) {
     if (!token) return;
@@ -442,6 +443,7 @@ export default function NotificationsScreen() {
   async function clearReadNotifications() {
     if (!token || isClearingRead || readNotifications.length === 0) return;
 
+    setConfirmClearOpen(false);
     setIsClearingRead(true);
     try {
       await clearReadNotificationsRequest(token);
@@ -451,24 +453,11 @@ export default function NotificationsScreen() {
     }
   }
 
+  // Custom themed confirmation (instead of the native Alert) so the title can be
+  // centered and the body right-aligned in Arabic — the OS dialog ignores RTL.
   function confirmClearReadNotifications() {
     if (isClearingRead || readNotifications.length === 0) return;
-
-    const isArabic = language === "ar";
-    Alert.alert(
-      isArabic ? "مسح الإشعارات المقروءة" : "Clear read notifications",
-      isArabic
-        ? "سيتم حذف جميع الإشعارات التي تمت قراءتها. لا يمكن التراجع عن هذا الإجراء."
-        : "All read notifications will be permanently removed. This action cannot be undone.",
-      [
-        { text: strings.common.cancel, style: "cancel" },
-        {
-          text: strings.notifications.clear,
-          style: "destructive",
-          onPress: () => void clearReadNotifications(),
-        },
-      ],
-    );
+    setConfirmClearOpen(true);
   }
 
   function renderNotificationCard(item: AppNotification) {
@@ -500,7 +489,10 @@ export default function NotificationsScreen() {
   // Flatten the (header summary + sections + state cards) into a single data
   // source so the list can virtualize. The summary card lives in the list
   // header; everything below it (state cards, section headers, notification
-  // rows, empty card) is a typed row here.
+  // rows, empty card) is a typed row here. Notification row keys embed the
+  // read-state so a card that gets marked read remounts FRESH in the "Read"
+  // section instead of reusing the swiped-away (hidden) "Unread" instance —
+  // otherwise a marked-read card stays hidden and looks like it was deleted.
   type ListRow =
     | { type: "state-loading"; key: string }
     | { type: "state-error"; key: string }
@@ -518,13 +510,13 @@ export default function NotificationsScreen() {
     if (unreadNotifications.length > 0) {
       rows.push({ type: "section-header", key: "header-unread", section: "unread" });
       for (const item of unreadNotifications) {
-        rows.push({ type: "notification", key: `notification-${item.id}`, item });
+        rows.push({ type: "notification", key: `notification-${item.readAt ? "read" : "unread"}-${item.id}`, item });
       }
     }
     if (readNotifications.length > 0) {
       rows.push({ type: "section-header", key: "header-read", section: "read" });
       for (const item of readNotifications) {
-        rows.push({ type: "notification", key: `notification-${item.id}`, item });
+        rows.push({ type: "notification", key: `notification-${item.readAt ? "read" : "unread"}-${item.id}`, item });
       }
     }
     return rows;
@@ -689,6 +681,65 @@ export default function NotificationsScreen() {
           return <View style={styles.notificationRowSpacing}>{renderNotificationCard(row.item)}</View>;
         }}
       />
+
+      <Modal
+        visible={confirmClearOpen}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setConfirmClearOpen(false)}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setConfirmClearOpen(false)} />
+          <View
+            style={[
+              styles.confirmCard,
+              {
+                backgroundColor: resolvedScheme === "dark" ? "rgba(28,28,30,0.98)" : "rgba(248,250,252,0.98)",
+                borderColor: colors.border,
+              },
+            ]}
+          >
+            <View style={styles.confirmIcon}>
+              <Feather name="trash-2" size={24} color={COLORS.error} />
+            </View>
+            {/* Title centered; body follows the reading direction (right in Arabic). */}
+            <Text style={[styles.confirmTitle, { color: colors.text, writingDirection: direction }]}>
+              {language === "ar" ? "مسح الإشعارات المقروءة" : "Clear read notifications"}
+            </Text>
+            <Text style={[styles.confirmBody, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+              {language === "ar"
+                ? "سيتم حذف جميع الإشعارات التي تمت قراءتها. لا يمكن التراجع عن هذا الإجراء."
+                : "All read notifications will be permanently removed. This action cannot be undone."}
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                onPress={() => setConfirmClearOpen(false)}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  styles.confirmCancelButton,
+                  {
+                    backgroundColor: pressed ? colors.surfaceSecondary : colors.surface,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <Text style={[styles.confirmButtonText, { color: colors.text }]}>{strings.common.cancel}</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void clearReadNotifications()}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  styles.confirmDeleteButton,
+                  { opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Text style={styles.confirmDeleteText}>{strings.notifications.clear}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1014,5 +1065,78 @@ const styles = StyleSheet.create({
     ...FONT.regular,
     fontSize: 13,
     lineHeight: 22,
+  },
+  modalOverlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 30,
+  },
+  confirmCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 28,
+    borderWidth: 1,
+    paddingTop: 24,
+    paddingBottom: 18,
+    paddingHorizontal: 22,
+    alignItems: "center",
+    gap: 12,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.22,
+    shadowRadius: 30,
+  },
+  confirmIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(239,68,68,0.12)",
+  },
+  confirmTitle: {
+    ...FONT.bold,
+    fontSize: 18,
+    lineHeight: 28,
+    width: "100%",
+    textAlign: "center",
+  },
+  confirmBody: {
+    ...FONT.regular,
+    fontSize: 14,
+    lineHeight: 23,
+    width: "100%",
+  },
+  confirmActions: {
+    width: "100%",
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+  },
+  confirmButton: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  confirmCancelButton: {
+    borderWidth: 1,
+  },
+  confirmDeleteButton: {
+    backgroundColor: COLORS.error,
+  },
+  confirmButtonText: {
+    ...FONT.bold,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  confirmDeleteText: {
+    ...FONT.bold,
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#FFFFFF",
   },
 });
