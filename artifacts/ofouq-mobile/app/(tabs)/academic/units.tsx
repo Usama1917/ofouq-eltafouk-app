@@ -19,6 +19,7 @@ import { AutoFitTitle } from "@/components/AutoFitTitle";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
+import { useRefetchOnFocus } from "@/hooks/useRefetchOnFocus";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
 import { localizeAcademicText } from "@/lib/academicContentLocalization";
@@ -77,6 +78,9 @@ export default function UnitsScreen() {
     queryFn: () => apiFetch(`/api/academic/subjects/${subjectId}/units`, { token }),
     enabled: !!subjectId,
   });
+
+  // Refresh on return so newly added units appear live.
+  useRefetchOnFocus(refetch);
 
   const subscribePath =
     `${academicRoute(routeBase, "subscribe")}?yearId=${yearId}&yearName=${encode(String(yearName))}&yearNameEn=${encode(String(yearNameEn ?? ""))}` +

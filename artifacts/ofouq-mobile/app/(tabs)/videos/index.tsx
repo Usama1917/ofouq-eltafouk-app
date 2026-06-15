@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
 import { usePreferences } from "@/contexts/PreferencesContext";
+import { useRefetchOnFocus } from "@/hooks/useRefetchOnFocus";
 import { apiFetch } from "@/lib/api";
 import { localizeAcademicText } from "@/lib/academicContentLocalization";
 
@@ -137,6 +138,10 @@ export default function VideosScreen() {
     queryKey: ["academic", "years"],
     queryFn: () => apiFetch("/api/academic/years"),
   });
+
+  // Re-fetch the year list whenever the student returns to this tab so newly
+  // published academic content shows up without restarting the app.
+  useRefetchOnFocus(refetch);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>

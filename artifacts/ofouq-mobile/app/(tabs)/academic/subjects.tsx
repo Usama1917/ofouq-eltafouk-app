@@ -20,6 +20,7 @@ import { AutoFitTitle } from "@/components/AutoFitTitle";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
+import { useRefetchOnFocus } from "@/hooks/useRefetchOnFocus";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
 import { localizeAcademicText } from "@/lib/academicContentLocalization";
@@ -226,6 +227,9 @@ export default function SubjectsScreen() {
     queryFn: () => apiFetch(`/api/academic/years/${yearId}/subjects`, { token }),
     enabled: !!yearId,
   });
+
+  // Refresh on return so newly added subjects (or access changes) appear live.
+  useRefetchOnFocus(refetch);
 
   function openSubscribe(subject?: Subject) {
     if (!token) {

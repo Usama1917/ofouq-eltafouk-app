@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
+import { useRefetchOnFocus } from "@/hooks/useRefetchOnFocus";
 import { apiFetch } from "@/lib/api";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
 import { localizeAcademicText } from "@/lib/academicContentLocalization";
@@ -123,6 +124,10 @@ export default function SubscribeScreen() {
     queryFn: () => apiFetch("/api/academic/subscription-requests/me", { token }),
     enabled: Boolean(token),
   });
+
+  // Refresh on return so an admin's approval/rejection of the request reflects
+  // here without needing an app restart.
+  useRefetchOnFocus(refetchRequests);
 
   useEffect(() => {
     if (selectedSubjectId || subjects.length === 0) return;

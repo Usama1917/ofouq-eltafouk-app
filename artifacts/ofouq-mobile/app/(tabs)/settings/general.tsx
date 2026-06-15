@@ -18,6 +18,7 @@ import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
+import { ThemeGlassToggle } from "@/components/ThemeGlassToggle";
 import {
   type AppLanguage,
   type AppThemePreference,
@@ -45,7 +46,6 @@ export default function GeneralSettingsScreen() {
   const headerTopPadding = insets.top + 34 + englishHeaderDrop;
   const isDark = resolvedScheme === "dark";
   const isSystemAppearance = themePreference === "system";
-  const [themeControlWidth, setThemeControlWidth] = React.useState(0);
   const [languageDialogVisible, setLanguageDialogVisible] = React.useState(false);
   const [languageRestartPending, setLanguageRestartPending] = React.useState(false);
   const [pendingLanguage, setPendingLanguage] = React.useState<AppLanguage | null>(null);
@@ -65,11 +65,6 @@ export default function GeneralSettingsScreen() {
     outputRange: [1, 0],
   });
   const manualTheme = themePreference === "system" ? resolvedScheme : themePreference;
-  const themePillWidth = Math.max(0, (themeControlWidth - 8) / 2);
-  const themePillTranslateX = themeMotion.interpolate({
-    inputRange: [0, 1],
-    outputRange: [isRTL ? themePillWidth : 0, isRTL ? 0 : themePillWidth],
-  });
   const cardBackgroundColor = themeMotion.interpolate({
     inputRange: [0, 1],
     outputRange: [COLORS.light.card, COLORS.dark.card],
@@ -94,10 +89,6 @@ export default function GeneralSettingsScreen() {
     inputRange: [0, 1],
     outputRange: ["rgba(248,251,255,0.92)", "rgba(0,0,0,0.92)"],
   });
-  const segmentIndicatorColor = themeMotion.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["rgba(255,255,255,0.96)", "rgba(37,99,235,0.26)"],
-  });
 
   const languageOptions: Array<{
     value: AppLanguage;
@@ -107,15 +98,6 @@ export default function GeneralSettingsScreen() {
     { value: "ar", title: strings.settings.languages.ar, mark: "ع" },
     { value: "en", title: strings.settings.languages.en, mark: "E" },
   ];
-  const themeOptions: Array<{
-    value: Exclude<AppThemePreference, "system">;
-    title: string;
-    icon: keyof typeof Feather.glyphMap;
-  }> = [
-    { value: "light", title: strings.settings.themeLight, icon: "sun" },
-    { value: "dark", title: strings.settings.themeDark, icon: "moon" },
-  ];
-
   function handleLanguageChange(nextLanguage: AppLanguage) {
     const selectedLanguage = pendingLanguage ?? language;
     if (nextLanguage === selectedLanguage) return;
@@ -405,68 +387,15 @@ export default function GeneralSettingsScreen() {
             {isRTL ? useDeviceSettingsLabel : useDeviceSettingsSwitch}
           </Animated.View>
 
-          <Animated.View
-            onLayout={(event) => setThemeControlWidth(event.nativeEvent.layout.width)}
-            pointerEvents={isSystemAppearance ? "none" : "auto"}
-            style={[
-              styles.segmentedControl,
-              {
-                backgroundColor: surfaceSecondaryBackgroundColor,
-                borderColor,
-                flexDirection: rowDirection,
-                direction,
-                opacity: isSystemAppearance ? 0.56 : 1,
-              },
-            ]}
-          >
-            {themePillWidth > 0 ? (
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.segmentIndicator,
-                  {
-                    width: themePillWidth,
-                    backgroundColor: segmentIndicatorColor,
-                    borderColor,
-                    transform: [{ translateX: themePillTranslateX }],
-                  },
-                ]}
-              />
-            ) : null}
-
-            {themeOptions.map((option) => {
-              const selected = option.value === manualTheme;
-
-              return (
-                <Pressable
-                  key={option.value}
-                  onPress={() => handleManualThemeChange(option.value)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: selected, disabled: isSystemAppearance }}
-                  disabled={isSystemAppearance}
-                  style={styles.segmentOption}
-                >
-                  <Feather
-                    name={option.icon}
-                    size={18}
-                    color={selected ? colors.tint : colors.textSecondary}
-                  />
-                  <Text
-                    style={[
-                      styles.segmentText,
-                      {
-                        color: selected ? colors.text : colors.textSecondary,
-                        writingDirection: direction,
-                      },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {option.title}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </Animated.View>
+          <ThemeGlassToggle
+            isDark={manualTheme === "dark"}
+            disabled={isSystemAppearance}
+            onToggle={() => handleManualThemeChange(manualTheme === "dark" ? "light" : "dark")}
+            lightLabel={strings.settings.themeLight}
+            darkLabel={strings.settings.themeDark}
+            direction={direction}
+            accessibilityLabel={strings.settings.appearance}
+          />
         </Animated.View>
       </ScrollView>
 
@@ -708,41 +637,6 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     alignItems: "center",
     justifyContent: "center",
-  },
-  segmentedControl: {
-    minHeight: 58,
-    borderRadius: 20,
-    borderWidth: 1,
-    padding: 4,
-    overflow: "hidden",
-  },
-  segmentIndicator: {
-    position: "absolute",
-    top: 4,
-    bottom: 4,
-    left: 4,
-    borderRadius: 16,
-    borderWidth: 1,
-    shadowColor: "#1E3A8A",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-  },
-  segmentOption: {
-    flex: 1,
-    minHeight: 50,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 7,
-    zIndex: 1,
-    paddingHorizontal: 8,
-  },
-  segmentText: {
-    ...FONT.bold,
-    fontSize: 14,
-    lineHeight: 22,
   },
   modalOverlay: {
     flex: 1,
