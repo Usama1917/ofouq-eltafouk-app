@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import { db, usersTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import multer from "multer";
@@ -13,10 +13,22 @@ import {
   getSessionUserId as resolveSessionUserId,
   getSessionTokenPayload,
 } from "../lib/auth";
+import { PRIVILEGED_ROLES } from "../lib/roles";
 
 // Public self-registration may only create non-privileged accounts. Admin/owner/
 // moderator accounts are created through authenticated owner-only flows.
 const PUBLIC_REGISTRATION_ROLES = new Set(["student", "teacher", "parent"]);
+
+// The admin/owner web portal sends `X-Ofouq-Client: web`. That portal is STAFF-ONLY:
+// students must use the mobile app, so a web login / web session / web registration
+// is rejected for any non-privileged role. The mobile app sends no such header and is
+// unaffected. The web frontend gates this too, but THIS is the real server-side lock.
+function isAdminWebClient(req: Request): boolean {
+  return (req.get("x-ofouq-client") ?? "").toLowerCase() === "web";
+}
+function isStaffRole(role: string | null | undefined): boolean {
+  return typeof role === "string" && PRIVILEGED_ROLES.has(role);
+}
 
 const router: IRouter = Router();
 const profilePhotosUploadDir = path.resolve(process.cwd(), "uploads/profile-photos");
@@ -224,6 +236,11 @@ router.post("/auth/profile-photo/upload", (req, res) => {
 // Register
 router.post("/auth/register", async (req, res) => {
   try {
+    // Browser portal is staff-only, and staff accounts are created by the owner — never
+    // self-registered — so public registration is disabled entirely from the web.
+    if (isAdminWebClient(req)) {
+      return res.status(403).json({ error: "التسجيل غير متاح من المتصفح." });
+    }
     const {
       name,
       email,
@@ -344,6 +361,13 @@ router.post("/auth/login", async (req, res) => {
     if (!verifyPassword(plainPassword, user.password)) return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
     if (user.status === "suspended") return res.status(403).json({ error: "الحساب موقوف" });
 
+    // Browser portal is staff-only: reject a non-privileged web login with the SAME
+    // generic message as a wrong password, so a student can't tell that their account
+    // exists or that a staff web login exists at all. Mobile (no header) is unaffected.
+    if (isAdminWebClient(req) && !isStaffRole(user.role)) {
+      return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
+    }
+
     // Upgrade legacy plaintext passwords to a hash on first successful login.
     if (needsRehash(user.password)) {
       try {
@@ -384,6 +408,11 @@ router.get("/auth/me", async (req, res) => {
     // Reject tokens invalidated by a logout / password change (review B-02).
     if ((user.tokenVersion ?? 0) !== payload.tokenVersion) {
       return res.status(401).json({ error: "انتهت الجلسة. سجّل الدخول من جديد." });
+    }
+    // Reject non-staff sessions on the browser portal (staff-only); logs out any
+    // student session that lingers in a browser without revealing the gate.
+    if (isAdminWebClient(req) && !isStaffRole(user.role)) {
+      return res.status(401).json({ error: "غير مصرح" });
     }
     const activeUser = await touchUserActivity(user.id);
     const { password: _pw, ...safeUser } = activeUser ?? user;

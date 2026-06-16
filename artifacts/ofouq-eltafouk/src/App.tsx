@@ -12,7 +12,6 @@ import { SOFT_LAUNCH_MODE, hiddenStudentRouteRedirects } from "@/config/soft-lau
 // Public/auth pages — light, eagerly imported so login/landing paint instantly.
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
-import Register from "@/pages/register";
 import OwnerLogin from "@/pages/owner-login";
 
 // Light in-app pages — eagerly imported.
@@ -166,7 +165,8 @@ function Router() {
       <Switch>
         {/* Auth pages — standalone, no app layout */}
         <Route path="/login" component={Login} />
-        <Route path="/register" component={Register} />
+        {/* Web is staff-only — students use the mobile app, never browser registration. */}
+        <Route path="/register">{() => <SoftLaunchRedirect to="/" />}</Route>
         <Route path="/owner-login" component={OwnerLogin} />
         {/* Legacy admin login URL — redirect to the unified /login */}
         <Route path="/admin-login">{() => <SoftLaunchRedirect to="/login" />}</Route>

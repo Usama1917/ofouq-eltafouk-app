@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link } from "wouter";
 import { motion, useReducedMotion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -18,6 +17,23 @@ import {
 import { Logo } from "@/components/logo";
 import { toEnglishDigits } from "@/lib/format";
 import lessonThumb from "@/assets/lesson-thumb.jpg";
+import { APP_DOWNLOAD_HREF } from "@/config/app-links";
+
+// The browser site is marketing + staff portal only — students are sent to the mobile
+// app, never a web login/registration. Every public CTA renders through this so it
+// always points at the app download (or the on-page #app section as a fallback).
+function DownloadCta({ className, children }: { className?: string; children: ReactNode }) {
+  const external = /^https?:\/\//i.test(APP_DOWNLOAD_HREF);
+  return (
+    <a
+      href={APP_DOWNLOAD_HREF}
+      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+      className={className}
+    >
+      {children}
+    </a>
+  );
+}
 
 /**
  * Public marketing landing page shown at "/" for signed-out visitors.
@@ -168,16 +184,10 @@ export default function Landing() {
           </div>
 
           <div className="flex items-center gap-2 md:gap-3">
-            <Link href="/login">
-              <button className="rounded-full px-4 py-2 text-sm font-semibold text-neutral-700 transition-colors hover:text-neutral-900">
-                تسجيل الدخول
-              </button>
-            </Link>
-            <Link href="/register">
-              <button className="rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-neutral-800 hover:shadow-md">
-                إنشاء حساب
-              </button>
-            </Link>
+            <DownloadCta className="inline-flex items-center gap-2 rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-neutral-800 hover:shadow-md">
+              <Smartphone className="h-4 w-4" />
+              نزّل التطبيق
+            </DownloadCta>
           </div>
         </nav>
       </header>
@@ -216,18 +226,17 @@ export default function Landing() {
 
             <Reveal delay={0.15}>
               <div className="mt-9 flex flex-wrap items-center gap-3">
-                <Link href="/register">
-                  <button className="inline-flex items-center gap-2 rounded-full bg-neutral-900 px-7 py-3.5 text-base font-semibold text-white shadow-sm transition-all hover:bg-neutral-800 hover:shadow-lg">
-                    ابدأ الآن
-                    <ArrowLeft className="h-4 w-4" />
-                  </button>
-                </Link>
-                <Link href="/login">
-                  <button className="inline-flex items-center gap-2 rounded-full border border-neutral-900/15 bg-transparent px-7 py-3.5 text-base font-semibold text-neutral-800 transition-all hover:bg-neutral-900/5">
-                    <PlayCircle className="h-5 w-5" />
-                    شاهد الدروس
-                  </button>
-                </Link>
+                <DownloadCta className="inline-flex items-center gap-2 rounded-full bg-neutral-900 px-7 py-3.5 text-base font-semibold text-white shadow-sm transition-all hover:bg-neutral-800 hover:shadow-lg">
+                  <Smartphone className="h-5 w-5" />
+                  نزّل التطبيق
+                </DownloadCta>
+                <a
+                  href="#how"
+                  className="inline-flex items-center gap-2 rounded-full border border-neutral-900/15 bg-transparent px-7 py-3.5 text-base font-semibold text-neutral-800 transition-all hover:bg-neutral-900/5"
+                >
+                  <PlayCircle className="h-5 w-5" />
+                  شوف إزاي تبدأ
+                </a>
               </div>
             </Reveal>
           </div>
@@ -386,12 +395,10 @@ export default function Landing() {
                   المرئية مجانًا — من غير أي رسوم.
                 </p>
               </div>
-              <Link href="/register">
-                <button className="inline-flex items-center gap-2 whitespace-nowrap rounded-full bg-neutral-900 px-7 py-3.5 text-base font-semibold text-white transition-all hover:bg-neutral-800 hover:shadow-lg">
-                  فعّل اشتراكك المجاني
-                  <ArrowLeft className="h-4 w-4" />
-                </button>
-              </Link>
+              <DownloadCta className="inline-flex items-center gap-2 whitespace-nowrap rounded-full bg-neutral-900 px-7 py-3.5 text-base font-semibold text-white transition-all hover:bg-neutral-800 hover:shadow-lg">
+                <Smartphone className="h-4 w-4" />
+                نزّل التطبيق وفعّل اشتراكك
+              </DownloadCta>
             </div>
           </div>
         </Reveal>
@@ -408,12 +415,10 @@ export default function Landing() {
                   المناهج المتاحة الآن
                 </h2>
               </div>
-              <Link href="/login">
-                <button className="inline-flex items-center gap-2 self-start rounded-full border border-neutral-900/15 px-5 py-2.5 text-sm font-semibold text-neutral-800 transition-all hover:bg-neutral-900/5 sm:self-auto">
-                  تصفّح الكل
-                  <ArrowLeft className="h-4 w-4" />
-                </button>
-              </Link>
+              <DownloadCta className="inline-flex items-center gap-2 self-start rounded-full border border-neutral-900/15 px-5 py-2.5 text-sm font-semibold text-neutral-800 transition-all hover:bg-neutral-900/5 sm:self-auto">
+                تصفّح على التطبيق
+                <ArrowLeft className="h-4 w-4" />
+              </DownloadCta>
             </Reveal>
 
             {isLoading ? (
@@ -426,7 +431,7 @@ export default function Landing() {
               <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
                 {featuredYears.map((year, i) => (
                   <Reveal key={year.id} delay={(i % 4) * 0.06}>
-                    <Link href="/login">
+                    <DownloadCta className="block h-full">
                       <div className="group flex h-full cursor-pointer flex-col justify-between rounded-3xl border border-neutral-900/8 bg-white/70 p-6 transition-all hover:-translate-y-1 hover:border-primary/30 hover:bg-white hover:shadow-xl">
                         <div>
                           <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-100 text-sky-600">
@@ -446,7 +451,7 @@ export default function Landing() {
                           <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
                         </div>
                       </div>
-                    </Link>
+                    </DownloadCta>
                   </Reveal>
                 ))}
               </div>
@@ -472,12 +477,10 @@ export default function Landing() {
                 ومن أي مكان — حتى وأنت في الطريق.
               </p>
               <div className="mt-7">
-                <Link href="/register">
-                  <button className="inline-flex items-center gap-2 rounded-full bg-neutral-900 px-7 py-3.5 text-base font-semibold text-white transition-all hover:bg-neutral-800 hover:shadow-lg">
-                    أنشئ حسابك الآن
-                    <ArrowLeft className="h-4 w-4" />
-                  </button>
-                </Link>
+                <DownloadCta className="inline-flex items-center gap-2 rounded-full bg-neutral-900 px-7 py-3.5 text-base font-semibold text-white transition-all hover:bg-neutral-800 hover:shadow-lg">
+                  <Smartphone className="h-4 w-4" />
+                  نزّل التطبيق الآن
+                </DownloadCta>
               </div>
             </div>
 
@@ -509,20 +512,13 @@ export default function Landing() {
                 جاهز تبدأ رحلتك نحو التفوّق؟
               </h2>
               <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-neutral-300">
-                انضم لآلاف الطلاب وابدأ التعلّم النهارده. الحساب مجاني، والبداية في دقائق.
+                نزّل التطبيق وانضم لآلاف الطلاب. مجانًا، والبداية في دقائق.
               </p>
               <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-                <Link href="/register">
-                  <button className="inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 text-base font-semibold text-neutral-900 transition-all hover:bg-neutral-100 hover:shadow-xl">
-                    إنشاء حساب مجاني
-                    <ArrowLeft className="h-4 w-4" />
-                  </button>
-                </Link>
-                <Link href="/login">
-                  <button className="inline-flex items-center gap-2 rounded-full border border-white/25 px-8 py-4 text-base font-semibold text-white transition-all hover:bg-white/10">
-                    عندي حساب بالفعل
-                  </button>
-                </Link>
+                <DownloadCta className="inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 text-base font-semibold text-neutral-900 transition-all hover:bg-neutral-100 hover:shadow-xl">
+                  <Smartphone className="h-5 w-5" />
+                  نزّل التطبيق مجانًا
+                </DownloadCta>
               </div>
             </div>
           </div>
@@ -539,12 +535,8 @@ export default function Landing() {
           <div className="flex items-center gap-6 text-sm font-semibold text-neutral-600">
             <a href="#features" className="transition-colors hover:text-neutral-900">المميزات</a>
             <a href="#how" className="transition-colors hover:text-neutral-900">كيف تبدأ</a>
-            <Link href="/login">
-              <span className="cursor-pointer transition-colors hover:text-neutral-900">تسجيل الدخول</span>
-            </Link>
-            <Link href="/register">
-              <span className="cursor-pointer transition-colors hover:text-neutral-900">إنشاء حساب</span>
-            </Link>
+            <a href="#app" className="transition-colors hover:text-neutral-900">التطبيق</a>
+            <DownloadCta className="cursor-pointer transition-colors hover:text-neutral-900">نزّل التطبيق</DownloadCta>
           </div>
         </div>
         <p className="mx-auto mt-8 max-w-6xl text-center text-sm text-neutral-400 md:text-start">
