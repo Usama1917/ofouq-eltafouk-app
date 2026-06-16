@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, postsTable, commentsTable, reportsTable, postLikesTable, usersTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { getSessionUserId } from "../lib/auth";
 
 const router: IRouter = Router();
@@ -16,7 +16,8 @@ async function requireModerator(req: any, res: any) {
     return null;
   }
   const [user] = await db
-    .select({ id: usersTable.id, role: usersTable.role, status: usersTable.status })
+    // name is needed so resolvedBy can be attributed to the verified actor (review B-25).
+    .select({ id: usersTable.id, name: usersTable.name, role: usersTable.role, status: usersTable.status })
     .from(usersTable)
     .where(eq(usersTable.id, userId))
     .limit(1);
@@ -91,11 +92,12 @@ router.delete("/moderator/comments/:id", async (req, res) => {
     const id = parseInt(req.params.id);
     const [comment] = await db.select().from(commentsTable).where(eq(commentsTable.id, id));
     if (comment) {
-      // Decrement post comment count
-      const [post] = await db.select().from(postsTable).where(eq(postsTable.id, comment.postId));
-      if (post && post.commentsCount > 0) {
-        await db.update(postsTable).set({ commentsCount: post.commentsCount - 1 }).where(eq(postsTable.id, post.id));
-      }
+      // review B-47: decrement atomically (clamped at 0) instead of read-then-write,
+      // so concurrent deletes/inserts on the same post can't lose updates.
+      await db
+        .update(postsTable)
+        .set({ commentsCount: sql`greatest(${postsTable.commentsCount} - 1, 0)` })
+        .where(eq(postsTable.id, comment.postId));
     }
     await db.delete(commentsTable).where(eq(commentsTable.id, id));
     res.status(204).send();
@@ -143,10 +145,15 @@ router.post("/moderator/reports", async (req, res) => {
 });
 
 router.put("/moderator/reports/:id", async (req, res) => {
-  if (!(await requireModerator(req, res))) return;
+  const actor = await requireModerator(req, res);
+  if (!actor) return;
   try {
     const id = parseInt(req.params.id);
-    const { status, resolvedBy } = req.body;
+    const { status } = req.body;
+    // review B-25: attribute the resolution to the verified actor, NOT a
+    // client-supplied resolvedBy (which let a moderator forge who resolved a
+    // report). Mirrors how reportedBy is set on create.
+    const resolvedBy = actor.name || `user:${actor.id}`;
     const [report] = await db.update(reportsTable)
       .set({ status, resolvedBy, resolvedAt: new Date() })
       .where(eq(reportsTable.id, id))

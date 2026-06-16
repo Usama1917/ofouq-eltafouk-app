@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   db,
   academicYearsTable,
@@ -20,11 +20,63 @@ import {
   lessonWatchProgressTable,
   adminAuditLogTable,
 } from "@workspace/db";
-import { and, asc, count, desc, eq, gt, inArray, isNull, like } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, like, sql } from "drizzle-orm";
 import { sendPushNotificationToUser } from "../lib/push-notifications";
 
 const router: IRouter = Router();
 const execFileAsync = promisify(execFile);
+
+// review B-39: intentional, user-facing validation errors are surfaced to the
+// client; any other thrown error is logged and replaced with a generic 500 so
+// internal error.message strings are never leaked.
+class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
+
+// review B-19: never trust the client-supplied filename/extension. Derive the
+// stored extension from a server-side allowlist keyed off the validated mimetype.
+const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": ".jpg",
+  "image/jpg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+};
+const VIDEO_MIME_EXTENSIONS: Record<string, string> = {
+  "video/mp4": ".mp4",
+};
+
+function safeUploadFilename(mimetype: string, allowlist: Record<string, string>, fallbackExt: string) {
+  const ext = allowlist[String(mimetype || "").toLowerCase()] ?? fallbackExt;
+  return `${randomUUID()}${ext}`;
+}
+
+// review B-15: de-dupe concurrent segment-thumbnail generation. yt-dlp/ffmpeg
+// are expensive; without this, N simultaneous cache misses for the SAME file
+// spawn N duplicate processes. Keyed by the absolute output path; entry is
+// cleared once the in-flight generation settles.
+const inFlightSegmentThumbnails = new Map<string, Promise<boolean>>();
+
+function generateSegmentThumbnailOnce(
+  absoluteFilePath: string,
+  generate: () => Promise<boolean>,
+): Promise<boolean> {
+  const existing = inFlightSegmentThumbnails.get(absoluteFilePath);
+  if (existing) return existing;
+
+  const pending = (async () => {
+    try {
+      return await generate();
+    } finally {
+      inFlightSegmentThumbnails.delete(absoluteFilePath);
+    }
+  })();
+
+  inFlightSegmentThumbnails.set(absoluteFilePath, pending);
+  return pending;
+}
 
 const videosUploadDir = path.resolve(process.cwd(), "uploads/videos");
 const thumbnailsUploadDir = path.resolve(process.cwd(), "uploads/thumbnails");
@@ -37,26 +89,20 @@ fs.mkdirSync(codeImagesUploadDir, { recursive: true });
 
 const videoStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, videosUploadDir),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-  },
+  // review B-19: extension from server-side mimetype allowlist + random UUID name.
+  filename: (_req, file, cb) => cb(null, safeUploadFilename(file.mimetype, VIDEO_MIME_EXTENSIONS, ".mp4")),
 });
 
 const thumbnailStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, thumbnailsUploadDir),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-  },
+  // review B-19: extension from server-side mimetype allowlist + random UUID name.
+  filename: (_req, file, cb) => cb(null, safeUploadFilename(file.mimetype, IMAGE_MIME_EXTENSIONS, ".jpg")),
 });
 
 const codeImageStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, codeImagesUploadDir),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-  },
+  // review B-19: extension from server-side mimetype allowlist + random UUID name.
+  filename: (_req, file, cb) => cb(null, safeUploadFilename(file.mimetype, IMAGE_MIME_EXTENSIONS, ".jpg")),
 });
 
 const uploadVideoFile = multer({
@@ -510,8 +556,12 @@ async function scheduleResumeLessonNotification(args: {
 }
 
 function getYouTubeId(url: string): string | null {
-  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([^&?/\s]{11})/);
-  return match ? match[1] : null;
+  // review F-04: restrict the capture to the real YouTube id alphabet and
+  // re-validate, so a crafted videoUrl can't smuggle quotes/markup into the id
+  // that later lands in the mobile player HTML.
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([A-Za-z0-9_-]{11})/);
+  const id = match ? match[1] : null;
+  return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
 }
 
 function parseIso8601DurationToSeconds(value: string): number | null {
@@ -788,17 +838,15 @@ type SessionUser = {
 };
 
 import { getSessionUserId } from "../lib/auth";
+import { getUserAuth } from "../lib/user-cache";
 
 async function getSessionUser(req: any): Promise<SessionUser | null> {
   const userId = getSessionUserId(req);
   if (!userId) return null;
 
-  const [user] = await db
-    .select({ id: usersTable.id, role: usersTable.role, status: usersTable.status })
-    .from(usersTable)
-    .where(eq(usersTable.id, userId))
-    .limit(1);
-
+  // review B-34: short-TTL cached {id, role, status} lookup instead of a DB
+  // round-trip on every authenticated request (this gates the hot student paths).
+  const user = await getUserAuth(userId);
   if (!user || user.status !== "active") return null;
   return user;
 }
@@ -920,7 +968,7 @@ function normalizeVideoSegments(payload: unknown): NormalizedVideoSegmentInput[]
     const raw = item as Record<string, unknown>;
     const title = toText(raw.title);
     if (!title) {
-      throw new Error(`عنوان التقسيمة رقم ${index + 1} مطلوب`);
+      throw new ValidationError(`عنوان التقسيمة رقم ${index + 1} مطلوب`);
     }
 
     let startSeconds = toNumber(raw.startSeconds, Number.NaN);
@@ -940,7 +988,7 @@ function normalizeVideoSegments(payload: unknown): NormalizedVideoSegmentInput[]
     }
 
     if (!Number.isFinite(startSeconds) || startSeconds < 0) {
-      throw new Error(`وقت التقسيمة رقم ${index + 1} غير صالح`);
+      throw new ValidationError(`وقت التقسيمة رقم ${index + 1} غير صالح`);
     }
 
     normalized.push({
@@ -969,12 +1017,12 @@ async function normalizeVideoPayload(payload: unknown, defaults: {
 
   const videoUrl = toText(raw.videoUrl);
   if (!videoUrl) {
-    throw new Error("رابط الفيديو مطلوب");
+    throw new ValidationError("رابط الفيديو مطلوب");
   }
 
   const videoType = toText(raw.videoType, "youtube").toLowerCase() === "upload" ? "upload" : "youtube";
   if (videoType === "youtube" && !getYouTubeId(videoUrl)) {
-    throw new Error("رابط YouTube غير صالح");
+    throw new ValidationError("رابط YouTube غير صالح");
   }
 
   const publishStatus = toText(raw.publishStatus, defaults.fallbackPublishStatus).toLowerCase() === "draft"
@@ -983,7 +1031,7 @@ async function normalizeVideoPayload(payload: unknown, defaults: {
 
   const title = toText(raw.title);
   if (!title) {
-    throw new Error("عنوان الفيديو مطلوب ويجب إدخاله يدويًا.");
+    throw new ValidationError("عنوان الفيديو مطلوب ويجب إدخاله يدويًا.");
   }
   const titleEn = toTextOrNull(raw.titleEn);
   const description = toText(raw.description, defaults.fallbackDescription);
@@ -998,7 +1046,7 @@ async function normalizeVideoPayload(payload: unknown, defaults: {
     : await detectUploadDurationSeconds(videoUrl);
   const finalDuration = detectedDuration ?? (hintedDuration > 0 ? hintedDuration : null);
   if (!finalDuration || finalDuration <= 0) {
-    throw new Error("تعذر حساب مدة الفيديو تلقائيًا. أعد إدخال رابط/ملف الفيديو وحاول مرة أخرى.");
+    throw new ValidationError("تعذر حساب مدة الفيديو تلقائيًا. أعد إدخال رابط/ملف الفيديو وحاول مرة أخرى.");
   }
 
   return {
@@ -1703,7 +1751,11 @@ router.patch("/admin/subscription-requests/:id/status", async (req, res) => {
         .where(eq(subjectSubscriptionRequestsTable.id, requestId))
         .limit(1);
 
-      if (!requestRow) return null;
+      if (!requestRow) return { kind: "not_found" as const };
+
+      // review B-50: only pending requests can be reviewed — guard against a
+      // double review (idempotent) so an approve/reject can't run twice.
+      if (requestRow.status !== "pending") return { kind: "already_reviewed" as const };
 
       if (nextStatus === "approved") {
         await tx
@@ -1755,20 +1807,26 @@ router.patch("/admin/subscription-requests/:id/status", async (req, res) => {
         .where(eq(subjectSubscriptionRequestsTable.id, requestId))
         .returning();
 
-      return updated ?? null;
+      return updated ? { kind: "ok" as const, request: updated } : { kind: "not_found" as const };
     });
 
-    if (!updatedRequest) return res.status(404).json({ error: "الطلب غير موجود" });
+    if (updatedRequest.kind === "not_found") return res.status(404).json({ error: "الطلب غير موجود" });
+    // review B-50: surface a conflict (not a silent re-review) when already handled.
+    if (updatedRequest.kind === "already_reviewed") {
+      return res.status(409).json({ error: "تم مراجعة هذا الطلب من قبل" });
+    }
+
+    const reviewedRequest = updatedRequest.request;
     await notifySubscriptionReviewed({
-      id: updatedRequest.id,
-      studentId: updatedRequest.studentId,
-      subjectId: updatedRequest.subjectId,
-      status: updatedRequest.status,
-      reviewNotes: updatedRequest.reviewNotes,
+      id: reviewedRequest.id,
+      studentId: reviewedRequest.studentId,
+      subjectId: reviewedRequest.subjectId,
+      status: reviewedRequest.status,
+      reviewNotes: reviewedRequest.reviewNotes,
     }).catch((err) => {
-      req.log.warn({ err, requestId: updatedRequest.id }, "Failed to create reviewed subscription notification");
+      req.log.warn({ err, requestId: reviewedRequest.id }, "Failed to create reviewed subscription notification");
     });
-    res.json(updatedRequest);
+    res.json(reviewedRequest);
   } catch (err) {
     req.log.error({ err }, "Review subscription request error");
     res.status(500).json({ error: "Internal server error" });
@@ -2033,9 +2091,6 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
     if (!lesson) return res.status(404).json({ error: "Lesson not found" });
     if (!(await requireStudentSubjectAccess(req, res, lesson.subjectId))) return;
 
-    const context = await getLessonNavigationContext(lessonId);
-    if (!context) return res.status(404).json({ error: "Lesson not found" });
-
     const fallbackDuration = toSeconds(lesson.video?.duration, 0);
     const durationSeconds = toSeconds(req.body?.durationSeconds, fallbackDuration);
     const currentSeconds = Math.min(toSeconds(req.body?.currentSeconds, 0), durationSeconds > 0 ? durationSeconds : Number.MAX_SAFE_INTEGER);
@@ -2055,27 +2110,38 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
       })
       .onConflictDoUpdate({
         target: [lessonWatchProgressTable.studentId, lessonWatchProgressTable.lessonId],
+        // review B-17: keep progress monotonic — never let an out-of-order /
+        // smaller report rewind currentSeconds or un-complete a lesson.
         set: {
-          currentSeconds,
+          currentSeconds: sql`greatest(${lessonWatchProgressTable.currentSeconds}, ${currentSeconds})`,
           durationSeconds,
-          completed,
+          completed: sql`${lessonWatchProgressTable.completed} OR ${completed}`,
           lastWatchedAt: now,
           updatedAt: now,
         },
       });
-
-    await scheduleResumeLessonNotification({
-      studentId: student.id,
-      context,
-      currentSeconds,
-      durationSeconds,
-    });
 
     res.json({
       success: true,
       currentSeconds,
       durationSeconds,
       completed,
+    });
+
+    // review B-05: keep the hot path lean — resolve the navigation context and
+    // schedule the resume reminder AFTER responding, fire-and-forget so neither
+    // the extra read nor the notification write blocks the student's request.
+    void (async () => {
+      const context = await getLessonNavigationContext(lessonId);
+      if (!context) return;
+      await scheduleResumeLessonNotification({
+        studentId: student.id,
+        context,
+        currentSeconds,
+        durationSeconds,
+      });
+    })().catch((err) => {
+      req.log.warn({ err, lessonId }, "Failed to schedule resume-lesson notification");
     });
   } catch (err) {
     req.log.error({ err }, "Failed to save lesson progress");
@@ -2142,15 +2208,19 @@ router.get("/academic/videos/:videoId/segments/:segmentId/thumbnail", async (req
     const absoluteFilePath = path.join(segmentThumbnailsUploadDir, fileName);
 
     if (!fs.existsSync(absoluteFilePath)) {
-      let generated = false;
-      if (segment.videoType === "upload") {
-        const inputPath = resolveUploadVideoAbsolutePath(segment.videoUrl);
-        if (inputPath && fs.existsSync(inputPath)) {
-          generated = await generateUploadSegmentThumbnail(inputPath, segment.startSeconds, absoluteFilePath);
+      // review B-15: collapse concurrent misses for the same file into a single
+      // yt-dlp/ffmpeg run; later requests await the in-flight promise.
+      const generated = await generateSegmentThumbnailOnce(absoluteFilePath, async () => {
+        if (fs.existsSync(absoluteFilePath)) return true;
+        if (segment.videoType === "upload") {
+          const inputPath = resolveUploadVideoAbsolutePath(segment.videoUrl);
+          if (inputPath && fs.existsSync(inputPath)) {
+            return generateUploadSegmentThumbnail(inputPath, segment.startSeconds, absoluteFilePath);
+          }
+          return false;
         }
-      } else {
-        generated = await generateYouTubeSegmentThumbnail(segment.videoUrl, segment.startSeconds, absoluteFilePath);
-      }
+        return generateYouTubeSegmentThumbnail(segment.videoUrl, segment.startSeconds, absoluteFilePath);
+      });
 
       if (!generated) {
         if (user.role === "admin" || user.role === "owner") {
@@ -2290,7 +2360,9 @@ router.patch("/admin/academic/years/reorder", async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
 
-    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    // review B-27: cap the batch so a malicious/huge payload can't fan out into
+    // an unbounded number of concurrent UPDATEs.
+    const items = (Array.isArray(req.body?.items) ? req.body.items : []).slice(0, 500);
     await Promise.all(
       items.map((item: { id: number; orderIndex: number }) =>
         db
@@ -2411,7 +2483,9 @@ router.patch("/admin/academic/subjects/reorder", async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
 
-    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    // review B-27: cap the batch so a malicious/huge payload can't fan out into
+    // an unbounded number of concurrent UPDATEs.
+    const items = (Array.isArray(req.body?.items) ? req.body.items : []).slice(0, 500);
     await Promise.all(
       items.map((item: { id: number; orderIndex: number }) =>
         db
@@ -2528,7 +2602,9 @@ router.patch("/admin/academic/units/reorder", async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
 
-    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    // review B-27: cap the batch so a malicious/huge payload can't fan out into
+    // an unbounded number of concurrent UPDATEs.
+    const items = (Array.isArray(req.body?.items) ? req.body.items : []).slice(0, 500);
     await Promise.all(
       items.map((item: { id: number; orderIndex: number }) =>
         db
@@ -2750,13 +2826,16 @@ router.post("/admin/academic/units/:unitId/lessons", async (req, res) => {
         req.log.warn({ err, lessonId: created.id }, "Segment thumbnail pre-generation failed");
       });
     }
-    await notifyPublishedLesson(created.id).catch((err) => {
+    res.status(201).json(lesson);
+    // review B-40: don't block the 201 on the push fan-out; fire-and-forget.
+    void notifyPublishedLesson(created.id).catch((err) => {
       req.log.warn({ err, lessonId: created.id }, "Failed to create new lesson notifications");
     });
-    res.status(201).json(lesson);
   } catch (err) {
     req.log.error({ err }, "Failed to create lesson");
-    if (err instanceof Error && err.message) {
+    // review B-39: only surface intentional validation messages; never leak
+    // arbitrary internal error.message strings.
+    if (err instanceof ValidationError) {
       return res.status(400).json({ error: err.message });
     }
     res.status(500).json({ error: "Internal server error" });
@@ -2917,15 +2996,18 @@ router.put("/admin/academic/lessons/:id", async (req, res) => {
         req.log.warn({ err, lessonId }, "Segment thumbnail pre-generation failed after lesson update");
       });
     }
+    res.json(updated);
+    // review B-40: don't block the response on the push fan-out; fire-and-forget.
     if (!existing.isPublished && updated.isPublished) {
-      await notifyPublishedLesson(lessonId).catch((err) => {
+      void notifyPublishedLesson(lessonId).catch((err) => {
         req.log.warn({ err, lessonId }, "Failed to create new lesson notifications after publish");
       });
     }
-    res.json(updated);
   } catch (err) {
     req.log.error({ err }, "Failed to update lesson");
-    if (err instanceof Error && err.message) {
+    // review B-39: only surface intentional validation messages; never leak
+    // arbitrary internal error.message strings.
+    if (err instanceof ValidationError) {
       return res.status(400).json({ error: err.message });
     }
     res.status(500).json({ error: "Internal server error" });
@@ -2973,7 +3055,9 @@ router.patch("/admin/academic/lessons/reorder", async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
 
-    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    // review B-27: cap the batch so a malicious/huge payload can't fan out into
+    // an unbounded number of concurrent UPDATEs.
+    const items = (Array.isArray(req.body?.items) ? req.body.items : []).slice(0, 500);
     await Promise.all(
       items.map((item: { id: number; orderIndex: number }) =>
         db

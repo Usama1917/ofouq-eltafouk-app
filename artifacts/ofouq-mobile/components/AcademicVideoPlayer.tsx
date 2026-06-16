@@ -10,6 +10,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   Easing,
   GestureResponderEvent,
   LayoutChangeEvent,
@@ -185,7 +186,9 @@ function resolveMediaUrl(url: string | null | undefined) {
 }
 
 function parseYouTubeId(url: string): string | null {
-  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([^&?/\s]{11})/);
+  // review F-04: tighten the capture to YouTube's exact 11-char id alphabet so a
+  // malformed/hostile url can't smuggle stray characters into the embed.
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([A-Za-z0-9_-]{11})/);
   return match ? match[1] : null;
 }
 
@@ -202,6 +205,26 @@ function isYouTubeHostedImage(url: string | null) {
     );
   } catch {
     return /(?:ytimg\.com|youtube(?:-nocookie)?\.com)/i.test(url);
+  }
+}
+
+// review F-31: defense-in-depth allowlist for the YouTube WebView — only let the
+// embed load YouTube's own (nocookie) origins plus the inline about:blank / data:
+// bootstrap; block every other navigation (e.g. injected redirects to phishing /
+// tracking pages) before it starts.
+function shouldAllowWebViewRequest(request: { url?: string }) {
+  const url = request?.url ?? "";
+  if (url === "about:blank" || url.startsWith("about:blank") || url.startsWith("data:")) return true;
+  try {
+    const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    return (
+      hostname === "youtube-nocookie.com" ||
+      hostname.endsWith(".youtube-nocookie.com") ||
+      hostname === "youtube.com" ||
+      hostname.endsWith(".youtube.com")
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -235,6 +258,10 @@ function formatRate(value: number) {
 }
 
 function buildYouTubeHtml(videoId: string) {
+  // review F-04: validate the id against YouTube's exact 11-char alphabet before
+  // it ever reaches the inline <script>; bail to an empty player on anything else
+  // so a hostile url can't break out of the string and inject arbitrary JS.
+  const safeVideoId = /^[A-Za-z0-9_-]{11}$/.test(videoId) ? videoId : "";
   return `<!doctype html>
 <html>
 <head>
@@ -351,7 +378,7 @@ function buildYouTubeHtml(videoId: string) {
     window.onYouTubeIframeAPIReady = function() {
       player = new YT.Player("player", {
         host: "https://www.youtube-nocookie.com",
-        videoId: "${videoId}",
+        videoId: ${JSON.stringify(safeVideoId)},
         width: "100%",
         height: "100%",
         playerVars: {
@@ -703,6 +730,16 @@ export function AcademicVideoPlayer({
       ScreenCapture.allowScreenCaptureAsync("academic-video-player").catch(() => undefined);
     };
   }, []);
+
+  // review F-11: pause (and release audio) whenever the app leaves the foreground,
+  // so a backgrounded lesson doesn't keep playing audio. The existing pause() also
+  // surfaces the controls so the user can resume on return.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") void pause();
+    });
+    return () => subscription.remove();
+  }, []);
   const videoRef = useRef<Video>(null);
   const webViewRef = useRef<WebView>(null);
   const segmentButtonRef = useRef<View>(null);
@@ -748,6 +785,9 @@ export function AcademicVideoPlayer({
   const [segmentButtonFrame, setSegmentButtonFrame] = useState<MeasuredRect | null>(null);
   const [segmentPanelSize, setSegmentPanelSize] = useState<{ width: number; height: number } | null>(null);
   const [seekToast, setSeekToast] = useState<"-10s" | "+10s" | null>(null);
+  // review F-18: holds the pending hide-timeout id so we can clear the previous one
+  // before scheduling a new toast and clear it on unmount (no setState-after-unmount).
+  const seekToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Bumping this remounts the media source so a failed load can be retried.
   const [reloadKey, setReloadKey] = useState(0);
@@ -1066,9 +1106,12 @@ export function AcademicVideoPlayer({
     if (!isPlaying) return;
     if (scrubTime !== null) return;
     if (activeSheet) return;
-    const timeout = setTimeout(() => setShowControls(false), 2600);
+    const timeout = setTimeout(() => setShowControls(false), 4500);
     return () => clearTimeout(timeout);
-  }, [activeSheet, currentTime, isPlaying, scrubTime, showControls]);
+    // review F-03: currentTime is intentionally NOT a dependency — it ticks ~4x/sec
+    // and would re-arm the timer every tick so the controls never hid. The timer now
+    // arms once per play / showControls transition.
+  }, [activeSheet, isPlaying, scrubTime, showControls]);
 
   useEffect(() => {
     if (isScrubbingRef.current) return;
@@ -1130,6 +1173,14 @@ export function AcademicVideoPlayer({
   useEffect(
     () => () => {
       if (youTubeRevealTimerRef.current) clearTimeout(youTubeRevealTimerRef.current);
+    },
+    [],
+  );
+
+  // review F-18: cancel the pending seek-toast hide timer on unmount.
+  useEffect(
+    () => () => {
+      if (seekToastTimerRef.current) clearTimeout(seekToastTimerRef.current);
     },
     [],
   );
@@ -1337,8 +1388,14 @@ export function AcademicVideoPlayer({
   }
 
   function showSeekToast(value: "-10s" | "+10s") {
+    // review F-18: clear any in-flight hide timer before arming a new one, and keep
+    // the id so the unmount cleanup can cancel it (avoids setState after unmount).
+    if (seekToastTimerRef.current) clearTimeout(seekToastTimerRef.current);
     setSeekToast(value);
-    setTimeout(() => setSeekToast(null), 520);
+    seekToastTimerRef.current = setTimeout(() => {
+      seekToastTimerRef.current = null;
+      setSeekToast(null);
+    }, 520);
   }
 
   function seekBy(delta: number) {
@@ -1738,6 +1795,7 @@ export function AcademicVideoPlayer({
               scrollEnabled={false}
               bounces={false}
               onMessage={handleWebMessage}
+              onShouldStartLoadWithRequest={shouldAllowWebViewRequest}
               style={styles.webView}
             />
           ) : youTubeId ? (
@@ -1916,7 +1974,8 @@ export function AcademicVideoPlayer({
                   style={styles.npTrack}
                   accessible
                   accessibilityRole="adjustable"
-                  accessibilityLabel="شريط تقدم الفيديو"
+                  // review F-25: was a hardcoded Arabic string; now localized via i18n.
+                  accessibilityLabel={strings.academic.a11yProgressBar}
                   accessibilityValue={{
                     min: 0,
                     max: Math.max(1, Math.round(duration)),

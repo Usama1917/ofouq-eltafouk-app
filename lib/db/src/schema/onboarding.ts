@@ -11,7 +11,7 @@ export const studentOnboardingResponsesTable = pgTable("student_onboarding_respo
     .unique()
     .references(() => usersTable.id, { onDelete: "cascade" }),
   onboardingCompleted: boolean("onboarding_completed").notNull().default(false),
-  onboardingCompletedAt: timestamp("onboarding_completed_at"),
+  onboardingCompletedAt: timestamp("onboarding_completed_at", { withTimezone: true }),
   heardAboutUs: text("heard_about_us"),
   gradeLevel: text("grade_level"),
   // JSON array of subject keys, e.g. ["physics","chemistry"]. Nullable; treat null as [].
@@ -20,8 +20,8 @@ export const studentOnboardingResponsesTable = pgTable("student_onboarding_respo
   currentLevel: text("current_level"),
   learningPreference: text("learning_preference"),
   preferredStudyTime: text("preferred_study_time"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type StudentOnboardingResponse = typeof studentOnboardingResponsesTable.$inferSelect;

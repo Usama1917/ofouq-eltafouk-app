@@ -89,7 +89,14 @@ export function openNotificationTarget(notification: AppNotification) {
   const data = notification.data ?? {};
 
   if (data.route === "external" && data.url) {
-    void Linking.openURL(cleanParam(data.url));
+    // review F-20: only open http(s) URLs, matching the actionUrl branch below.
+    // Without this an attacker-influenced notification payload could hand an
+    // arbitrary scheme (javascript:, file:, intent:, a deep link, …) straight to
+    // the OS via Linking.openURL.
+    const externalUrl = cleanParam(data.url);
+    if (/^https?:\/\//i.test(externalUrl)) {
+      void Linking.openURL(externalUrl);
+    }
     return;
   }
 

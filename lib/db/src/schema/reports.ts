@@ -11,8 +11,8 @@ export const reportsTable = pgTable("reports", {
   reportedBy: text("reported_by").notNull().default("anonymous"),
   status: text("status").notNull().default("pending"),
   resolvedBy: text("resolved_by"),
-  resolvedAt: timestamp("resolved_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const insertReportSchema = createInsertSchema(reportsTable).omit({ id: true, createdAt: true, resolvedAt: true });

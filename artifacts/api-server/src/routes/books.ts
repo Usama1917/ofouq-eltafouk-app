@@ -68,6 +68,16 @@ function normalizeVoucherCode(value: unknown): string {
   return value.trim().toUpperCase();
 }
 
+// review B-26: the search term is interpolated into ilike(col, `%${term}%`). A
+// user's `%`/`_` would act as wildcards (e.g. "%" matches everything) and a
+// trailing `\` could escape our own bounding `%`. Escape the LIKE metacharacters
+// (\, %, _) so the term is matched literally, and cap the length to bound the
+// pattern (Postgres LIKE uses `\` as the default escape char).
+const MAX_SEARCH_LEN = 80;
+function escapeLikeTerm(value: string): string {
+  return value.slice(0, MAX_SEARCH_LEN).replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 function isVoucherValidNow(voucher: {
   active: boolean;
   startsAt: Date | null;
@@ -125,12 +135,14 @@ router.get("/books", async (req, res) => {
     }
 
     if (search) {
+      // review B-26: escape LIKE wildcards + cap length before interpolation.
+      const term = `%${escapeLikeTerm(search)}%`;
       conditions.push(
         or(
-          ilike(booksTable.title, `%${search}%`),
-          ilike(booksTable.description, `%${search}%`),
-          ilike(booksTable.subject, `%${search}%`),
-          ilike(booksTable.category, `%${search}%`),
+          ilike(booksTable.title, term),
+          ilike(booksTable.description, term),
+          ilike(booksTable.subject, term),
+          ilike(booksTable.category, term),
         ),
       );
     }

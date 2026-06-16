@@ -3,6 +3,9 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { getSessionUserId } from "../lib/auth";
+// review B-43: shared role allowlists (were re-declared inline in each handler).
+import { VALID_ROLES, PRIVILEGED_ROLES } from "../lib/roles";
+import { invalidateUserAuth } from "../lib/user-cache";
 import {
   db,
   booksTable,
@@ -1068,6 +1071,32 @@ router.get("/admin/owner-dashboard/geo", async (req, res) => {
 // Users
 router.get("/admin/users", async (req, res) => {
   try {
+    // review F-05: server-side pagination + filtering. All params are OPTIONAL and
+    // applied in SQL; the response shape is unchanged (a JSON array of users) so the
+    // existing client keeps working. Defaults: limit 100 (max 500), offset 0, no filters.
+    const limitRaw = Number.parseInt(String(req.query.limit ?? ""), 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 100;
+    const offsetRaw = Number.parseInt(String(req.query.offset ?? ""), 10);
+    const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? offsetRaw : 0;
+
+    const conditions = [] as any[];
+    const roleFilter = String(req.query.role ?? "").trim();
+    if (roleFilter && VALID_ROLES.has(roleFilter)) {
+      conditions.push(eq(usersTable.role, roleFilter));
+    }
+    const statusFilter = String(req.query.status ?? "").trim();
+    if (statusFilter && new Set(["active", "suspended", "inactive"]).has(statusFilter)) {
+      conditions.push(eq(usersTable.status, statusFilter));
+    }
+    const search = String(req.query.search ?? "").trim();
+    if (search) {
+      // Case-insensitive name/email match; escape LIKE metacharacters in user input.
+      const escaped = search.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+      const pattern = `%${escaped}%`;
+      conditions.push(or(sql`${usersTable.name} ilike ${pattern}`, sql`${usersTable.email} ilike ${pattern}`));
+    }
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
     const users = await db
       .select({
         id: usersTable.id,
@@ -1082,7 +1111,10 @@ router.get("/admin/users", async (req, res) => {
         lastActiveAt: usersTable.lastActiveAt,
       })
       .from(usersTable)
-      .orderBy(desc(usersTable.joinedAt));
+      .where(whereClause)
+      .orderBy(desc(usersTable.joinedAt))
+      .limit(limit)
+      .offset(offset);
     res.json(users);
   } catch (err) {
     req.log.error({ err }, "List users error");
@@ -1090,29 +1122,11 @@ router.get("/admin/users", async (req, res) => {
   }
 });
 
-// --- Admin auth helpers (the legacy CRUD routes above predate auth; the detail
-//     endpoint below is admin/owner-only). Mirrors the pattern in notifications.ts. ---
-async function requireAdminActor(req: any, res: any) {
-  const actorId = getSessionUserId(req);
-  if (!actorId) {
-    res.status(401).json({ error: "يجب تسجيل الدخول أولًا" });
-    return null;
-  }
-  const [actor] = await db
-    .select({ id: usersTable.id, role: usersTable.role, status: usersTable.status })
-    .from(usersTable)
-    .where(eq(usersTable.id, actorId))
-    .limit(1);
-  if (!actor || actor.status !== "active") {
-    res.status(401).json({ error: "غير مصرح" });
-    return null;
-  }
-  if (actor.role !== "admin" && actor.role !== "owner") {
-    res.status(403).json({ error: "هذا الإجراء متاح للمشرفين فقط" });
-    return null;
-  }
-  return actor;
-}
+// review B-42: the per-handler requireAdminActor helper was removed. The
+// router-level requireAdminGate (mounted on every /admin path above) already
+// authenticates and validates the admin/owner actor and attaches it as
+// (req as any).adminActor, so a second helper performing the same DB lookup was
+// redundant.
 
 function maskPushToken(token: string) {
   if (!token || token.length <= 16) return "•••";
@@ -1122,7 +1136,10 @@ function maskPushToken(token: string) {
 // Full structured details for a single user (admin/owner only). Student-focused,
 // but returns safely-empty sections for any role. Never returns password or full tokens.
 router.get("/admin/users/:userId/details", async (req, res) => {
-  if (!(await requireAdminActor(req, res))) return;
+  // review B-42: the router-level requireAdminGate already authenticated this
+  // request and attached the validated admin/owner actor. The earlier
+  // requireAdminActor call here repeated the same DB lookup + role check, so it
+  // is dropped; no per-handler re-validation is needed.
   try {
     const userId = Number.parseInt(req.params.userId, 10);
     if (!Number.isFinite(userId) || userId <= 0) {
@@ -1355,9 +1372,8 @@ router.post("/admin/users", async (req, res) => {
     const email = String(body.email ?? "").trim();
     const role = body.role === undefined ? "student" : String(body.role);
     const status = body.status === undefined ? "active" : String(body.status);
-    const VALID_ROLES = new Set(["student", "teacher", "parent", "admin", "owner", "moderator"]);
+    // review B-43: VALID_ROLES / PRIVILEGED_ROLES now imported from ../lib/roles.
     const VALID_STATUSES = new Set(["active", "suspended", "inactive"]);
-    const PRIVILEGED_ROLES = new Set(["admin", "owner", "moderator"]);
     if (!name) {
       return res.status(400).json({ error: "الاسم مطلوب" });
     }
@@ -1396,9 +1412,8 @@ router.put("/admin/users/:id", async (req, res) => {
     const status = body.status === undefined ? undefined : String(body.status);
     const [before] = await db.select({ name: usersTable.name, role: usersTable.role, status: usersTable.status }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
     const actor = (req as any).adminActor;
-    const VALID_ROLES = new Set(["student", "teacher", "parent", "admin", "owner", "moderator"]);
+    // review B-43: VALID_ROLES / PRIVILEGED_ROLES now imported from ../lib/roles.
     const VALID_STATUSES = new Set(["active", "suspended", "inactive"]);
-    const PRIVILEGED_ROLES = new Set(["admin", "owner", "moderator"]);
     // Role changes: validate against an allowlist, and only the OWNER may grant or
     // revoke privileged roles (admin/owner/moderator). This prevents an admin from
     // self-escalating to owner or minting other admins.
@@ -1429,6 +1444,7 @@ router.put("/admin/users/:id", async (req, res) => {
     if (status !== undefined) updateData.status = status;
     const [user] = await db.update(usersTable).set(updateData).where(eq(usersTable.id, id)).returning();
     if (!user) return res.status(404).json({ error: "User not found" });
+    invalidateUserAuth(id); // review B-34: a role/status change must take effect immediately
     // Classify the change so suspend/activate show as distinct actions in reports.
     let actionType = "user_update";
     let actionLabel = "حدّث بيانات مستخدم";
@@ -1463,11 +1479,12 @@ router.delete("/admin/users/:id", async (req, res) => {
     }
     // Deleting a privileged target (admin/owner/moderator) is owner-only — a plain
     // admin must not be able to remove the owner or a peer admin/moderator.
-    const PRIVILEGED_ROLES = new Set(["admin", "owner", "moderator"]);
+    // review B-43: PRIVILEGED_ROLES now imported from ../lib/roles.
     if (PRIVILEGED_ROLES.has(String(before.role)) && actor?.role !== "owner") {
       return res.status(403).json({ error: "هذا الإجراء متاح للمالك فقط" });
     }
     await db.delete(usersTable).where(eq(usersTable.id, id));
+    invalidateUserAuth(id); // review B-34
     await logAudit(req, { actionType: "user_delete", actionLabel: "حذف مستخدمًا", entityType: "user", entityId: id, entityLabel: before?.name || before?.email || String(id), oldValue: before ? `${before.role}` : "" });
     res.status(204).send();
   } catch (err) {

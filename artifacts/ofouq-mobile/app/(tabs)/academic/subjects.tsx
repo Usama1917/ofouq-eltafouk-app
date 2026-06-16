@@ -225,7 +225,9 @@ export default function SubjectsScreen() {
   } = useQuery<Subject[]>({
     queryKey: ["academic", "subjects", yearId, token],
     queryFn: () => apiFetch(`/api/academic/years/${yearId}/subjects`, { token }),
-    enabled: !!yearId,
+    // review F-16: token is part of the queryKey, so also gate on it to avoid an
+    // initial paywalled fetch firing with a null token on cold start.
+    enabled: !!yearId && !!token,
   });
 
   // Refresh on return so newly added subjects (or access changes) appear live.

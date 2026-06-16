@@ -20,9 +20,10 @@ import { FONT } from "@/constants/typography";
 // spring while the pill background and label cross-fade. Layout is physical
 // (orb left in Light, orb right in Dark) regardless of language — only the label
 // text is localized.
-const PILL_HEIGHT = 46;
-const ORB_SIZE = 60; // intentionally taller than the pill so the orb overflows it
-const WRAP_HEIGHT = 74;
+const PILL_HEIGHT = 50; // track, slightly taller than before
+const ORB_INSET = 4; // gap between the orb and the pill edge on every side
+const ORB_SIZE = PILL_HEIGHT - ORB_INSET * 2; // orb now sits fully INSIDE the pill (was overflowing)
+const WRAP_HEIGHT = PILL_HEIGHT + 12; // a little breathing room for the drop shadow
 const PILL_TOP = (WRAP_HEIGHT - PILL_HEIGHT) / 2;
 const ORB_TOP = (WRAP_HEIGHT - ORB_SIZE) / 2;
 const COLOR_MS = 600;
@@ -63,8 +64,8 @@ export function ThemeGlassToggle({
     s.value = withSpring(isDark ? 1 : 0, { damping: 15, stiffness: 130, mass: 0.9 });
   }, [isDark, s, t]);
 
-  const leftRest = 0;
-  const rightRest = Math.max(0, width - ORB_SIZE);
+  const leftRest = ORB_INSET;
+  const rightRest = Math.max(ORB_INSET, width - ORB_SIZE - ORB_INSET);
 
   const pillStyle = useAnimatedStyle(() => ({
     backgroundColor: interpolateColor(t.value, [0, 1], [LIGHT_PILL, DARK_PILL]),
@@ -180,8 +181,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  labelZoneRight: { left: ORB_SIZE, right: 0 },
-  labelZoneLeft: { left: 0, right: ORB_SIZE },
+  labelZoneRight: { left: ORB_SIZE + ORB_INSET * 2, right: 0 },
+  labelZoneLeft: { left: 0, right: ORB_SIZE + ORB_INSET * 2 },
   label: {
     ...FONT.bold,
     fontSize: 16,

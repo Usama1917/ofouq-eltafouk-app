@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { I18nManager, NativeModules, useColorScheme, View, type FlexStyle } from "react-native";
+import { AccessibilityInfo, I18nManager, NativeModules, useColorScheme, View, type FlexStyle } from "react-native";
 
 import { COLORS } from "@/constants/colors";
 import { setAppIsRTL } from "@/lib/appDirection";
@@ -26,6 +26,8 @@ type PreferencesContextValue = {
   strings: AppStrings;
   direction: TextDirection;
   isRTL: boolean;
+  // review F-10: OS "reduce motion" accessibility flag so screens can skip/shorten animations.
+  reduceMotion: boolean;
   textAlign: "right" | "left";
   rowDirection: FlexStyle["flexDirection"];
   reverseRowDirection: FlexStyle["flexDirection"];
@@ -76,6 +78,8 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
   });
   const [themePreference, setThemePreferenceState] = useState<AppThemePreference>("system");
   const [isReady, setIsReady] = useState(false);
+  // review F-10: respect the OS "reduce motion" setting.
+  const [reduceMotion, setReduceMotion] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -120,6 +124,26 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
 
     return () => {
       isMounted = false;
+    };
+  }, []);
+
+  // review F-10: read the OS "reduce motion" flag once on mount and stay subscribed to changes.
+  useEffect(() => {
+    let isMounted = true;
+
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (isMounted) setReduceMotion(enabled);
+      })
+      .catch(() => undefined);
+
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", (enabled) => {
+      setReduceMotion(enabled);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.remove();
     };
   }, []);
 
@@ -186,6 +210,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       strings,
       direction,
       isRTL,
+      reduceMotion,
       textAlign,
       rowDirection,
       reverseRowDirection,
@@ -200,6 +225,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       direction,
       isRTL,
       language,
+      reduceMotion,
       resolvedScheme,
       rowDirection,
       reverseRowDirection,

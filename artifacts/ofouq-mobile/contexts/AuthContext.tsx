@@ -6,6 +6,7 @@ import { AppState } from "react-native";
 import { apiFetch, setUnauthorizedHandler, type ApiError } from "@/lib/api";
 import { LANGUAGE_STORAGE_KEY } from "@/contexts/PreferencesContext";
 import { unregisterCurrentPushToken } from "@/lib/pushNotifications";
+import { getStoredToken, setStoredToken, clearStoredToken } from "@/lib/tokenStore";
 
 export type UserRole = "student" | "teacher" | "parent" | "admin" | "moderator" | "owner";
 
@@ -49,20 +50,28 @@ interface RegisterData {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+// review F-08: the session token now lives in the OS secure store (Keychain /
+// Keystore) via lib/tokenStore, not plaintext AsyncStorage. The cached user
+// profile (non-sensitive, kept for a fast launch) stays in AsyncStorage.
 const AUTH_USER_KEY = "ofouq_user";
-const AUTH_TOKEN_KEY = "ofouq_token";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // review F-17: guards logout() against re-entry. On token expiry every
+  // protected request returns 401 and fires onUnauthorized → logout(); logout()
+  // itself DELETEs the push-token with the now-expired token, which returns 401
+  // → onUnauthorized → logout() again, a feedback loop. This flag makes logout()
+  // run its side effects at most once until it fully settles.
+  const isLoggingOutRef = useRef(false);
 
   useEffect(() => {
     (async () => {
       try {
         const [storedUser, storedToken] = await Promise.all([
           AsyncStorage.getItem(AUTH_USER_KEY),
-          AsyncStorage.getItem(AUTH_TOKEN_KEY),
+          getStoredToken(),
         ]);
         if (storedUser && storedToken) {
           // Show the cached session immediately for a fast launch…
@@ -82,7 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setToken(null);
               await Promise.all([
                 AsyncStorage.removeItem(AUTH_USER_KEY),
-                AsyncStorage.removeItem(AUTH_TOKEN_KEY),
+                clearStoredToken(),
               ]);
             }
           }
@@ -139,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(data.token);
     await Promise.all([
       AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user)),
-      AsyncStorage.setItem(AUTH_TOKEN_KEY, data.token),
+      setStoredToken(data.token),
     ]);
   }, []);
 
@@ -152,19 +161,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(data.token);
     await Promise.all([
       AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user)),
-      AsyncStorage.setItem(AUTH_TOKEN_KEY, data.token),
+      setStoredToken(data.token),
     ]);
   }, []);
 
   const logout = useCallback(async () => {
+    // review F-17: ignore overlapping logout() calls (e.g. the 401 storm from
+    // unregisterCurrentPushToken below) so the unregister DELETE — and its own
+    // 401 → onUnauthorized → logout() — fires only once per expiry.
+    if (isLoggingOutRef.current) return;
+    isLoggingOutRef.current = true;
     const currentToken = token;
     setUser(null);
     setToken(null);
-    await Promise.all([
-      unregisterCurrentPushToken(currentToken).catch(() => undefined),
-      AsyncStorage.removeItem(AUTH_USER_KEY),
-      AsyncStorage.removeItem(AUTH_TOKEN_KEY),
-    ]);
+    try {
+      await Promise.all([
+        unregisterCurrentPushToken(currentToken).catch(() => undefined),
+        AsyncStorage.removeItem(AUTH_USER_KEY),
+        clearStoredToken(),
+      ]);
+    } finally {
+      isLoggingOutRef.current = false;
+    }
   }, [token]);
 
   const updateUser = useCallback((updatedUser: User) => {

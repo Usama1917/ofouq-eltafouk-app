@@ -15,3 +15,5 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **UX:** RTL/i18n everywhere (Western digits); 401 → auto sign-out + redirect on both clients; refresh must not bounce logged-in users; respect `prefers-reduced-motion`; `SOFT_LAUNCH_MODE` hides Books+AI.
 
 **Performance:** keep video/list endpoints paginated and cache-safe; DB pool tuned in `lib/db`. `replit.md` is stale on auth.
+
+**Deferred review items:** intentionally-postponed code-review findings (internal refactors / cleanups, not urgent) are listed in `magazine_details.md` — a backlog, not open bugs.

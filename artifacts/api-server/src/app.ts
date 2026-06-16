@@ -1,11 +1,14 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 import pinoHttp from "pino-http";
 import path from "path";
+import { db, usersTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { getSessionUserId } from "./lib/auth";
 
 const app: Express = express();
 
@@ -95,12 +98,85 @@ const globalLimiter = rateLimit({
   message: { error: "طلبات كثيرة. حاول مرة أخرى بعد قليل." },
 });
 
+// Stricter limiter for the public (pre-account) profile-photo upload, which writes
+// a 5MB file to disk per request (review B-22).
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "محاولات رفع كثيرة. حاول مرة أخرى بعد قليل." },
+});
+
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
+app.use("/api/auth/profile-photo/upload", uploadLimiter);
 app.use("/api", globalLimiter);
 
-app.use("/api/uploads", express.static(path.resolve(process.cwd(), "uploads")));
+// Defense-in-depth (review B-41): gate the entire /api/admin namespace at the app
+// level so an /admin route in ANY router that forgets its own requireAdmin can't be
+// reached without an admin/owner session. Per-handler checks remain as a second layer.
+app.use("/api/admin", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = getSessionUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: "غير مصرح" });
+      return;
+    }
+    const [actor] = await db
+      .select({ role: usersTable.role, status: usersTable.status })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+    if (!actor || actor.status === "suspended" || (actor.role !== "admin" && actor.role !== "owner")) {
+      res.status(403).json({ error: "غير مصرح لك بالوصول" });
+      return;
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Payment-proof screenshots must not be world-readable (review B-03): require a
+// session before serving anything under uploads/subscription-codes.
+app.use("/api/uploads/subscription-codes", (req: Request, res: Response, next: NextFunction) => {
+  if (!getSessionUserId(req)) {
+    res.status(401).json({ error: "غير مصرح" });
+    return;
+  }
+  next();
+});
+
+app.use(
+  "/api/uploads",
+  express.static(path.resolve(process.cwd(), "uploads"), { dotfiles: "deny", index: false }),
+);
 
 app.use("/api", router);
+
+// 404 JSON fallback for unknown API routes so clients always get the { error } shape
+// instead of Express's default HTML (review B-36).
+app.use("/api", (_req: Request, res: Response) => {
+  res.status(404).json({ error: "غير موجود" });
+});
+
+// Terminal error handler (review B-36): always respond with the app's JSON shape and
+// never leak a stack trace / raw message in production. Catches body-parser failures
+// (malformed/oversized JSON) that throw before any route's try/catch runs.
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  (req as Request & { log?: { error?: (...a: unknown[]) => void } }).log?.error?.({ err }, "Unhandled request error");
+  if (res.headersSent) return next(err);
+  if (err?.type === "entity.too.large") {
+    res.status(413).json({ error: "حجم الطلب كبير جدًا" });
+    return;
+  }
+  if (err?.type === "entity.parse.failed" || err instanceof SyntaxError) {
+    res.status(400).json({ error: "صيغة الطلب غير صحيحة" });
+    return;
+  }
+  const status = typeof err?.status === "number" && err.status >= 400 && err.status < 600 ? err.status : 500;
+  res.status(status).json({ error: "خطأ في الخادم" });
+});
 
 export default app;

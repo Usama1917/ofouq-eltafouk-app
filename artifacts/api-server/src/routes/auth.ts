@@ -1,15 +1,17 @@
 import { Router, type IRouter } from "express";
 import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import crypto from "node:crypto";
 import {
   hashPassword,
   verifyPassword,
   needsRehash,
   issueToken,
   getSessionUserId as resolveSessionUserId,
+  getSessionTokenPayload,
 } from "../lib/auth";
 
 // Public self-registration may only create non-privileged accounts. Admin/owner/
@@ -31,8 +33,10 @@ const PROFILE_PHOTO_EXTENSIONS: Record<string, string> = {
 const profilePhotoStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, profilePhotosUploadDir),
   filename: (_req, file, cb) => {
+    // Server-side extension from the validated mimetype + a high-entropy name so
+    // uploads can't be enumerated or carry an attacker-chosen extension (review B-03/B-19).
     const ext = PROFILE_PHOTO_EXTENSIONS[file.mimetype] ?? ".jpg";
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    cb(null, `${crypto.randomUUID()}${ext}`);
   },
 });
 
@@ -62,19 +66,21 @@ function normalizePhone(phone: unknown) {
   return value.length > 0 ? value : "";
 }
 
-function registerConflictMessage(fields: { email: boolean; phone: boolean }) {
-  if (fields.email && fields.phone) return "البريد الإلكتروني ورقم الهاتف مستخدمان من قبل";
-  if (fields.email) return "البريد الإلكتروني مستخدم من قبل";
-  if (fields.phone) return "رقم الهاتف مستخدم من قبل";
-  return "بيانات الحساب مستخدمة من قبل";
+// SECURITY (review B-20): do NOT reveal which identifier collided — a generic
+// message prevents account/phone enumeration via the registration endpoint.
+function sendRegisterConflict(res: any) {
+  return res.status(409).json({
+    error: "البريد الإلكتروني أو رقم الهاتف مستخدم بالفعل",
+    code: "auth/register_conflict",
+  });
 }
 
-function sendRegisterConflict(res: any, fields: { email: boolean; phone: boolean }) {
-  return res.status(409).json({
-    error: registerConflictMessage(fields),
-    code: "auth/register_conflict",
-    fields,
-  });
+// Minimum password policy (review B-21). Applied on register + change-password.
+function validatePasswordStrength(pw: unknown): string | null {
+  if (typeof pw !== "string" || pw.length < 8) {
+    return "كلمة المرور يجب أن تكون 8 أحرف على الأقل";
+  }
+  return null;
 }
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -240,6 +246,8 @@ router.post("/auth/register", async (req, res) => {
     if (!name || !normalizedEmail || !password) {
       return res.status(400).json({ error: "الاسم والبريد الإلكتروني وكلمة المرور مطلوبة" });
     }
+    const pwError = validatePasswordStrength(password);
+    if (pwError) return res.status(400).json({ error: pwError });
     // Never trust a client-supplied privileged role on public registration.
     const requestedRole = String(role);
     const safeRole = PUBLIC_REGISTRATION_ROLES.has(requestedRole) ? requestedRole : "student";
@@ -263,7 +271,7 @@ router.post("/auth/register", async (req, res) => {
       phone: existingPhone.length > 0,
     };
     if (conflictFields.email || conflictFields.phone) {
-      return sendRegisterConflict(res, conflictFields);
+      return sendRegisterConflict(res);
     }
 
     const [user] = await db
@@ -289,14 +297,14 @@ router.post("/auth/register", async (req, res) => {
       .returning();
 
     const { password: _pw, ...safeUser } = user;
-    return res.status(201).json({ user: withPermissions(safeUser), token: issueToken(user.id) });
+    return res.status(201).json({ user: withPermissions(safeUser), token: issueToken(user.id, user.tokenVersion ?? 0) });
   } catch (err) {
     req.log.error({ err: getErrorDetails(err) }, "Register error");
     if (isDatabaseUnavailableError(err)) {
       return sendDatabaseError(res, err);
     }
     if (isUniqueConstraintError(err)) {
-      return sendRegisterConflict(res, { email: true, phone: false });
+      return sendRegisterConflict(res);
     }
     return res.status(500).json({ error: "خطأ في الخادم" });
   }
@@ -347,7 +355,7 @@ router.post("/auth/login", async (req, res) => {
 
     const activeUser = await touchUserActivity(user.id);
     const { password: _pw, ...safeUser } = activeUser ?? user;
-    return res.json({ user: withPermissions(safeUser), token: issueToken(user.id) });
+    return res.json({ user: withPermissions(safeUser), token: issueToken(user.id, user.tokenVersion ?? 0) });
   } catch (err) {
     const errorDetails = getErrorDetails(err);
     req.log.error({ err: errorDetails, email: normalizedEmail }, "Login error");
@@ -367,12 +375,16 @@ router.post("/auth/login", async (req, res) => {
 // Get current user
 router.get("/auth/me", async (req, res) => {
   try {
-    const id = getSessionUserId(req);
-    if (!id) return res.status(401).json({ error: "غير مصرح" });
+    const payload = getSessionTokenPayload(req);
+    if (!payload) return res.status(401).json({ error: "غير مصرح" });
 
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, payload.userId)).limit(1);
     if (!user) return res.status(404).json({ error: "المستخدم غير موجود" });
     if (user.status === "suspended") return res.status(403).json({ error: "الحساب موقوف" });
+    // Reject tokens invalidated by a logout / password change (review B-02).
+    if ((user.tokenVersion ?? 0) !== payload.tokenVersion) {
+      return res.status(401).json({ error: "انتهت الجلسة. سجّل الدخول من جديد." });
+    }
     const activeUser = await touchUserActivity(user.id);
     const { password: _pw, ...safeUser } = activeUser ?? user;
     return res.json(withPermissions(safeUser));
@@ -442,6 +454,55 @@ router.put("/auth/profile", async (req, res) => {
     if (isDatabaseUnavailableError(err)) {
       return sendDatabaseError(res, err);
     }
+    return res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// Logout: invalidate EVERY session for the caller by bumping their token version
+// (review B-02). The next /auth/me with an old token returns 401.
+router.post("/auth/logout", async (req, res) => {
+  try {
+    const id = getSessionUserId(req);
+    if (!id) return res.status(401).json({ error: "غير مصرح" });
+    await db
+      .update(usersTable)
+      .set({ tokenVersion: sql`${usersTable.tokenVersion} + 1` })
+      .where(eq(usersTable.id, id));
+    return res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err: getErrorDetails(err) }, "Logout error");
+    if (isDatabaseUnavailableError(err)) return sendDatabaseError(res, err);
+    return res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// Self-service password change. Verifies the current password, stores a fresh
+// hash, bumps tokenVersion to invalidate all other sessions, and returns a new
+// token for the current device (review B-02).
+router.post("/auth/change-password", async (req, res) => {
+  try {
+    const id = getSessionUserId(req);
+    if (!id) return res.status(401).json({ error: "غير مصرح" });
+    const currentPassword = typeof req.body?.currentPassword === "string" ? req.body.currentPassword : "";
+    const newPassword = typeof req.body?.newPassword === "string" ? req.body.newPassword : "";
+    const pwError = validatePasswordStrength(newPassword);
+    if (pwError) return res.status(400).json({ error: pwError });
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    if (!user) return res.status(404).json({ error: "المستخدم غير موجود" });
+    if (!verifyPassword(currentPassword, user.password)) {
+      return res.status(401).json({ error: "كلمة المرور الحالية غير صحيحة" });
+    }
+
+    const [updated] = await db
+      .update(usersTable)
+      .set({ password: hashPassword(newPassword), tokenVersion: sql`${usersTable.tokenVersion} + 1` })
+      .where(eq(usersTable.id, id))
+      .returning();
+    return res.json({ ok: true, token: issueToken(updated.id, updated.tokenVersion ?? 0) });
+  } catch (err) {
+    req.log.error({ err: getErrorDetails(err) }, "Change password error");
+    if (isDatabaseUnavailableError(err)) return sendDatabaseError(res, err);
     return res.status(500).json({ error: "خطأ في الخادم" });
   }
 });

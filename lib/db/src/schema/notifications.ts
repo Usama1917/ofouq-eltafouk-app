@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, serial, text, timestamp, unique, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { lessonsTable } from "./academic";
@@ -16,12 +16,15 @@ export const notificationsTable = pgTable(
     actionUrl: text("action_url"),
     data: jsonb("data").$type<Record<string, unknown>>(),
     dedupeKey: text("dedupe_key"),
-    availableAt: timestamp("available_at").notNull().defaultNow(),
-    readAt: timestamp("read_at"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     userDedupeUnique: unique("notifications_user_dedupe_uniq").on(table.userId, table.dedupeKey),
+    // Per-user feed: WHERE user_id = ? AND available_at <= now() ORDER BY created_at DESC. See review B-09.
+    userFeedIdx: index("notifications_user_feed_idx").on(table.userId, table.availableAt, table.createdAt),
+    userReadIdx: index("notifications_user_read_idx").on(table.userId, table.readAt),
   }),
 );
 
@@ -34,11 +37,13 @@ export const lessonWatchProgressTable = pgTable(
     currentSeconds: integer("current_seconds").notNull().default(0),
     durationSeconds: integer("duration_seconds").notNull().default(0),
     completed: boolean("completed").notNull().default(false),
-    lastWatchedAt: timestamp("last_watched_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    lastWatchedAt: timestamp("last_watched_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     studentLessonUnique: unique("lesson_watch_progress_student_lesson_uniq").on(table.studentId, table.lessonId),
+    // Admin aggregates group by lessonId across all students. See review B-11.
+    lessonIdx: index("lesson_watch_progress_lesson_idx").on(table.lessonId),
   }),
 );
 
@@ -51,14 +56,17 @@ export const pushNotificationTokensTable = pgTable(
     platform: text("platform").notNull().default("unknown"),
     deviceName: text("device_name"),
     deviceInfo: jsonb("device_info").$type<Record<string, unknown>>(),
-    disabledAt: timestamp("disabled_at"),
-    lastRegisteredAt: timestamp("last_registered_at").notNull().defaultNow(),
-    lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    lastRegisteredAt: timestamp("last_registered_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     tokenUnique: unique("push_notification_tokens_token_uniq").on(table.token),
+    // Per-user device lookups + broadcast filter on disabled_at. See review B-30.
+    userIdx: index("push_notification_tokens_user_idx").on(table.userId),
+    activeIdx: index("push_notification_tokens_active_idx").on(table.disabledAt),
   }),
 );
 

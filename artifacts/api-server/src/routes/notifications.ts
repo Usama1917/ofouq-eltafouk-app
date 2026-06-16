@@ -12,7 +12,7 @@ import {
   usersTable,
   videosTable,
 } from "@workspace/db";
-import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { isExpoPushToken, sendPushNotificationToUser } from "../lib/push-notifications";
 
 const router: IRouter = Router();
@@ -267,7 +267,22 @@ function getSelectedSubjectIds(filters: AdminAudienceFilters, subjects: Array<{ 
 }
 
 async function resolveAdminNotificationRecipients(filters: AdminAudienceFilters) {
-  const [{ years, subjects }, users, subscriptions, progressRows, pushRows, lessons] = await Promise.all([
+  const joinedAfter = filters.joinedWithinDays
+    ? new Date(Date.now() - filters.joinedWithinDays * 24 * 60 * 60 * 1000)
+    : null;
+
+  // Push the simple user filters into SQL so a filtered broadcast doesn't pull the
+  // entire users table into memory (review B-13).
+  const userConditions = [];
+  if (filters.status !== "all") userConditions.push(eq(usersTable.status, filters.status));
+  if (filters.role !== "all") userConditions.push(eq(usersTable.role, filters.role));
+  if (joinedAfter) userConditions.push(gte(usersTable.joinedAt, joinedAfter));
+
+  // The full lesson_watch_progress table (fastest-growing table) is only needed for
+  // the "unopened_lessons" audience — don't load it for any other broadcast (review B-13).
+  const needsProgress = filters.audience === "unopened_lessons";
+
+  const [{ years, subjects }, users, subscriptions, pushRows, lessons] = await Promise.all([
     loadAdminAcademicOptions(),
     db
       .select({
@@ -280,6 +295,7 @@ async function resolveAdminNotificationRecipients(filters: AdminAudienceFilters)
         joinedAt: usersTable.joinedAt,
       })
       .from(usersTable)
+      .where(userConditions.length ? and(...userConditions) : undefined)
       .orderBy(desc(usersTable.joinedAt), desc(usersTable.id)),
     db
       .select({
@@ -288,13 +304,8 @@ async function resolveAdminNotificationRecipients(filters: AdminAudienceFilters)
         subjectId: subjectSubscriptionsTable.subjectId,
         status: subjectSubscriptionsTable.status,
       })
-      .from(subjectSubscriptionsTable),
-    db
-      .select({
-        studentId: lessonWatchProgressTable.studentId,
-        lessonId: lessonWatchProgressTable.lessonId,
-      })
-      .from(lessonWatchProgressTable),
+      .from(subjectSubscriptionsTable)
+      .where(eq(subjectSubscriptionsTable.status, "active")),
     db
       .select({ userId: pushNotificationTokensTable.userId })
       .from(pushNotificationTokensTable)
@@ -320,7 +331,14 @@ async function resolveAdminNotificationRecipients(filters: AdminAudienceFilters)
       ),
   ]);
 
-  const activeSubscriptions = subscriptions.filter((subscription) => subscription.status === "active");
+  const progressRows = needsProgress
+    ? await db
+        .select({ studentId: lessonWatchProgressTable.studentId, lessonId: lessonWatchProgressTable.lessonId })
+        .from(lessonWatchProgressTable)
+    : [];
+
+  // subscriptions is already filtered to status = 'active' in SQL above.
+  const activeSubscriptions = subscriptions;
   const selectedSubjectIds = getSelectedSubjectIds(filters, subjects);
   const selectedSubjectFilterActive = selectedSubjectIds.size > 0;
   const pushUserIds = new Set(pushRows.map((row) => row.userId));
@@ -329,9 +347,6 @@ async function resolveAdminNotificationRecipients(filters: AdminAudienceFilters)
   const lessonsBySubject = new Map<number, typeof lessons>();
   const selectedYearIds = new Set(filters.yearIds);
   const selectedUserIds = new Set(filters.selectedUserIds);
-  const joinedAfter = filters.joinedWithinDays
-    ? new Date(Date.now() - filters.joinedWithinDays * 24 * 60 * 60 * 1000)
-    : null;
 
   for (const subscription of activeSubscriptions) {
     const list = activeSubscriptionsByStudent.get(subscription.studentId) ?? [];

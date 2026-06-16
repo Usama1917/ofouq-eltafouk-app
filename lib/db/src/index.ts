@@ -36,7 +36,9 @@ const sslOption = wantsSsl
 export const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: sslOption,
-  max: Number.parseInt(process.env.DATABASE_POOL_MAX ?? "10", 10),
+  // Sized for 1000-5000 concurrent students. Pair with a transaction-mode pooler
+  // (PgBouncer) so N API instances share a bounded backend connection budget. See review B-08.
+  max: Number.parseInt(process.env.DATABASE_POOL_MAX ?? "30", 10),
   connectionTimeoutMillis: Number.parseInt(process.env.DATABASE_CONNECTION_TIMEOUT_MS ?? "10000", 10),
   idleTimeoutMillis: Number.parseInt(process.env.DATABASE_IDLE_TIMEOUT_MS ?? "30000", 10),
 });

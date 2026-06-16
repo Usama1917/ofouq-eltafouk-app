@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence, useReducedMotion, type Variants } from "framer-motion";
@@ -1503,26 +1503,47 @@ function UsersTab({
 
   const ROLE_COLORS: Record<string, string> = { student: "bg-blue-100 text-blue-700", teacher: "bg-emerald-100 text-emerald-700", parent: "bg-amber-100 text-amber-700", admin: "bg-violet-100 text-violet-700", owner: "bg-rose-100 text-rose-700" };
   const ROLE_LABELS: Record<string, string> = { student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", owner: "مالك" };
-  const selectedIdSet = new Set(selectedUserIds);
+  const selectedIdSet = useMemo(() => new Set(selectedUserIds), [selectedUserIds]);
   const activityDays =
     activityDaysPreset === "custom"
       ? Math.max(1, Number.parseInt(customActivityDays || "7", 10) || 7)
       : Math.max(1, Number.parseInt(activityDaysPreset, 10) || 7);
-  const selectedUsers = users.filter((user) => selectedIdSet.has(user.id));
-  const filteredUsers = users.filter((user) => {
-    if (roleFilter !== "all" && user.role !== roleFilter) return false;
-    if (actionFilter === "suspendable" && user.status !== "active") return false;
-    if (actionFilter === "activatable" && user.status === "active") return false;
+  // review F-05 (client): memoize the full-array passes so an unrelated state
+  // change (e.g. ticking one checkbox) doesn't re-filter / re-date-parse all
+  // ~5000 rows. selectedUsers only depends on the selection set; filteredUsers
+  // only on the filters + the user list.
+  const selectedUsers = useMemo(
+    () => users.filter((user) => selectedIdSet.has(user.id)),
+    [users, selectedIdSet],
+  );
+  const filteredUsers = useMemo(
+    () =>
+      users.filter((user) => {
+        if (roleFilter !== "all" && user.role !== roleFilter) return false;
+        if (actionFilter === "suspendable" && user.status !== "active") return false;
+        if (actionFilter === "activatable" && user.status === "active") return false;
 
-    const activity = getUserActivityInfo(user.lastActiveAt, activityDays);
-    if (activityMode === "active" && !activity.isActive) return false;
-    if (activityMode === "inactive" && activity.isActive) return false;
-    return true;
-  });
+        const activity = getUserActivityInfo(user.lastActiveAt, activityDays);
+        if (activityMode === "active" && !activity.isActive) return false;
+        if (activityMode === "inactive" && activity.isActive) return false;
+        return true;
+      }),
+    [users, roleFilter, actionFilter, activityMode, activityDays],
+  );
   const visibleSelected = filteredUsers.length > 0 && filteredUsers.every((user) => selectedIdSet.has(user.id));
   // Only the first `pageSize` rows are rendered (selection/bulk actions still
   // operate over the full filtered set, so messaging a whole cohort keeps working).
-  const visibleUsers = filteredUsers.slice(0, pageSize);
+  const visibleUsers = useMemo(() => filteredUsers.slice(0, pageSize), [filteredUsers, pageSize]);
+  // review F-05 (client): precompute the activity badge for the rendered rows so
+  // toggling a single checkbox (which only changes selectedUserIds) doesn't
+  // re-run getUserActivityInfo for every visible row.
+  const visibleActivityById = useMemo(() => {
+    const map = new Map<number, ReturnType<typeof getUserActivityInfo>>();
+    for (const user of visibleUsers) {
+      map.set(user.id, getUserActivityInfo(user.lastActiveAt, activityDays));
+    }
+    return map;
+  }, [visibleUsers, activityDays]);
 
   useEffect(() => {
     const currentIds = new Set(users.map((user) => user.id));
@@ -1726,7 +1747,7 @@ function UsersTab({
             </tr></thead>
             <tbody className="divide-y divide-white/30">
               {visibleUsers.map(u => {
-                const activity = getUserActivityInfo(u.lastActiveAt, activityDays);
+                const activity = visibleActivityById.get(u.id) ?? getUserActivityInfo(u.lastActiveAt, activityDays);
                 return (
                 <tr key={u.id} className={`hover:bg-white/30 transition-colors ${selectedIdSet.has(u.id) ? "bg-primary/5" : ""}`}>
                   <td className="px-5 py-3.5">
@@ -3689,6 +3710,12 @@ function SupportMessagesTab({
   const CONVERSATION_PAGE_SIZES = [20, 50, 100, 500];
   const [conversationPageSize, setConversationPageSize] = useState(20);
 
+  // review F-19: the list poll keeps the current selection via this ref so it
+  // doesn't need `selectedId` in its effect deps (which would tear down and
+  // refetch the whole list on every conversation click).
+  const selectedIdRef = useRef<number | null>(selectedId);
+  selectedIdRef.current = selectedId;
+
   const selectedConversation = conversations.find((item) => item.id === selectedId) ?? null;
   // Selecting a conversation still works on the full list; only rendering is capped.
   const visibleConversations = conversations.slice(0, conversationPageSize);
@@ -3794,13 +3821,17 @@ function SupportMessagesTab({
     await loadAutomaticReports();
   };
 
+  // review F-19 / F-06: poll the list without `selectedId` in the deps (so a
+  // conversation click no longer tears down + refetches the list); the interval
+  // reads the latest selection from the ref to keep it stable. review F-06:
+  // gentler 30s cadence (was 9s) since this tab is rarely the bottleneck.
   useEffect(() => {
     void loadConversations();
     const timer = window.setInterval(() => {
-      void loadConversations();
-    }, 9000);
+      void loadConversations(selectedIdRef.current);
+    }, 30000);
     return () => window.clearInterval(timer);
-  }, [token, selectedId, activeConversationSearchTerm]);
+  }, [token, activeConversationSearchTerm]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -4698,9 +4729,14 @@ export default function AdminPanel() {
     selectTab("supportMessages");
   };
 
+  // review F-06: this badge poll and the list poll inside SupportMessagesTab both
+  // hit /api/admin/support/conversations. While the support tab is open the list
+  // poll already pushes the unread count up via onUnreadChatCountChange, so this
+  // poller is pure waste there — skip it on that tab. Elsewhere it runs on a
+  // gentler 30s cadence (was 12s) just to keep the sidebar badge fresh.
   useEffect(() => {
-    if (!token || !isAdminUser) {
-      setSupportUnreadChatCount(0);
+    if (!token || !isAdminUser || tab === "supportMessages") {
+      if (!token || !isAdminUser) setSupportUnreadChatCount(0);
       return;
     }
 
@@ -4724,13 +4760,13 @@ export default function AdminPanel() {
     void loadUnreadSupportChats();
     const timer = window.setInterval(() => {
       void loadUnreadSupportChats();
-    }, 12000);
+    }, 30000);
 
     return () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [token, isAdminUser]);
+  }, [token, isAdminUser, tab]);
 
   useEffect(() => {
     window.localStorage.setItem(ADMIN_THEME_STORAGE_KEY, adminTheme);

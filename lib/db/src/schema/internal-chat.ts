@@ -16,8 +16,8 @@ export const internalConversationsTable = pgTable(
     type: text("type").notNull(), // "owners" | "all" | "direct"
     adminId: integer("admin_id").references(() => usersTable.id, { onDelete: "cascade" }),
     ownerId: integer("owner_id").references(() => usersTable.id, { onDelete: "cascade" }),
-    lastMessageAt: timestamp("last_message_at").notNull().defaultNow(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     // One direct conversation per (admin, owner) pair. Group singletons (NULL,
@@ -36,9 +36,9 @@ export const internalMessagesTable = pgTable("internal_messages", {
   body: text("body"), // nullable — image-only messages allowed
   imageUrl: text("image_url"),
   mentions: jsonb("mentions").$type<number[]>(), // mentioned user ids
-  editedAt: timestamp("edited_at"),
-  deletedAt: timestamp("deleted_at"), // soft delete → tombstone
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  editedAt: timestamp("edited_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }), // soft delete → tombstone
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Per-(conversation, user) read marker. Unread for a user = messages newer than
@@ -51,7 +51,7 @@ export const internalConversationReadsTable = pgTable(
       .notNull()
       .references(() => internalConversationsTable.id, { onDelete: "cascade" }),
     userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
-    lastReadAt: timestamp("last_read_at").notNull().defaultNow(),
+    lastReadAt: timestamp("last_read_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     readUnique: unique("internal_conversation_reads_uniq").on(table.conversationId, table.userId),
