@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { MessagesSquare, X, ExternalLink } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
-import { ChatPane, chatReq, apiPath } from "@/components/chat-pane";
+import { ChatPane, chatReq, apiPath, type ConversationItem } from "@/components/chat-pane";
 
 const SIZE_KEY = "ofouq-team-chat-size:v1";
 const MIN_W = 380;
@@ -23,28 +23,72 @@ export function InternalChatWidget({ isDark }: { isDark?: boolean }) {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [size, setSize] = useState(loadSize);
+  // Toast: a newly-arrived message slides out next to the button, holds ~2s, collapses.
+  const [toast, setToast] = useState<{ key: number; title: string; preview: string } | null>(null);
   const resizing = useRef<null | { startX: number; startY: number; startW: number; startH: number }>(null);
   const clickTimer = useRef<number | null>(null);
+  const meIdRef = useRef<number | null>(null);
+  const lastSeenMsgIdRef = useRef<number | null>(null); // highest message id already handled
+  const toastTimer = useRef<number | null>(null);
+  const openRef = useRef(open);
+  useEffect(() => { openRef.current = open; }, [open]);
+  useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current); }, []);
 
-  const loadUnread = useCallback(async () => {
+  const showToast = useCallback((title: string, preview: string) => {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    setToast({ key: Date.now(), title, preview });
+    // ~0.5s appear + ~4s hold, then drop it → AnimatePresence plays the collapse.
+    toastTimer.current = window.setTimeout(() => setToast(null), 4500);
+  }, []);
+
+  // Poll the conversation list: drives the unread badge AND surfaces a toast for any
+  // newly-arrived message from someone else (only while the panel is closed).
+  const refreshChat = useCallback(async () => {
     if (!isStaff) return;
-    try { const d = await chatReq("/unread-count"); setUnread(Number(d.unreadCount || 0)); } catch { /* keep */ }
-  }, [isStaff]);
+    try {
+      const d = await chatReq("/conversations");
+      const convs: ConversationItem[] = d.conversations ?? [];
+      const meId: number | null = d.me?.id ?? meIdRef.current ?? null;
+      meIdRef.current = meId;
+      setUnread(convs.reduce((s, c) => s + (c.unreadCount || 0), 0));
 
-  // Badge polling — always (so the count shows even while the panel is closed).
+      // Find the newest message across all conversations.
+      let newest: { id: number; title: string; preview: string; senderId: number | null } | null = null;
+      for (const c of convs) {
+        const lm = c.lastMessage;
+        if (!lm) continue;
+        if (!newest || lm.id > newest.id) {
+          newest = { id: lm.id, title: lm.senderName || c.counterpart?.name || c.title, preview: lm.preview, senderId: lm.senderId };
+        }
+      }
+      if (!newest) return;
+      if (lastSeenMsgIdRef.current === null) {
+        lastSeenMsgIdRef.current = newest.id; // first load: prime, don't replay history
+        return;
+      }
+      if (newest.id > lastSeenMsgIdRef.current) {
+        lastSeenMsgIdRef.current = newest.id;
+        if (!openRef.current && newest.senderId !== meId) {
+          showToast(newest.title, newest.preview || "رسالة جديدة");
+        }
+      }
+    } catch { /* keep */ }
+  }, [isStaff, showToast]);
+
+  // Badge + toast polling — always (so the count shows even while the panel is closed).
   useEffect(() => {
     if (!isStaff) return;
-    void loadUnread();
-    const t = window.setInterval(loadUnread, 8000);
+    void refreshChat();
+    const t = window.setInterval(refreshChat, 8000);
     return () => window.clearInterval(t);
-  }, [isStaff, loadUnread]);
+  }, [isStaff, refreshChat]);
 
-  // While open, refresh the badge a bit faster too.
+  // While open, refresh a bit faster too.
   useEffect(() => {
     if (!isStaff || !open) return;
-    const t = window.setInterval(loadUnread, 5000);
+    const t = window.setInterval(refreshChat, 5000);
     return () => window.clearInterval(t);
-  }, [isStaff, open, loadUnread]);
+  }, [isStaff, open, refreshChat]);
 
   // ── Drag-to-resize (grip at the top-right corner; panel anchored bottom-left) ──
   useEffect(() => {
@@ -83,7 +127,7 @@ export function InternalChatWidget({ isDark }: { isDark?: boolean }) {
     clickTimer.current = window.setTimeout(() => {
       clickTimer.current = null;
       setOpen((o) => !o);
-      void loadUnread();
+      void refreshChat();
     }, 230);
   };
   const onButtonDoubleClick = () => {
@@ -104,11 +148,37 @@ export function InternalChatWidget({ isDark }: { isDark?: boolean }) {
       >
         {open ? <X className="h-6 w-6" /> : <MessagesSquare className="h-6 w-6" />}
         {!open && unread > 0 ? (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[11px] font-black text-white ring-2 ring-white dark:ring-[#11151b]">
+          // Re-keying on `unread` replays the pop each time the count changes.
+          <motion.span
+            key={unread}
+            initial={{ scale: 0.3, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: "spring", stiffness: 520, damping: 18 }}
+            className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[11px] font-black text-white ring-2 ring-white dark:ring-[#11151b]"
+          >
             {unread > 99 ? "99+" : unread}
-          </span>
+          </motion.span>
         ) : null}
       </button>
+
+      {/* New-message toast — slides out from behind the button, holds ~2s, collapses. */}
+      <AnimatePresence>
+        {toast && !open ? (
+          <motion.div
+            key={toast.key}
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: "auto", opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            className="fixed bottom-6 left-6 z-40 flex h-14 items-center overflow-hidden rounded-full border border-white/60 bg-white/95 shadow-xl shadow-black/10 backdrop-blur-xl dark:border-white/10 dark:bg-[#11151b]/95"
+          >
+            <div className="flex flex-col justify-center gap-0.5 whitespace-nowrap py-1 pl-[4.75rem] pr-5 text-right">
+              <p className="text-xs font-black leading-tight text-foreground">{toast.title}</p>
+              <p className="max-w-[240px] truncate text-[11px] leading-tight text-muted-foreground">{toast.preview}</p>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence>
         {open ? (

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import {
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, Layers,
@@ -6,12 +7,14 @@ import {
   TrendingUp, BarChart3, Plus, LogOut, Bell, AlertTriangle,
   CheckCircle2, Clock, FolderTree, ListVideo, Sun, Moon, Info, X, History,
   Download, FileSpreadsheet, FileText, Loader2, Star, Snowflake,
-  Search, SlidersHorizontal, GripVertical,
+  Search, SlidersHorizontal, GripVertical, Settings2, RotateCcw, Check, ChevronRight, ChevronLeft,
 } from "lucide-react";
 import { fetchReport, exportExcel, exportPdf } from "@/lib/activity-export";
 import { numTick, numAxisWidth, catAxisWidth, AXIS_GAP } from "@/lib/chart-axis";
 import { EgyptHeatmap } from "@/components/egypt-heatmap";
 import { InternalChatWidget } from "@/components/internal-chat-widget";
+import { Calendar } from "@/components/ui/calendar";
+import { format, parseISO } from "date-fns";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -77,6 +80,12 @@ type OwnerSummary = {
   alerts: {
     pendingSubscriptions: number; unreadSupport: number; subjectsWithoutUnits: number;
     unitsWithoutLessons: number; lessonsWithoutVideos: number; videosWithoutSegments: number;
+    videosWithoutSegmentsItems?: {
+      videoId: number; lessonId: number; lessonTitle: string;
+      unitId: number; unitName: string; unitLabel: string;
+      subjectId: number; subjectName: string;
+      yearId: number; yearName: string;
+    }[];
   };
   charts: {
     roleDistribution: { role: string; value: number }[];
@@ -197,9 +206,202 @@ function loadCardOrder(): string[] {
   return DEFAULT_ORDER;
 }
 
+// ── Per-card chart settings (the gear ⚙️) ────────────────────────────────────
+// Each chart card can toggle which series/categories show, slice the time range,
+// and cap the Y-axis. Persisted in localStorage so the last tweak survives a
+// logout→login on this browser (logout only clears the auth token, not this key).
+const CARD_SETTINGS_KEY = "ofouq-owner-chart-settings:v1";
+// `from`/`to` are ISO dates (YYYY-MM-DD) chosen from the calendar — when both set,
+// the time-series card fetches that exact window; otherwise it shows the default.
+type CardSettings = { hidden: string[]; from: string | null; to: string | null; yMax: number | null };
+type SeriesDef = { key: string; label: string; color: string };
+// What each card's gear exposes. `series` = multi-line/area charts (toggle each
+// series). `categories:true` = single-series chart, toggle each data point
+// (bar/slice) by its name. `dateRange:true` = time series with a calendar picker.
+const CHART_META: Record<string, {
+  series?: SeriesDef[]; categories?: boolean; dateRange?: boolean; dateGranularity?: "day" | "month"; metric?: string; yAxis?: boolean;
+}> = {
+  growth: {
+    series: [
+      { key: "طلاب", label: "طلاب", color: "#3B82F6" },
+      { key: "معلمون", label: "معلمون", color: "#10B981" },
+      { key: "أخرى", label: "أخرى", color: "#F59E0B" },
+    ],
+    dateRange: true, dateGranularity: "month", metric: "growth", yAxis: true,
+  },
+  activity: {
+    series: [
+      { key: "مشاهدات", label: "مشاهدات", color: "#06B6D4" },
+      { key: "اشتراكات", label: "اشتراكات", color: "#10B981" },
+      { key: "رسائل", label: "رسائل", color: "#F59E0B" },
+    ],
+    dateRange: true, dateGranularity: "day", metric: "activity", yAxis: true,
+  },
+  academic: { categories: true, yAxis: true },
+  subs: { categories: true, yAxis: true },
+  roles: { categories: true },
+  topSubjects: { categories: true, yAxis: true },
+};
+const GROWTH_GRAD: Record<string, string> = { "طلاب": "gS", "معلمون": "gT", "أخرى": "gO" };
+function loadCardSettings(): Record<string, CardSettings> {
+  try { const raw = localStorage.getItem(CARD_SETTINGS_KEY); if (raw) return JSON.parse(raw) || {}; } catch { /* ignore */ }
+  return {};
+}
+function defaultSettings(_id: string): CardSettings {
+  return { hidden: [], from: null, to: null, yMax: null };
+}
+// Fetch a custom-range time series for a chart (calendar picker).
+async function fetchTimeseries(metric: string, from: string, to: string) {
+  const res = await fetch(apiPath(`/api/admin/owner-dashboard/timeseries?metric=${metric}&from=${from}&to=${to}`), { headers: authHeader() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((d as any)?.error || "تعذّر تحميل الفترة");
+  return d as { metric: string; from: string; to: string; series: any[] };
+}
+// Y-axis domain: cap at the user's max when set, else let Recharts auto-fit.
+const yDomain = (yMax: number | null): [number, number | "auto"] => [0, yMax && yMax > 0 ? yMax : "auto"];
+
 // Pixel span of each tier on the grid (columns × rows). Used to translate a live
 // drag size back into the nearest discrete tier.
 const TIER_SPAN: Record<CardSize, [number, number]> = { small: [1, 1], medium: [2, 1], large: [4, 1], xlarge: [4, 2] };
+
+const AR_MONTHS = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+
+// Month-range picker for monthly charts (days are meaningless there). Click a start
+// month then an end month; stores ISO from=first-day, to=last-day of the chosen months.
+function MonthRangePicker({ from, to, onChange }: {
+  from: string | null; to: string | null; onChange: (from: string | null, to: string | null) => void;
+}) {
+  const fromKey = from ? from.slice(0, 7) : null; // "YYYY-MM"
+  const toKey = to ? to.slice(0, 7) : null;
+  const [year, setYear] = useState(() => Number((fromKey ?? new Date().toISOString().slice(0, 7)).slice(0, 4)));
+  const key = (y: number, m: number) => `${y}-${String(m + 1).padStart(2, "0")}`;
+  const firstDayOfKey = (k: string) => `${k}-01`;
+  const lastDayOfKey = (k: string) => {
+    const [y, m] = k.split("-").map(Number);
+    return `${k}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
+  };
+  const pick = (m: number) => {
+    const k = key(year, m);
+    if (!fromKey || (fromKey && toKey)) { onChange(firstDayOfKey(k), null); return; } // start a fresh range
+    const lo = k < fromKey ? k : fromKey;
+    const hi = k < fromKey ? fromKey : k;
+    onChange(firstDayOfKey(lo), lastDayOfKey(hi));
+  };
+  return (
+    <div className="rounded-xl border border-white/60 bg-white/50 p-2 dark:border-white/10 dark:bg-white/[0.04]" dir="rtl">
+      <div className="mb-2 flex items-center justify-between px-1">
+        <button type="button" onClick={() => setYear((y) => y + 1)} aria-label="السنة التالية" className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-primary"><ChevronRight className="h-4 w-4" /></button>
+        <span className="text-xs font-black text-foreground">{year}</span>
+        <button type="button" onClick={() => setYear((y) => y - 1)} aria-label="السنة السابقة" className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-primary"><ChevronLeft className="h-4 w-4" /></button>
+      </div>
+      <div className="grid grid-cols-3 gap-1">
+        {AR_MONTHS.map((label, m) => {
+          const k = key(year, m);
+          const endpoint = k === fromKey || k === toKey;
+          const inRange = fromKey && toKey && k >= fromKey && k <= toKey;
+          return (
+            <button key={m} type="button" onClick={() => pick(m)}
+              className={`rounded-lg py-1.5 text-[11px] font-bold transition-colors ${endpoint ? "bg-primary text-white" : inRange ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted"}`}>
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// The gear's popover body — series/category toggles, time range, Y-axis cap.
+function ChartSettingsPanel({ id, categories, settings, onChange, onReset }: {
+  id: string; categories: string[]; settings: CardSettings;
+  onChange: (patch: Partial<CardSettings>) => void; onReset: () => void;
+}) {
+  const meta = CHART_META[id];
+  const toggle = (key: string) => {
+    const hidden = settings.hidden.includes(key) ? settings.hidden.filter((k) => k !== key) : [...settings.hidden, key];
+    onChange({ hidden });
+  };
+  const items = meta?.series
+    ? meta.series.map((s) => ({ key: s.key, label: s.label, color: s.color as string | undefined }))
+    : categories.map((c) => ({ key: c, label: c, color: undefined as string | undefined }));
+  const range = {
+    from: settings.from ? parseISO(settings.from) : undefined,
+    to: settings.to ? parseISO(settings.to) : undefined,
+  };
+  return (
+    <div className="w-full space-y-3 text-right">
+      {meta?.dateRange ? (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-bold text-muted-foreground">الفترة الزمنية</p>
+          {meta.dateGranularity === "month" ? (
+            <MonthRangePicker from={settings.from} to={settings.to} onChange={(f, t) => onChange({ from: f, to: t })} />
+          ) : (
+            // dir="ltr" so the weekday columns + dates read in the normal order
+            // (the RTL page would otherwise mirror them: Sa Fr Th … instead of Su Mo …).
+            <Calendar
+              mode="range"
+              dir="ltr"
+              numberOfMonths={1}
+              selected={range as any}
+              onSelect={(r: any) => onChange({
+                from: r?.from ? format(r.from, "yyyy-MM-dd") : null,
+                to: r?.to ? format(r.to, "yyyy-MM-dd") : null,
+              })}
+              className="mx-auto rounded-xl border border-white/60 bg-white/50 p-2 dark:border-white/10 dark:bg-white/[0.04] [--cell-size:1.9rem]"
+            />
+          )}
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-[11px] text-muted-foreground">
+              {settings.from && settings.to
+                ? (meta.dateGranularity === "month" ? `${settings.from.slice(0, 7)} ← ${settings.to.slice(0, 7)}` : `${settings.from} ← ${settings.to}`)
+                : "الافتراضي (آخر فترة)"}
+            </span>
+            {settings.from || settings.to ? (
+              <button onClick={() => onChange({ from: null, to: null })} className="shrink-0 text-[11px] font-bold text-muted-foreground hover:text-primary">مسح</button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {items.length ? (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-bold text-muted-foreground">{meta?.series ? "السلاسل المعروضة" : "العناصر المعروضة"}</p>
+          <div className="space-y-0.5">
+            {items.map((it) => {
+              const on = !settings.hidden.includes(it.key);
+              return (
+                <button key={it.key} onClick={() => toggle(it.key)}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-muted/60">
+                  <span className="flex items-center gap-2 min-w-0">
+                    {it.color ? <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: it.color }} /> : null}
+                    <span className={`truncate ${on ? "font-semibold text-foreground" : "text-muted-foreground line-through"}`}>{it.label}</span>
+                  </span>
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${on ? "bg-primary border-primary text-white" : "border-muted-foreground/40 text-transparent"}`}>
+                    <Check className="h-3 w-3" />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {meta?.yAxis ? (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-bold text-muted-foreground">أقصى قيمة للمحور Y</p>
+          <input type="number" min={0} inputMode="numeric" value={settings.yMax ?? ""}
+            onChange={(e) => onChange({ yMax: e.target.value === "" ? null : Math.max(0, Number(e.target.value)) })}
+            placeholder="تلقائي"
+            className="w-full rounded-lg border border-white/60 dark:border-white/10 bg-white/60 dark:bg-white/[0.06] px-2.5 py-1.5 text-xs outline-none focus:border-primary" />
+        </div>
+      ) : null}
+
+      <button onClick={onReset} className="flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground hover:text-primary">
+        <RotateCcw className="h-3 w-3" /> إعادة الضبط
+      </button>
+    </div>
+  );
+}
 
 // Corner grip (bottom-left): invisible until the card is hovered, glows blue when
 // approached/grabbed. It forwards raw pointer drag to the card, which resizes the
@@ -222,13 +424,47 @@ function ResizeGrip({ onDown, onMove, onUp, active }: {
   );
 }
 
-function ChartCard({ title, icon: Icon, iconClass, children, empty, size = "medium", onResize, isDragging, onReorderStart, onReorderMove, onReorderEnd, cardRef }: any) {
+function ChartCard({ title, icon: Icon, iconClass, children, empty, size = "medium", onResize, isDragging, onReorderStart, onReorderMove, onReorderEnd, cardRef, settings }: any) {
   const resizable = typeof onResize === "function";
   const sortable = typeof onReorderStart === "function";
   const interactive = resizable || sortable;
   const controls = useDragControls();
   const elRef = useRef<HTMLDivElement | null>(null);
   const setRef = (el: HTMLDivElement | null) => { elRef.current = el; if (typeof cardRef === "function") cardRef(el); };
+
+  // ── Settings gear popover ── rendered in a portal so the card's overflow-hidden
+  // frame never clips it; positioned (fixed) just under the gear button.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [popCoords, setPopCoords] = useState<{ top: number; left: number } | null>(null);
+  const gearBtnRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const POP_W = 320;
+  const placePopover = () => {
+    const r = gearBtnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    // clientWidth excludes the scrollbar, so the popover never spills past the
+    // visible edge (which would otherwise add a horizontal scrollbar to the page).
+    const vw = document.documentElement.clientWidth;
+    setPopCoords({ top: r.bottom + 6, left: Math.min(Math.max(8, r.left), vw - POP_W - 8) });
+  };
+  const toggleSettings = () => setSettingsOpen((o) => { if (!o) placePopover(); return !o; });
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (gearBtnRef.current?.contains(t) || popoverRef.current?.contains(t)) return;
+      setSettingsOpen(false);
+    };
+    const reposition = () => placePopover();
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [settingsOpen]);
 
   // ── Live resize (follows the cursor; snaps to nearest tier on release) ──
   const [livePx, setLivePx] = useState<{ w: number; h: number } | null>(null);
@@ -282,6 +518,24 @@ function ChartCard({ title, icon: Icon, iconClass, children, empty, size = "medi
       <h3 className="font-display font-bold text-base text-foreground mb-4 flex items-center gap-2 shrink-0">
         <Icon className={`w-5 h-5 ${iconClass}`} />
         <span className="flex-1 truncate">{title}</span>
+        {settings ? (
+          <button ref={gearBtnRef} onClick={toggleSettings} title="إعدادات البطاقة" aria-label="إعدادات البطاقة"
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-opacity hover:bg-muted hover:text-primary ${settingsOpen ? "bg-muted text-primary opacity-100" : "text-muted-foreground opacity-0 group-hover/card:opacity-100"}`}>
+            <Settings2 className="h-4 w-4" />
+          </button>
+        ) : null}
+        {settings && settingsOpen && popCoords ? createPortal(
+          <motion.div
+            ref={popoverRef}
+            initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.15 }}
+            style={{ position: "fixed", top: popCoords.top, left: popCoords.left, width: POP_W }}
+            className="z-[60] max-h-[80vh] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/60 bg-white/97 p-3 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#11151b]/97"
+          >
+            {settings}
+          </motion.div>,
+          document.body,
+        ) : null}
         {sortable ? (
           <button onPointerDown={(e) => controls.start(e)} title="اسحب لتغيير ترتيب البطاقة" aria-label="اسحب لتغيير الترتيب"
             style={{ touchAction: "none" }}
@@ -336,6 +590,39 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
   const [order, setOrder] = useState<string[]>(loadCardOrder);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const cardRefs = useRef<Map<string, HTMLElement>>(new Map());
+
+  // Per-card gear settings (persisted; survives logout→login on this browser).
+  const [chartSettings, setChartSettings] = useState<Record<string, CardSettings>>(loadCardSettings);
+  const getCardSettings = (id: string): CardSettings => ({ ...defaultSettings(id), ...(chartSettings[id] || {}) });
+  const updateCardSettings = (id: string, patch: Partial<CardSettings>) => {
+    setChartSettings((cur) => {
+      const next = { ...cur, [id]: { ...defaultSettings(id), ...(cur[id] || {}), ...patch } };
+      try { localStorage.setItem(CARD_SETTINGS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const resetCardSettings = (id: string) => {
+    setChartSettings((cur) => {
+      const next = { ...cur }; delete next[id];
+      try { localStorage.setItem(CARD_SETTINGS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  // Custom date-range fetches — only fire when that card's calendar has from→to set.
+  const sGrowth = getCardSettings("growth");
+  const sActivity = getCardSettings("activity");
+  const growthRangeQ = useQuery({
+    queryKey: ["owner-ts", "growth", sGrowth.from, sGrowth.to],
+    queryFn: () => fetchTimeseries("growth", sGrowth.from!, sGrowth.to!),
+    enabled: !!(sGrowth.from && sGrowth.to),
+  });
+  const activityRangeQ = useQuery({
+    queryKey: ["owner-ts", "activity", sActivity.from, sActivity.to],
+    queryFn: () => fetchTimeseries("activity", sActivity.from!, sActivity.to!),
+    enabled: !!(sActivity.from && sActivity.to),
+  });
+
   const dragCenter = useRef<{ x: number; y: number } | null>(null);      // live centre of the grabbed card
   const dragStartCenter = useRef<{ x: number; y: number } | null>(null); // where the drag began
   const setCardRef = (id: string) => (el: HTMLElement | null) => { if (el) cardRefs.current.set(id, el); else cardRefs.current.delete(id); };
@@ -398,11 +685,22 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
     { label: "مواد بدون وحدات", value: data.alerts.subjectsWithoutUnits, icon: FolderTree, action: () => navAdmin("academic") },
     { label: "وحدات بدون دروس", value: data.alerts.unitsWithoutLessons, icon: Layers, action: () => navAdmin("academic") },
     { label: "دروس بدون فيديوهات", value: data.alerts.lessonsWithoutVideos, icon: Video, action: () => navAdmin("academic") },
-    { label: "فيديوهات بدون تقسيمات", value: data.alerts.videosWithoutSegments, icon: ListVideo, action: () => navAdmin("academic") },
+    { label: "فيديوهات بدون تقسيمات", value: data.alerts.videosWithoutSegments, icon: ListVideo, action: openFirstVideoWithoutSegments },
   ].filter((a) => a.value > 0);
 
   function navAdmin(tab: string) {
     setLocation(`/admin?tab=${tab}`);
+  }
+
+  // Open the academic tab AND jump straight to the first segment-less video's lesson
+  // editor (scrolled to the segments section). The target is stashed for the academic
+  // tab to pick up on mount; we fall back to just opening the tab if no item is known.
+  function openFirstVideoWithoutSegments() {
+    const item = data?.alerts.videosWithoutSegmentsItems?.[0];
+    if (item) {
+      try { sessionStorage.setItem("ofouq_academic_open_lesson", JSON.stringify(item)); } catch { /* ignore */ }
+    }
+    navAdmin("academic");
   }
 
   const roleData = data.charts.roleDistribution.map((r) => ({ name: ROLE_LABELS[r.role] || r.role, value: r.value }));
@@ -413,6 +711,39 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
   }));
   const growthData = data.charts.userGrowth.map((g) => ({ month: monthLabel(g.month), طلاب: g.students, معلمون: g.teachers, أخرى: g.others }));
   const activityData = data.charts.last7Days.map((d) => ({ day: dayLabel(d.day), مشاهدات: d.watch, اشتراكات: d.requests, رسائل: d.messages }));
+
+  // ── Apply each card's gear settings (calendar range + series/category visibility) ──
+  // A custom calendar range fetches its own data; otherwise show the default window.
+  const growthShown = (sGrowth.from && sGrowth.to && growthRangeQ.data)
+    ? growthRangeQ.data.series.map((g: any) => ({ month: monthLabel(g.month), طلاب: g.students, معلمون: g.teachers, أخرى: g.others }))
+    : growthData;
+  const growthSeries = CHART_META.growth!.series!.filter((s) => !sGrowth.hidden.includes(s.key));
+
+  const activityShown = (sActivity.from && sActivity.to && activityRangeQ.data)
+    ? activityRangeQ.data.series.map((d: any) => ({ day: dayLabel(d.day), مشاهدات: d.watch, اشتراكات: d.requests, رسائل: d.messages }))
+    : activityData;
+  const activitySeries = CHART_META.activity!.series!.filter((s) => !sActivity.hidden.includes(s.key));
+
+  const sRoles = getCardSettings("roles");
+  const rolesShown = roleData.filter((d) => !sRoles.hidden.includes(d.name));
+  const sSubs = getCardSettings("subs");
+  const subsShown = subsData.filter((d) => !sSubs.hidden.includes(d.name));
+  const sAcademic = getCardSettings("academic");
+  const academicShown = academicData.filter((d) => !sAcademic.hidden.includes(d.name));
+  const sTop = getCardSettings("topSubjects");
+  const topShown = data.charts.topSubjects.filter((d) => !sTop.hidden.includes(d.name));
+
+  // The gear's category list (single-series charts toggle data points by name).
+  const categoriesFor = (id: string): string[] =>
+    id === "academic" ? academicData.map((d) => d.name)
+      : id === "subs" ? subsData.map((d) => d.name)
+        : id === "roles" ? roleData.map((d) => d.name)
+          : id === "topSubjects" ? data.charts.topSubjects.map((d) => d.name)
+            : [];
+  const settingsFor = (id: string) => (
+    <ChartSettingsPanel id={id} categories={categoriesFor(id)} settings={getCardSettings(id)}
+      onChange={(patch) => updateCardSettings(id, patch)} onReset={() => resetCardSettings(id)} />
+  );
 
   const quickActions = [
     { label: "إضافة محتوى أكاديمي", icon: GraduationCap, onClick: () => navAdmin("academic"), accent: "from-blue-500 to-indigo-600" },
@@ -426,10 +757,10 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
   // Chart descriptors keyed by id — rendered in `order` so they can be reordered.
   const chartCards: Record<string, { title: string; icon: any; iconClass: string; empty: boolean; children: React.ReactNode }> = {
     growth: {
-      title: "نمو المستخدمين حسب الشهر", icon: TrendingUp, iconClass: "text-primary", empty: growthData.length === 0,
+      title: "نمو المستخدمين حسب الشهر", icon: TrendingUp, iconClass: "text-primary", empty: growthShown.length === 0 || growthSeries.length === 0,
       children: (
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={growthData}>
+          <AreaChart data={growthShown}>
             <defs>
               {[["gS", "#3B82F6"], ["gT", "#10B981"], ["gO", "#F59E0B"]].map(([id, c]) => (
                 <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
@@ -439,30 +770,30 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
             <XAxis dataKey="month" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} />
-            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(growthData.flatMap((g) => [g.طلاب, g.معلمون, g.أخرى]))} />
+            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(sGrowth.yMax)} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(growthShown.flatMap((g) => [g.طلاب, g.معلمون, g.أخرى]))} />
             <Tooltip content={<CustomTooltip />} />
             <Legend wrapperStyle={{ fontFamily: "Cairo", fontSize: 12 }} />
-            <Area type="monotone" dataKey="طلاب" stroke="#3B82F6" fill="url(#gS)" strokeWidth={2.5} />
-            <Area type="monotone" dataKey="معلمون" stroke="#10B981" fill="url(#gT)" strokeWidth={2.5} />
-            <Area type="monotone" dataKey="أخرى" stroke="#F59E0B" fill="url(#gO)" strokeWidth={2.5} />
+            {growthSeries.map((s) => (
+              <Area key={s.key} type="monotone" dataKey={s.key} stroke={s.color} fill={`url(#${GROWTH_GRAD[s.key]})`} strokeWidth={2.5} />
+            ))}
           </AreaChart>
         </ResponsiveContainer>
       ),
     },
     roles: {
-      title: "توزيع المستخدمين حسب الدور", icon: Users, iconClass: "text-violet-500", empty: roleData.every((r) => r.value === 0),
+      title: "توزيع المستخدمين حسب الدور", icon: Users, iconClass: "text-violet-500", empty: rolesShown.every((r) => r.value === 0),
       children: (
         <div className="flex h-full items-center gap-4">
           <ResponsiveContainer width={180} height={200}>
             <PieChart>
-              <Pie data={roleData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} innerRadius={48}>
-                {roleData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+              <Pie data={rolesShown} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} innerRadius={48}>
+                {rolesShown.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Pie>
               <Tooltip content={<CustomTooltip />} />
             </PieChart>
           </ResponsiveContainer>
           <div className="flex-1 space-y-2">
-            {roleData.map((d, i) => (
+            {rolesShown.map((d, i) => (
               <div key={d.name} className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />{d.name}</span>
                 <span className="font-bold" style={{ color: COLORS[i % COLORS.length] }}>{fmt(d.value)}</span>
@@ -473,29 +804,29 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
       ),
     },
     subs: {
-      title: "الاشتراكات حسب الحالة", icon: TicketPercent, iconClass: "text-emerald-500", empty: subsData.every((s) => s.value === 0),
+      title: "الاشتراكات حسب الحالة", icon: TicketPercent, iconClass: "text-emerald-500", empty: subsShown.every((s) => s.value === 0),
       children: (
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={subsData}>
+          <BarChart data={subsShown}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
             <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} />
-            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(subsData.map((s) => s.value))} />
+            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(sSubs.yMax)} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(subsShown.map((s) => s.value))} />
             <Tooltip content={<CustomTooltip />} />
             <Bar dataKey="value" name="العدد" radius={[6, 6, 0, 0]}>
-              {subsData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+              {subsShown.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       ),
     },
     academic: {
-      title: "المحتوى الأكاديمي", icon: GraduationCap, iconClass: "text-blue-500", empty: academicData.every((c) => c.value === 0),
+      title: "المحتوى الأكاديمي", icon: GraduationCap, iconClass: "text-blue-500", empty: academicShown.every((c) => c.value === 0),
       children: (
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={academicData}>
+          <BarChart data={academicShown}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
             <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} />
-            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(academicData.map((c) => c.value))} />
+            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(sAcademic.yMax)} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(academicShown.map((c) => c.value))} />
             <Tooltip content={<CustomTooltip />} />
             <Bar dataKey="value" name="العدد" fill="#3B82F6" radius={[6, 6, 0, 0]} />
           </BarChart>
@@ -503,17 +834,17 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
       ),
     },
     topSubjects: {
-      title: "أكثر المواد اشتراكًا", icon: BarChart3, iconClass: "text-amber-500", empty: data.charts.topSubjects.length === 0,
+      title: "أكثر المواد اشتراكًا", icon: BarChart3, iconClass: "text-amber-500", empty: topShown.length === 0,
       children: (
         <div dir="ltr" className="h-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data.charts.topSubjects} layout="vertical" margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
+            <BarChart data={topShown} layout="vertical" margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickFormatter={numTick} tickMargin={AXIS_GAP} />
-              <YAxis dataKey="name" type="category" orientation="left" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} tickMargin={AXIS_GAP} width={catAxisWidth(data.charts.topSubjects.map((s) => s.name))} interval={0} />
+              <XAxis type="number" tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(sTop.yMax)} tickFormatter={numTick} tickMargin={AXIS_GAP} />
+              <YAxis dataKey="name" type="category" orientation="left" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} tickMargin={AXIS_GAP} width={catAxisWidth(topShown.map((s) => s.name))} interval={0} />
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="value" name="مشتركون" radius={[0, 6, 6, 0]}>
-                {data.charts.topSubjects.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                {topShown.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -521,18 +852,19 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
       ),
     },
     activity: {
-      title: "النشاط خلال آخر 7 أيام", icon: TrendingUp, iconClass: "text-sky-500", empty: activityData.every((d) => d.مشاهدات === 0 && d.اشتراكات === 0 && d.رسائل === 0),
+      title: sActivity.from && sActivity.to ? `النشاط — ${activityShown.length} يوم` : "النشاط خلال آخر 7 أيام", icon: TrendingUp, iconClass: "text-sky-500",
+      empty: activitySeries.length === 0 || activityShown.every((d) => d.مشاهدات === 0 && d.اشتراكات === 0 && d.رسائل === 0),
       children: (
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={activityData}>
+          <AreaChart data={activityShown}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
             <XAxis dataKey="day" tick={{ fontSize: 11, fontFamily: "Cairo", fill: axisColor }} />
-            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(activityData.flatMap((d) => [d.مشاهدات, d.اشتراكات, d.رسائل]))} />
+            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(sActivity.yMax)} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(activityShown.flatMap((d) => [d.مشاهدات, d.اشتراكات, d.رسائل]))} />
             <Tooltip content={<CustomTooltip />} />
             <Legend wrapperStyle={{ fontFamily: "Cairo", fontSize: 12 }} />
-            <Area type="monotone" dataKey="مشاهدات" stroke="#06B6D4" fill="#06B6D433" strokeWidth={2} />
-            <Area type="monotone" dataKey="اشتراكات" stroke="#10B981" fill="#10B98133" strokeWidth={2} />
-            <Area type="monotone" dataKey="رسائل" stroke="#F59E0B" fill="#F59E0B33" strokeWidth={2} />
+            {activitySeries.map((s) => (
+              <Area key={s.key} type="monotone" dataKey={s.key} stroke={s.color} fill={`${s.color}33`} strokeWidth={2} />
+            ))}
           </AreaChart>
         </ResponsiveContainer>
       ),
@@ -622,6 +954,7 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
           return (
             <ChartCard key={id} title={c.title} icon={c.icon} iconClass={c.iconClass} empty={c.empty}
               {...sizeProps(id)}
+              settings={settingsFor(id)}
               cardRef={setCardRef(id)}
               isDragging={draggingId === id}
               onReorderStart={onReorderStart(id)}

@@ -143,14 +143,18 @@ async function markRead(conversationId: number, userId: number) {
 }
 
 async function lastMessageOf(conversationId: number) {
-  const [m] = await db.select().from(internalMessagesTable)
+  const [row] = await db.select({ m: internalMessagesTable, senderName: usersTable.name })
+    .from(internalMessagesTable)
+    .leftJoin(usersTable, eq(internalMessagesTable.senderId, usersTable.id))
     .where(eq(internalMessagesTable.conversationId, conversationId))
     .orderBy(desc(internalMessagesTable.createdAt), desc(internalMessagesTable.id)).limit(1);
-  if (!m) return null;
+  if (!row) return null;
+  const m = row.m;
   return {
     id: m.id,
     preview: m.deletedAt ? "تم حذف الرسالة" : preview(m.body, Boolean(m.imageUrl)),
     senderId: m.senderId,
+    senderName: row.senderName ?? null,
     createdAt: m.createdAt,
   };
 }
@@ -160,7 +164,7 @@ async function deriveConversations(user: Staff) {
   type Item = {
     key: string; id: number | null; type: string; title: string;
     counterpart: { id: number; name: string; avatarUrl: string | null; role: string } | null;
-    lastMessage: { id: number; preview: string; senderId: number | null; createdAt: Date } | null;
+    lastMessage: { id: number; preview: string; senderId: number | null; senderName: string | null; createdAt: Date } | null;
     lastMessageAt: Date | null; unreadCount: number;
   };
   const items: Item[] = [];
