@@ -301,6 +301,82 @@ router.get("/admin/subject-insights", async (req, res) => {
   }
 });
 
+// ── Owner dashboard — custom date-range time series (calendar picker) ──────────
+// metric=activity → daily {day, watch, requests, messages}; metric=growth →
+// monthly {month, students, teachers, others}. Gated by the /api/admin mount.
+router.get("/admin/owner-dashboard/timeseries", async (req, res) => {
+  try {
+    const num = (value: unknown) => Number(value ?? 0) || 0;
+    const metric = String(req.query.metric ?? "");
+    const parseDay = (v: unknown) => { const s = String(v ?? ""); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null; };
+    const fromStr = parseDay(req.query.from);
+    const toStr = parseDay(req.query.to);
+    if (!fromStr || !toStr) { res.status(400).json({ error: "تاريخ غير صالح" }); return; }
+    let from = new Date(`${fromStr}T00:00:00.000Z`);
+    let to = new Date(`${toStr}T23:59:59.999Z`);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) { res.status(400).json({ error: "تاريخ غير صالح" }); return; }
+    if (from > to) { const t = from; from = to; to = t; }
+    const toExcl = new Date(to.getTime() + 1);
+
+    if (metric === "activity") {
+      // Cap the window at 366 days so a huge range can't hammer the DB.
+      const maxMs = 366 * 24 * 3600 * 1000;
+      if (to.getTime() - from.getTime() > maxMs) from = new Date(to.getTime() - maxMs);
+      const [watchByDay, requestsByDay, messagesByDay] = await Promise.all([
+        db.select({ day: sql<string>`to_char(${lessonWatchProgressTable.lastWatchedAt}, 'YYYY-MM-DD')`, total: sql<number>`count(distinct ${lessonWatchProgressTable.studentId})` }).from(lessonWatchProgressTable).where(and(gte(lessonWatchProgressTable.lastWatchedAt, from), lt(lessonWatchProgressTable.lastWatchedAt, toExcl))).groupBy(sql`to_char(${lessonWatchProgressTable.lastWatchedAt}, 'YYYY-MM-DD')`),
+        db.select({ day: sql<string>`to_char(${subjectSubscriptionRequestsTable.submittedAt}, 'YYYY-MM-DD')`, total: count() }).from(subjectSubscriptionRequestsTable).where(and(gte(subjectSubscriptionRequestsTable.submittedAt, from), lt(subjectSubscriptionRequestsTable.submittedAt, toExcl))).groupBy(sql`to_char(${subjectSubscriptionRequestsTable.submittedAt}, 'YYYY-MM-DD')`),
+        db.select({ day: sql<string>`to_char(${supportMessagesTable.createdAt}, 'YYYY-MM-DD')`, total: count() }).from(supportMessagesTable).where(and(eq(supportMessagesTable.senderRole, "student"), gte(supportMessagesTable.createdAt, from), lt(supportMessagesTable.createdAt, toExcl))).groupBy(sql`to_char(${supportMessagesTable.createdAt}, 'YYYY-MM-DD')`),
+      ]);
+      const watchMap = new Map(watchByDay.map((r) => [r.day, num(r.total)]));
+      const reqMap = new Map(requestsByDay.map((r) => [r.day, num(r.total)]));
+      const msgMap = new Map(messagesByDay.map((r) => [r.day, num(r.total)]));
+      const series: { day: string; watch: number; requests: number; messages: number }[] = [];
+      const cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
+      const end = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate()));
+      while (cur <= end) {
+        const key = cur.toISOString().slice(0, 10);
+        series.push({ day: key, watch: watchMap.get(key) ?? 0, requests: reqMap.get(key) ?? 0, messages: msgMap.get(key) ?? 0 });
+        cur.setUTCDate(cur.getUTCDate() + 1);
+      }
+      res.json({ metric, from: fromStr, to: toStr, series });
+      return;
+    }
+
+    if (metric === "growth") {
+      const growthRows = await db
+        .select({ month: sql<string>`to_char(date_trunc('month', ${usersTable.joinedAt}), 'YYYY-MM')`, role: usersTable.role, total: count() })
+        .from(usersTable)
+        .where(and(gte(usersTable.joinedAt, from), lt(usersTable.joinedAt, toExcl)))
+        .groupBy(sql`to_char(date_trunc('month', ${usersTable.joinedAt}), 'YYYY-MM')`, usersTable.role);
+      const months = new Map<string, { month: string; students: number; teachers: number; others: number }>();
+      for (const row of growthRows) {
+        const e = months.get(row.month) ?? { month: row.month, students: 0, teachers: 0, others: 0 };
+        if (row.role === "student") e.students += num(row.total);
+        else if (row.role === "teacher") e.teachers += num(row.total);
+        else e.others += num(row.total);
+        months.set(row.month, e);
+      }
+      const series: { month: string; students: number; teachers: number; others: number }[] = [];
+      const cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
+      const end = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), 1));
+      let guard = 0;
+      while (cur <= end && guard < 600) {
+        const key = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, "0")}`;
+        series.push(months.get(key) ?? { month: key, students: 0, teachers: 0, others: 0 });
+        cur.setUTCMonth(cur.getUTCMonth() + 1);
+        guard++;
+      }
+      res.json({ metric, from: fromStr, to: toStr, series });
+      return;
+    }
+
+    res.status(400).json({ error: "مقياس غير معروف" });
+  } catch (err) {
+    req.log.error({ err }, "owner-dashboard timeseries error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── Owner dashboard summary — 100% real data, owner/admin only ─────────────────
 router.get("/admin/owner-dashboard/summary", async (req, res) => {
   try {
@@ -379,11 +455,36 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
       unitsWithoutLessonsRow,
       lessonsWithoutVideosRow,
       videosWithoutSegmentsRow,
+      videosWithoutSegmentsItems,
     ] = await Promise.all([
       db.select({ total: count() }).from(subjectsTable).where(sql`not exists (select 1 from units u where u.subject_id = ${subjectsTable.id})`),
       db.select({ total: count() }).from(unitsTable).where(sql`not exists (select 1 from lessons l where l.unit_id = ${unitsTable.id})`),
       db.select({ total: count() }).from(lessonsTable).where(sql`${lessonsTable.videoId} is null`),
       db.select({ total: count() }).from(videosTable).where(sql`not exists (select 1 from video_segments s where s.video_id = ${videosTable.id})`),
+      // Deep-link targets for the "videos without segments" alert: the actual videos
+      // missing segments together with their full academic path + names, so the
+      // dashboard can open the matching lesson editor directly (not just the tab).
+      db
+        .select({
+          videoId: videosTable.id,
+          lessonId: lessonsTable.id,
+          lessonTitle: lessonsTable.title,
+          unitId: unitsTable.id,
+          unitName: unitsTable.name,
+          unitLabel: subjectsTable.unitLabel,
+          subjectId: subjectsTable.id,
+          subjectName: subjectsTable.name,
+          yearId: academicYearsTable.id,
+          yearName: academicYearsTable.name,
+        })
+        .from(videosTable)
+        .innerJoin(lessonsTable, eq(lessonsTable.videoId, videosTable.id))
+        .innerJoin(unitsTable, eq(unitsTable.id, lessonsTable.unitId))
+        .innerJoin(subjectsTable, eq(subjectsTable.id, unitsTable.subjectId))
+        .innerJoin(academicYearsTable, eq(academicYearsTable.id, subjectsTable.yearId))
+        .where(sql`not exists (select 1 from video_segments s where s.video_id = ${videosTable.id})`)
+        .orderBy(asc(lessonsTable.id))
+        .limit(50),
     ]);
 
     const alerts = {
@@ -393,6 +494,7 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
       unitsWithoutLessons: num(unitsWithoutLessonsRow[0]?.total),
       lessonsWithoutVideos: num(lessonsWithoutVideosRow[0]?.total),
       videosWithoutSegments: num(videosWithoutSegmentsRow[0]?.total),
+      videosWithoutSegmentsItems,
     };
 
     // ── Charts ──

@@ -18,7 +18,7 @@ export const authHeader = (): Record<string, string> => {
 export type ConversationItem = {
   key: string; id: number | null; type: "owners" | "all" | "direct"; title: string;
   counterpart: { id: number; name: string; avatarUrl: string | null; role: string } | null;
-  lastMessage: { id: number; preview: string; senderId: number | null; createdAt: string } | null;
+  lastMessage: { id: number; preview: string; senderId: number | null; senderName?: string | null; createdAt: string } | null;
   lastMessageAt: string | null; unreadCount: number;
 };
 type ChatMessage = {

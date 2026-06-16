@@ -622,6 +622,10 @@ export function AcademicTab() {
   const [lessonPosterFile, setLessonPosterFile] = useState<File | null>(null);
   const [lessonSegments, setLessonSegments] = useState<LessonSegmentFormItem[]>([]);
   const segmentsFileRef = useRef<HTMLInputElement | null>(null);
+  // Deep-link from the dashboard "videos without segments" alert: scroll target +
+  // the lesson we still need to open once its unit's lessons finish loading.
+  const segmentsSectionRef = useRef<HTMLDivElement | null>(null);
+  const pendingDeepLinkLessonRef = useRef<number | null>(null);
   const importSegmentsFromExcel = async (file: File) => {
     try {
       const parsed = await parseSegmentsFromExcel(file);
@@ -874,6 +878,43 @@ export function AcademicTab() {
     setDurationDetectionError(null);
     setShowAdd(true);
   }
+
+  // Deep-link entry: the dashboard "videos without segments" alert stashes the target
+  // lesson (full path + names). On mount we rebuild the breadcrumb trail down to its
+  // unit so the lessons query loads, then mark the lesson as pending-to-open.
+  useEffect(() => {
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem("ofouq_academic_open_lesson"); } catch { /* ignore */ }
+    if (!raw) return;
+    try { sessionStorage.removeItem("ofouq_academic_open_lesson"); } catch { /* ignore */ }
+    let target: {
+      lessonId?: number; unitId?: number; unitName?: string; unitLabel?: unknown;
+      subjectId?: number; subjectName?: string; yearId?: number; yearName?: string;
+    };
+    try { target = JSON.parse(raw); } catch { return; }
+    if (!target?.lessonId || !target.unitId || !target.subjectId || !target.yearId) return;
+    setCrumbs([
+      { level: "years", label: "السنوات الدراسية" },
+      { level: "subjects", label: target.yearName ?? "السنة الدراسية", yearId: target.yearId },
+      { level: "units", label: target.subjectName ?? "المادة", yearId: target.yearId, subjectId: target.subjectId, unitLabel: normalizeUnitLabel(target.unitLabel) },
+      { level: "lessons", label: target.unitName ?? "الوحدة", yearId: target.yearId, subjectId: target.subjectId, unitId: target.unitId },
+    ]);
+    pendingDeepLinkLessonRef.current = target.lessonId;
+  }, []);
+
+  // Once the deep-linked unit's lessons have arrived, open that lesson's editor and
+  // scroll the segments section into view.
+  useEffect(() => {
+    const lessonId = pendingDeepLinkLessonRef.current;
+    if (!lessonId) return;
+    const lesson = lessons.find((item) => item.id === lessonId);
+    if (!lesson) return;
+    pendingDeepLinkLessonRef.current = null;
+    openLessonEditor(lesson);
+    window.setTimeout(() => {
+      segmentsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 400);
+  }, [lessons]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -1520,7 +1561,7 @@ export function AcademicTab() {
                   className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none min-h-[90px]"
                 />
 
-                <div className="w-full rounded-xl border border-white/70 bg-white/55 p-3 space-y-3">
+                <div ref={segmentsSectionRef} className="w-full rounded-xl border border-white/70 bg-white/55 p-3 space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-bold text-foreground">تقسيم الفيديو (وصول سريع)</p>
                     <div className="flex items-center gap-2 flex-wrap justify-end">

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Users, Activity, GraduationCap, Plus, Minus, X, RotateCcw } from "lucide-react";
+import { MapPin, Users, Activity, GraduationCap, Plus, Minus, X, RotateCcw, ChevronDown } from "lucide-react";
 import { EGYPT_VIEWBOX, EGYPT_GOV_PATHS, EGYPT_GOV_CENTROIDS } from "@/data/egypt-governorates";
 
 // viewBox is "0 0 W H" — parse the extents once for zoom + popup math.
@@ -32,11 +32,12 @@ const METRICS: { key: Metric; label: string; icon: React.ElementType }[] = [
   { key: "activeUsers", label: "النشطون", icon: GraduationCap },
 ];
 
-// Ramp: low → high = yellow → blue → red (per request).
+// Ramp: low → high = red → yellow → blue → green (per request).
 const RAMP: [number, [number, number, number]][] = [
-  [0.0, [250, 204, 21]],  // أصفر — أقل
-  [0.5, [37, 99, 235]],   // أزرق — متوسط
-  [1.0, [239, 68, 68]],   // أحمر — أعلى
+  [0.0, [239, 68, 68]],   // أحمر — منخفض
+  [0.33, [250, 204, 21]], // أصفر — تحت المتوسط
+  [0.66, [37, 99, 235]],  // أزرق — فوق المتوسط
+  [1.0, [34, 197, 94]],   // أخضر — عالي
 ];
 function rampColor(t: number): string {
   const x = Math.max(0, Math.min(1, t));
@@ -54,6 +55,9 @@ function rampColor(t: number): string {
 
 export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
   const [metric, setMetric] = useState<Metric>("users");
+  // Expanded view: card ~doubles in height, the map moves on top (taking ~3/4 of
+  // the height) and the ranking panel sits below it (the remaining ~1/4).
+  const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   // The base box is the *actual* extent of the drawn governorate shapes —
@@ -224,14 +228,14 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
       ) : isError ? (
         <p className="text-sm text-rose-600 text-center py-10">تعذّر تحميل بيانات الخريطة</p>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-5">
+        <div className={`grid gap-5 ${expanded ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-[1.4fr_1fr]"}`}>
           {/* Map */}
           <div onClick={clearSelection} className="rounded-2xl p-3 bg-gradient-to-b from-slate-50 to-white dark:from-[#0e1217] dark:to-[#141a21] border border-white/60 dark:border-white/10">
             {/* Fill the card width at a fixed height. The base box is expanded (in the
                 layout effect) to this container's aspect ratio, so the SVG fills it 1:1
                 — no letterbox — keeping the popup % math valid while the map keeps its
                 size and the extra width becomes pan/zoom canvas. */}
-            <div ref={boxRef} className="relative w-full overflow-hidden rounded-xl h-[clamp(300px,40vw,440px)]">
+            <div ref={boxRef} className={`relative w-full overflow-hidden rounded-xl transition-[height] duration-300 ease-out ${expanded ? "h-[clamp(520px,70vh,820px)]" : "h-[clamp(300px,40vw,440px)]"}`}>
               <svg ref={svgRef} viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} className="absolute inset-0 w-full h-full"
                 style={{ cursor: (panMode || isZoomed) ? (panning ? "grabbing" : "grab") : "default", touchAction: "none" }}
                 onPointerDown={onPanStart} onPointerMove={onPanMove} onPointerUp={onPanEnd} onPointerLeave={onPanEnd}
@@ -303,7 +307,7 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
             {/* Legend: yellow (low) → blue → red (high) */}
             <div dir="ltr" className="flex items-center gap-2 mt-2 px-1">
               <span className="text-[10px] text-muted-foreground">منخفض</span>
-              <div className="h-2.5 flex-1 rounded-full" style={{ background: `linear-gradient(to right, ${rampColor(0)}, ${rampColor(0.5)}, ${rampColor(1)})` }} />
+              <div className="h-2.5 flex-1 rounded-full" style={{ background: `linear-gradient(to right, ${rampColor(0)}, ${rampColor(0.33)}, ${rampColor(0.66)}, ${rampColor(1)})` }} />
               <span className="text-[10px] text-muted-foreground">مرتفع</span>
             </div>
           </div>
@@ -316,7 +320,7 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
               <Stat label="اشتراكات" value={data?.totals.totalSubscriptions ?? 0} />
             </div>
             <p className="text-xs font-bold text-muted-foreground">الأعلى حسب {METRICS.find((m) => m.key === metric)?.label}</p>
-            <div className="space-y-2">
+            <div className={expanded ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2" : "space-y-2"}>
               {topList.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-6">لا توجد بيانات جغرافية بعد</p>
               ) : topList.map((g, i) => (
@@ -338,6 +342,19 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
           </div>
         </div>
       )}
+
+      {/* Expand / collapse toggle — centred at the bottom; chevron points down to
+          expand, flips up to collapse. */}
+      <div className="flex justify-center mt-4">
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          aria-label={expanded ? "تصغير" : "تكبير"}
+          aria-expanded={expanded}
+          title={expanded ? "تصغير" : "تكبير"}
+          className="w-10 h-10 rounded-full bg-white/70 dark:bg-white/[0.06] border border-white/60 dark:border-white/10 shadow-sm flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/90 dark:hover:bg-white/10 transition-colors">
+          <ChevronDown className={`w-5 h-5 transition-transform duration-300 ${expanded ? "rotate-180" : ""}`} />
+        </button>
+      </div>
     </div>
   );
 }

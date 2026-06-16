@@ -34,6 +34,13 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+// The browser portal is staff-only — students must use the mobile app. This mirrors
+// the server's PRIVILEGED_ROLES; the API is the real gate, this is defense-in-depth.
+const STAFF_ROLES = new Set(["admin", "owner", "moderator"]);
+function isStaffRole(role: string | null | undefined): boolean {
+  return typeof role === "string" && STAFF_ROLES.has(role);
+}
+
 function isLikelyApiProxyConnectionFailure(path: string, res: Response, rawBody: string) {
   return path.startsWith("/api/") && res.status === 500 && rawBody.trim().length === 0;
 }
@@ -46,6 +53,10 @@ async function apiCall(path: string, opts: RequestInit) {
       headers: {
         "Content-Type": "application/json",
         ...(opts.headers || {}),
+        // Mark every request from the browser portal so the API can enforce the
+        // staff-only rule (students must use the mobile app). Sent last so it can't
+        // be accidentally overridden by a caller's headers.
+        "X-Ofouq-Client": "web",
       },
     });
   } catch {
@@ -149,9 +160,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Accept either an enveloped { user } or a bare user object so a
         // response-shape drift doesn't silently sign everyone out.
         const profile = (raw?.user ?? raw) as AuthUser | null | undefined;
-        if (profile && profile.id != null && profile.role) {
+        if (profile && profile.id != null && isStaffRole(profile.role)) {
           applyAuthState(profile, storedToken);
         } else {
+          // Non-staff (e.g. a lingering student token) gets no browser session.
           clearAuthState();
         }
       } catch {
@@ -172,8 +184,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    applyAuthState(data.user as AuthUser, String(data.token));
-    return data.user;
+    const nextUser = data.user as AuthUser;
+    // Defense-in-depth: the API already blocks non-staff web logins, but guard the
+    // client too so a non-staff account never establishes a browser session. Same
+    // generic message as a wrong password — don't reveal the staff-only gate.
+    if (!isStaffRole(nextUser?.role)) {
+      throw new Error("بيانات الدخول غير صحيحة");
+    }
+    applyAuthState(nextUser, String(data.token));
+    return nextUser;
   };
 
   const register = async (formData: Record<string, unknown>): Promise<AuthUser> => {
