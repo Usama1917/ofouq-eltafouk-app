@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DarkTheme, DefaultTheme, ThemeProvider, type Theme } from "@react-navigation/native";
 import { Stack } from "expo-router";
 import { useFonts } from "expo-font";
@@ -7,7 +7,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import React, { useEffect } from "react";
-import { I18nManager, Platform, StyleSheet, Text, TextInput } from "react-native";
+import { AppState, type AppStateStatus, I18nManager, Platform, StyleSheet, Text, TextInput } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -29,7 +29,14 @@ if (typeof I18nManager.swapLeftAndRightInRTL === "function") {
 
 SplashScreen.preventAutoHideAsync();
 
-const queryClient = new QueryClient();
+// review F-12: give react-query sane defaults (matching the web client in
+// artifacts/ofouq-eltafouk/src/App.tsx) — without these every query retries 3x
+// on failure, causing retry storms (e.g. a flaky network hammering the API).
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: 1, staleTime: 30_000 },
+  },
+});
 const defaultFontStyle = { ...FONT.regular };
 
 type FontComponent = {
@@ -192,6 +199,20 @@ export default function RootLayout() {
 
   useEffect(() => {
     void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
+  }, []);
+
+  // review F-13: wire react-query's focusManager to AppState so its
+  // refetchOnWindowFocus behaviour actually fires on React Native (RN has no
+  // window-focus event, so without this the manager always thinks the app is
+  // focused). NOTE: onlineManager is intentionally NOT wired — that needs
+  // @react-native-community/netinfo, which is not a dependency; adding the
+  // import would break the bundle. Reconnect-refetch is therefore left as the
+  // react-query default (assume always online).
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (status: AppStateStatus) => {
+      focusManager.setFocused(status === "active");
+    });
+    return () => subscription.remove();
   }, []);
 
   if (!fontsLoaded && !fontError) {

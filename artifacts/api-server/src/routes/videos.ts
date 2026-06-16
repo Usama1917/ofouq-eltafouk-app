@@ -58,6 +58,18 @@ async function accessibleSubjectIds(userId: number, subjectIds: number[]): Promi
   return new Set(rows.map((r) => r.subjectId));
 }
 
+// review B-33: pagination bounds for the (previously unbounded) videos list.
+const DEFAULT_VIDEOS_LIMIT = 50;
+const MAX_VIDEOS_LIMIT = 100;
+
+// Parse an optional non-negative integer query param, clamped to [0, max] with a
+// fallback. Tolerates missing/garbage values so the list stays robust (review B-33).
+function parseBoundedInt(value: unknown, fallback: number, max: number): number {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.min(n, max);
+}
+
 router.get("/videos", async (req, res) => {
   try {
     // Paid lesson video URLs must never be served to anonymous callers.
@@ -67,6 +79,12 @@ router.get("/videos", async (req, res) => {
     }
 
     const { subject, search } = req.query as { subject?: string; search?: string };
+
+    // review B-33: OPTIONAL limit/offset (defaults keep the response an array and
+    // don't change the existing client contract); bounds the result set so the
+    // endpoint can't return the whole table at scale.
+    const limit = parseBoundedInt(req.query.limit, DEFAULT_VIDEOS_LIMIT, MAX_VIDEOS_LIMIT);
+    const offset = parseBoundedInt(req.query.offset, 0, Number.MAX_SAFE_INTEGER);
 
     const filters = [
       eq(videosTable.publishStatus, "published"),
@@ -106,7 +124,9 @@ router.get("/videos", async (req, res) => {
       .innerJoin(subjectsTable, eq(unitsTable.subjectId, subjectsTable.id))
       .innerJoin(academicYearsTable, eq(subjectsTable.yearId, academicYearsTable.id))
       .where(and(...filters))
-      .orderBy(desc(videosTable.createdAt));
+      .orderBy(desc(videosTable.createdAt))
+      .limit(limit)
+      .offset(offset);
 
     // Admins/owners see every URL. Students only see videoUrl for subjects they
     // hold an active subscription to; everyone else gets metadata without the URL.
@@ -124,10 +144,10 @@ router.get("/videos", async (req, res) => {
       return { ...withoutUrl, videoUrl: null };
     });
 
-    res.json(videos);
+    return res.json(videos);
   } catch (err) {
     req.log.error({ err }, "Failed to list videos");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -186,10 +206,10 @@ router.get("/videos/:id", async (req, res) => {
     const canSeeUrl =
       isPrivileged(user) || (await accessibleSubjectIds(user.id, [subjectId])).has(subjectId);
 
-    res.json(canSeeUrl ? video : { ...video, videoUrl: null });
+    return res.json(canSeeUrl ? video : { ...video, videoUrl: null });
   } catch (err) {
     req.log.error({ err }, "Failed to get video");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

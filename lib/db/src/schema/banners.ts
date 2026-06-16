@@ -9,7 +9,7 @@ export const bannersTable = pgTable("banners", {
   imageUrl: text("image_url"),
   linkUrl: text("link_url"),
   active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const insertBannerSchema = createInsertSchema(bannersTable).omit({ id: true, createdAt: true });

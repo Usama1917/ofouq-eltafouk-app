@@ -134,7 +134,9 @@ export default function LessonDetailScreen() {
   } = useQuery<Lesson>({
     queryKey: ["academic", "lesson", lessonId, token],
     queryFn: () => apiFetch(`/api/academic/lessons/${lessonId}`, { token }),
-    enabled: !!lessonId,
+    // review F-16: token is part of the queryKey, so also gate on it to avoid an
+    // initial paywalled fetch firing with a null token on cold start.
+    enabled: !!lessonId && !!token,
   });
 
   const backToLessons =

@@ -73,6 +73,20 @@ function normalizeTone(tone: string): NotificationTone {
   return "primary";
 }
 
+// review F-27: Arabic counts the noun with four forms — singular (1), dual (2),
+// plural (3–10), then back to the singular noun for 11+. The old code always
+// used one form ("منذ 2 دقيقة"), which is ungrammatical. Build the correct form
+// per unit. Numbers stay Western (the caller wraps the result in toEnglishDigits).
+function arabicRelativeTime(
+  count: number,
+  forms: { singular: string; dual: string; plural: string; many: string },
+) {
+  if (count === 1) return `منذ ${forms.singular}`;
+  if (count === 2) return `منذ ${forms.dual}`;
+  if (count >= 3 && count <= 10) return `منذ ${count} ${forms.plural}`;
+  return `منذ ${count} ${forms.many}`;
+}
+
 function formatNotificationTime(value: string, locale: string) {
   const createdAt = new Date(value).getTime();
   if (!Number.isFinite(createdAt)) return "";
@@ -82,13 +96,25 @@ function formatNotificationTime(value: string, locale: string) {
   if (diffSeconds < 60) return isArabic ? "الآن" : "Now";
 
   const diffMinutes = Math.floor(diffSeconds / 60);
-  if (diffMinutes < 60) return isArabic ? `منذ ${diffMinutes} دقيقة` : `${diffMinutes}m ago`;
+  if (diffMinutes < 60) {
+    return isArabic
+      ? arabicRelativeTime(diffMinutes, { singular: "دقيقة", dual: "دقيقتين", plural: "دقائق", many: "دقيقة" })
+      : `${diffMinutes}m ago`;
+  }
 
   const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return isArabic ? `منذ ${diffHours} ساعة` : `${diffHours}h ago`;
+  if (diffHours < 24) {
+    return isArabic
+      ? arabicRelativeTime(diffHours, { singular: "ساعة", dual: "ساعتين", plural: "ساعات", many: "ساعة" })
+      : `${diffHours}h ago`;
+  }
 
   const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return isArabic ? `منذ ${diffDays} يوم` : `${diffDays}d ago`;
+  if (diffDays < 7) {
+    return isArabic
+      ? arabicRelativeTime(diffDays, { singular: "يوم", dual: "يومين", plural: "أيام", many: "يوم" })
+      : `${diffDays}d ago`;
+  }
 
   return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(new Date(value));
 }
@@ -112,7 +138,11 @@ type NotificationCardProps = {
   onMarkRead: (item: AppNotification) => Promise<void>;
 };
 
-function NotificationCard({
+// review F-24: memoized so a re-render of NotificationsScreen (e.g. the 30s
+// refetch interval, or another card's swipe state changing) does not re-render
+// every row. Relies on the parent passing stable callbacks/props (see the
+// useCallback-wrapped handlers below).
+const NotificationCard = React.memo(function NotificationCard({
   item,
   tone,
   isUnread,
@@ -202,10 +232,31 @@ function NotificationCard({
   const panResponder = React.useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gesture) =>
-          !deleting &&
-          Math.abs(gesture.dx) > 6 &&
-          Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
+        // PHASE 1 — decide whether to grab the card vs. let the list scroll.
+        // Only take over when the gesture is meaningfully horizontal (dx leads dy), so a
+        // normal vertical scroll passes straight through to the FlatList and stays
+        // natural. The dx > 6 floor ignores tiny taps. We don't need an extreme ratio
+        // here anymore because, once grabbed, the lock below holds the swipe.
+        onMoveShouldSetPanResponder: (_, gesture) => {
+          if (deleting) return false;
+          const dx = Math.abs(gesture.dx);
+          const dy = Math.abs(gesture.dy);
+          return dx > 6 && dx > dy * 0.5;
+        },
+        // Same decision in the CAPTURE phase, so a horizontal swipe wins the responder
+        // BEFORE the surrounding vertical FlatList starts scrolling (that race used to
+        // let the list "steal" the swipe on a little vertical drift).
+        onMoveShouldSetPanResponderCapture: (_, gesture) => {
+          if (deleting) return false;
+          const dx = Math.abs(gesture.dx);
+          const dy = Math.abs(gesture.dy);
+          return dx > 6 && dx > dy * 0.5;
+        },
+        // PHASE 2 — once we've grabbed the card, NEVER hand the responder back to the
+        // scroll view. This is what makes vertical movement fully ignored mid-swipe: the
+        // card stays locked to the finger's horizontal travel and can't be yanked away,
+        // which is what previously made it snap back / "stick".
+        onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: () => {
           translateX.stopAnimation((value) => {
             offsetRef.current = value;
@@ -346,7 +397,7 @@ function NotificationCard({
       </Animated.View>
     </View>
   );
-}
+});
 
 export default function NotificationsScreen() {
   const {
@@ -393,52 +444,64 @@ export default function NotificationsScreen() {
   const [isClearingRead, setIsClearingRead] = React.useState(false);
   const [confirmClearOpen, setConfirmClearOpen] = React.useState(false);
 
-  async function openNotification(item: AppNotification) {
-    if (!token) return;
-    try {
-      if (!item.readAt) {
-        await markNotificationRead(item.id, token);
-        await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+  // review F-24: per-item handlers are useCallback-stable (deps: token,
+  // queryClient — both stable) so the memoized NotificationCard rows don't
+  // re-render just because the parent re-rendered.
+  const openNotification = React.useCallback(
+    async (item: AppNotification) => {
+      if (!token) return;
+      try {
+        if (!item.readAt) {
+          await markNotificationRead(item.id, token);
+          await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+        }
+      } catch {
+        // Navigation is more important than blocking on the read marker.
       }
-    } catch {
-      // Navigation is more important than blocking on the read marker.
-    }
-    openNotificationTarget(item);
-  }
+      openNotificationTarget(item);
+    },
+    [queryClient, token],
+  );
 
-  async function dismissNotification(item: AppNotification) {
-    if (!token) return;
+  const dismissNotification = React.useCallback(
+    async (item: AppNotification) => {
+      if (!token) return;
 
-    setDeletingIds((current) => {
-      const next = new Set(current);
-      next.add(item.id);
-      return next;
-    });
-
-    try {
-      await deleteNotification(item.id, token);
-      await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
-    } catch (err) {
-      await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
-      throw err;
-    } finally {
       setDeletingIds((current) => {
         const next = new Set(current);
-        next.delete(item.id);
+        next.add(item.id);
         return next;
       });
-    }
-  }
 
-  async function markReadNotification(item: AppNotification) {
-    if (!token || item.readAt) return;
-    try {
-      await markNotificationRead(item.id, token);
-      await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
-    } catch {
-      await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
-    }
-  }
+      try {
+        await deleteNotification(item.id, token);
+        await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+      } catch (err) {
+        await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+        throw err;
+      } finally {
+        setDeletingIds((current) => {
+          const next = new Set(current);
+          next.delete(item.id);
+          return next;
+        });
+      }
+    },
+    [queryClient, token],
+  );
+
+  const markReadNotification = React.useCallback(
+    async (item: AppNotification) => {
+      if (!token || item.readAt) return;
+      try {
+        await markNotificationRead(item.id, token);
+        await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+      } catch {
+        await queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+      }
+    },
+    [queryClient, token],
+  );
 
   async function clearReadNotifications() {
     if (!token || isClearingRead || readNotifications.length === 0) return;
@@ -460,31 +523,48 @@ export default function NotificationsScreen() {
     setConfirmClearOpen(true);
   }
 
-  function renderNotificationCard(item: AppNotification) {
-    const tone = getToneMeta(normalizeTone(item.tone));
-    const isUnread = !item.readAt;
+  const renderNotificationCard = React.useCallback(
+    (item: AppNotification) => {
+      const tone = getToneMeta(normalizeTone(item.tone));
+      const isUnread = !item.readAt;
 
-    return (
-      <NotificationCard
-        item={item}
-        tone={tone}
-        isUnread={isUnread}
-        colors={colors}
-        titleDirection={titleDirection}
-        direction={direction}
-        alignStart={alignStart}
-        textAlign={textAlign}
-        locale={strings.locale}
-        resolvedScheme={resolvedScheme}
-        deleteLabel={strings.notifications.delete}
-        markReadLabel={strings.notifications.markAsRead}
-        deleting={deletingIds.has(item.id)}
-        onPress={openNotification}
-        onDismiss={dismissNotification}
-        onMarkRead={markReadNotification}
-      />
-    );
-  }
+      return (
+        <NotificationCard
+          item={item}
+          tone={tone}
+          isUnread={isUnread}
+          colors={colors}
+          titleDirection={titleDirection}
+          direction={direction}
+          alignStart={alignStart}
+          textAlign={textAlign}
+          locale={strings.locale}
+          resolvedScheme={resolvedScheme}
+          deleteLabel={strings.notifications.delete}
+          markReadLabel={strings.notifications.markAsRead}
+          deleting={deletingIds.has(item.id)}
+          onPress={openNotification}
+          onDismiss={dismissNotification}
+          onMarkRead={markReadNotification}
+        />
+      );
+    },
+    [
+      alignStart,
+      colors,
+      deletingIds,
+      direction,
+      dismissNotification,
+      markReadNotification,
+      openNotification,
+      resolvedScheme,
+      strings.locale,
+      strings.notifications.delete,
+      strings.notifications.markAsRead,
+      textAlign,
+      titleDirection,
+    ],
+  );
 
   // Flatten the (header summary + sections + state cards) into a single data
   // source so the list can virtualize. The summary card lives in the list

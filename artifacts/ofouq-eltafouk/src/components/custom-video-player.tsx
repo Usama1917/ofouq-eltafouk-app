@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   AlertTriangle,
   ListVideo,
@@ -438,6 +438,400 @@ function VolumeLevelIcon({ volume }: { volume: number }) {
   );
 }
 
+// review F-23: external "current time" store so the 250ms progress ticker only
+// re-renders the tiny leaf components that subscribe to it (time text, scrubber,
+// segment/chapter active highlighting) instead of reconciling the whole player.
+type TimeStore = {
+  subscribe: (listener: () => void) => () => void;
+  getSnapshot: () => number;
+  publish: (value: number) => void;
+};
+
+function createTimeStore(): TimeStore {
+  let value = 0;
+  const listeners = new Set<() => void>();
+  return {
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    getSnapshot() {
+      return value;
+    },
+    publish(next) {
+      if (!Number.isFinite(next) || next === value) return;
+      value = next;
+      listeners.forEach((listener) => listener());
+    },
+  };
+}
+
+function useCurrentTime(store: TimeStore): number {
+  return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+}
+
+// review F-23: clock owns its own 1s interval so the per-second tick never
+// reconciles the parent player tree.
+const WatermarkClock = memo(function WatermarkClock({ watermarkText }: { watermarkText?: string }) {
+  const [clockText, setClockText] = useState(() => formatBadgeClock(new Date()));
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setClockText(formatBadgeClock(new Date()));
+    }, 1000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  const watermarkLabel = useMemo(() => buildCleanWatermarkLabel(watermarkText, clockText), [clockText, watermarkText]);
+  if (!watermarkLabel) return null;
+
+  return (
+    <div className="pointer-events-none absolute left-4 top-4 z-[7] max-w-[calc(100%-6.25rem)] truncate rounded-xl border border-white/20 bg-slate-950/44 px-2.5 py-1 text-[10px] font-bold text-white/90 backdrop-blur-xl">
+      {watermarkLabel}
+    </div>
+  );
+});
+
+// review F-23: time text subscribes to just the current-time store.
+const TimeDisplay = memo(function TimeDisplay({
+  timeStore,
+  duration,
+  seekPreviewTime,
+}: {
+  timeStore: TimeStore;
+  duration: number;
+  seekPreviewTime: number | null;
+}) {
+  const currentTime = useCurrentTime(timeStore);
+  const previewSeconds = seekPreviewTime ?? currentTime;
+  return (
+    <span className="min-w-[94px] text-center text-xs font-semibold tracking-wide text-white/90">
+      {formatTime(previewSeconds)} / {formatTime(duration)}
+    </span>
+  );
+});
+
+// review F-23: scrubber subscribes to just the current-time store; seek logic
+// stays in the parent via stable callbacks.
+const ProgressScrubber = memo(function ProgressScrubber({
+  timeStore,
+  duration,
+  seekPreviewTime,
+  isSeeking,
+  isSeekingRef,
+  onSeekPreview,
+  onClearSeekPreview,
+  onSeekTo,
+  onBeginSeeking,
+  onFinishSeeking,
+}: {
+  timeStore: TimeStore;
+  duration: number;
+  seekPreviewTime: number | null;
+  isSeeking: boolean;
+  isSeekingRef: { current: boolean };
+  onSeekPreview: (value: number) => void;
+  onClearSeekPreview: () => void;
+  onSeekTo: (value: number) => void;
+  onBeginSeeking: (value: number) => void;
+  onFinishSeeking: (value?: number) => void;
+}) {
+  const currentTime = useCurrentTime(timeStore);
+  const previewSeconds = seekPreviewTime ?? currentTime;
+  const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (previewSeconds / duration) * 100)) : 0;
+  const previewPercent = progressPercent;
+
+  return (
+    <div className="order-10 basis-full lg:order-none lg:basis-auto lg:flex-1 lg:min-w-[170px]">
+      <div className="relative w-full">
+        {isSeeking && seekPreviewTime !== null ? (
+          <div
+            className="pointer-events-none absolute -top-7 z-[17] -translate-x-1/2 rounded-md border border-white/20 bg-black/78 px-2 py-0.5 text-[10px] font-semibold text-white animate-[ofqFadeIn_150ms_ease-out]"
+            style={{ left: `${previewPercent}%` }}
+          >
+            {formatTime(seekPreviewTime)}
+          </div>
+        ) : null}
+        <input
+          type="range"
+          min={0}
+          max={Math.max(duration, 0.0001)}
+          step={0.1}
+          value={Math.min(previewSeconds, duration || 0)}
+          onChange={(event) => {
+            event.stopPropagation();
+            const value = Number.parseFloat(event.target.value);
+            if (isSeekingRef.current) {
+              onSeekPreview(value);
+              return;
+            }
+            onClearSeekPreview();
+            onSeekTo(value);
+          }}
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            onBeginSeeking(Number.parseFloat(event.currentTarget.value));
+          }}
+          onPointerUp={(event) => {
+            event.stopPropagation();
+            onFinishSeeking(Number.parseFloat(event.currentTarget.value));
+          }}
+          onMouseDown={(event) => {
+            event.stopPropagation();
+            onBeginSeeking(Number.parseFloat(event.currentTarget.value));
+          }}
+          onMouseUp={(event) => {
+            event.stopPropagation();
+            onFinishSeeking(Number.parseFloat(event.currentTarget.value));
+          }}
+          onTouchStart={(event) => {
+            event.stopPropagation();
+            onBeginSeeking(Number.parseFloat(event.currentTarget.value));
+          }}
+          onTouchEnd={(event) => {
+            event.stopPropagation();
+            onFinishSeeking();
+          }}
+          className="w-full ofq-progress-slider"
+          dir="ltr"
+          aria-label="شريط التقدم"
+          style={{
+            "--ofq-range-progress": `${progressPercent}%`,
+          } as CSSProperties}
+        />
+      </div>
+    </div>
+  );
+});
+
+type SegmentEntry = {
+  id: number;
+  title: string;
+  startSeconds: number;
+  segmentType: VideoSegmentType;
+  orderIndex: number;
+  thumbnailUrl?: string;
+  endSeconds: number;
+};
+
+type ChapterEntry = {
+  id: string;
+  title: string;
+  description?: string;
+  startSeconds: number;
+  thumbnailUrl?: string;
+  order: number;
+  endSeconds: number;
+  durationSeconds?: number;
+};
+
+// review F-23: lesson-panel list subscribes to the current-time store so the
+// per-tick "active segment" highlight no longer re-renders the whole player.
+const LessonSegmentList = memo(function LessonSegmentList({
+  timeStore,
+  hasSegments,
+  groupedSegmentEntries,
+  chapterEntries,
+  onJump,
+}: {
+  timeStore: TimeStore;
+  hasSegments: boolean;
+  groupedSegmentEntries: Record<VideoSegmentType, SegmentEntry[]>;
+  chapterEntries: ChapterEntry[];
+  onJump: (startSeconds: number) => void;
+}) {
+  const currentTime = useCurrentTime(timeStore);
+
+  if (hasSegments) {
+    return (
+      <div className="space-y-4">
+        {(["parts", "topics", "questions"] as VideoSegmentType[]).map((segmentType) => {
+          const list = groupedSegmentEntries[segmentType];
+          if (list.length === 0) return null;
+
+          return (
+            <div key={segmentType} className="space-y-2">
+              <p className="px-1 text-[11px] font-bold text-sky-100/90">{segmentTypeLabel(segmentType)}</p>
+              {list.map((segment) => {
+                const active = currentTime >= segment.startSeconds && currentTime < segment.endSeconds;
+                const completed = currentTime >= segment.endSeconds - 0.2;
+                const rawSpan = Math.max(1, segment.endSeconds - segment.startSeconds);
+                const rawProgress = ((currentTime - segment.startSeconds) / rawSpan) * 100;
+                const progress = completed ? 100 : active ? Math.min(100, Math.max(0, rawProgress)) : 0;
+                return (
+                  <button
+                    key={`${segment.id}-${segment.startSeconds}-${segment.orderIndex}`}
+                    type="button"
+                    onClick={() => onJump(segment.startSeconds)}
+                    className={`w-full rounded-2xl border p-3 text-right transition ${
+                      active
+                        ? "border-sky-300/60 bg-sky-500/18"
+                        : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">{segment.title}</p>
+                        <p className="text-xs text-white/65">{formatSegmentTime(segment.startSeconds)}</p>
+                      </div>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${segmentTypeBadgeClass(segment.segmentType)}`}>
+                        {segmentTypeLabel(segment.segmentType)}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15">
+                      <div
+                        className={`h-full rounded-full ${completed ? "bg-emerald-300" : "bg-sky-300"}`}
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {chapterEntries.map((chapter, index) => {
+        const active = currentTime >= chapter.startSeconds && currentTime < chapter.endSeconds;
+        return (
+          <button
+            key={`${chapter.id}-${index}`}
+            type="button"
+            onClick={() => onJump(chapter.startSeconds)}
+            className={`w-full rounded-2xl border p-3 text-right transition ${
+              active
+                ? "border-sky-300/60 bg-sky-500/18"
+                : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"
+            }`}
+          >
+            <p className="truncate text-sm font-semibold text-white">{chapter.title}</p>
+            <p className="mt-1 text-xs text-white/65">{formatSegmentTime(chapter.startSeconds)}</p>
+          </button>
+        );
+      })}
+    </div>
+  );
+});
+
+// review F-23: bottom chapter rail subscribes to the current-time store so the
+// per-tick "active chapter" highlight no longer re-renders the whole player.
+const ChapterRail = memo(function ChapterRail({
+  timeStore,
+  chapterEntries,
+  videoUrl,
+  chapterFallbackThumb,
+  generatedChapterThumbs,
+  chapterThumbLoading,
+  chapterThumbBroken,
+  onJump,
+  onThumbBroken,
+}: {
+  timeStore: TimeStore;
+  chapterEntries: ChapterEntry[];
+  videoUrl: string;
+  chapterFallbackThumb: string | null | undefined;
+  generatedChapterThumbs: Record<string, string | null>;
+  chapterThumbLoading: Record<string, boolean>;
+  chapterThumbBroken: Record<string, boolean>;
+  onJump: (startSeconds: number, options?: { autoPlay?: boolean; closePanel?: boolean }) => void;
+  onThumbBroken: (key: string) => void;
+}) {
+  const currentTime = useCurrentTime(timeStore);
+
+  return (
+    <div className="space-y-2.5">
+      {chapterEntries.map((chapter, index) => {
+        const active = currentTime >= chapter.startSeconds && currentTime < chapter.endSeconds;
+        const thumbKey = `${videoUrl}::${chapter.id}::${chapter.startSeconds}`;
+        const generatedThumbnail = generatedChapterThumbs[thumbKey];
+        const isThumbnailLoading = chapterThumbLoading[thumbKey] ?? false;
+        const isThumbnailBroken = chapterThumbBroken[thumbKey] ?? false;
+        const chapterThumbnailSource = chapter.thumbnailUrl?.trim();
+        const isProtectedThumbnail = Boolean(chapterThumbnailSource && isProtectedSegmentThumbnailUrl(chapterThumbnailSource));
+        const thumbnail =
+          generatedThumbnail ||
+          (!isProtectedThumbnail ? chapterThumbnailSource : undefined) ||
+          chapterFallbackThumb;
+        const showThumbnailSkeleton = isThumbnailLoading && !generatedThumbnail;
+
+        return (
+          <button
+            key={`${chapter.id}-${chapter.startSeconds}-${index}`}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onJump(chapter.startSeconds, { autoPlay: true, closePanel: true });
+            }}
+            className={`group w-full rounded-2xl border px-2.5 py-2 text-right transition-all duration-200 sm:px-3 sm:py-2.5 ${
+              active
+                ? "border-sky-300/70 bg-sky-500/14 shadow-[0_0_0_1px_rgba(147,197,253,0.18)]"
+                : "border-white/12 bg-white/[0.04] hover:border-white/24 hover:bg-white/[0.08]"
+            }`}
+            aria-label={`الانتقال إلى ${chapter.title}`}
+          >
+            <div className="flex items-center gap-3">
+              <div className="relative h-[68px] w-[118px] flex-shrink-0 overflow-hidden rounded-xl border border-white/14 bg-slate-900/60 sm:h-[72px] sm:w-[128px]">
+                {showThumbnailSkeleton ? (
+                  <div className="h-full w-full animate-pulse bg-white/10" />
+                ) : thumbnail && !isThumbnailBroken ? (
+                  <img
+                    src={thumbnail}
+                    alt={chapter.title}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                    onError={() => onThumbBroken(thumbKey)}
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center bg-slate-800/80 text-[11px] font-bold text-white/70">
+                    معاينة الدرس
+                  </div>
+                )}
+                <span className="absolute bottom-1 right-1 rounded-md border border-white/25 bg-black/60 px-1.5 py-[2px] text-[10px] font-bold text-white">
+                  {formatSegmentTime(chapter.startSeconds)}
+                </span>
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-white">{chapter.title}</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-white/70">
+                  <span className="rounded-full bg-white/10 px-2 py-0.5">
+                    يبدأ: {formatSegmentTime(chapter.startSeconds)}
+                  </span>
+                </div>
+                {chapter.description ? (
+                  <p className="mt-1 line-clamp-2 text-xs text-white/65">{chapter.description}</p>
+                ) : null}
+              </div>
+
+              <span
+                className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border transition-all ${
+                  active
+                    ? "border-sky-200/65 bg-sky-300/18 text-sky-100"
+                    : "border-white/18 bg-white/[0.05] text-white/85 group-hover:bg-white/12"
+                }`}
+                aria-hidden
+              >
+                <Play className="h-[18px] w-[18px] translate-x-[1px]" strokeWidth={2.25} />
+              </span>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+});
+
 export function CustomVideoPlayer({
   videoUrl,
   videoType,
@@ -480,7 +874,19 @@ export function CustomVideoPlayer({
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
+  // review F-23: current time lives in an external store so the 250ms ticker only
+  // re-renders the small leaf subscribers, not the whole player tree.
+  const timeStoreRef = useRef<TimeStore | null>(null);
+  if (timeStoreRef.current === null) {
+    timeStoreRef.current = createTimeStore();
+  }
+  const timeStore = timeStoreRef.current;
+  const publishCurrentTime = useCallback(
+    (value: number) => {
+      timeStore.publish(value);
+    },
+    [timeStore],
+  );
   const [volume, setVolume] = useState(80);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [playbackRates, setPlaybackRates] = useState<number[]>([0.5, 0.75, 1, 1.25, 1.5, 2]);
@@ -488,7 +894,6 @@ export function CustomVideoPlayer({
   const [quality, setQuality] = useState<string>("auto");
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [clockText, setClockText] = useState(() => formatBadgeClock(new Date()));
   const [youTubePosterQuality, setYouTubePosterQuality] = useState<"maxres" | "hq">("maxres");
   const [preferCustomPoster, setPreferCustomPoster] = useState(true);
   const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
@@ -506,10 +911,9 @@ export function CustomVideoPlayer({
   const [generatedChapterThumbs, setGeneratedChapterThumbs] = useState<Record<string, string | null>>({});
   const [chapterThumbLoading, setChapterThumbLoading] = useState<Record<string, boolean>>({});
   const [chapterThumbBroken, setChapterThumbBroken] = useState<Record<string, boolean>>({});
-  const watermarkLabel = useMemo(() => buildCleanWatermarkLabel(watermarkText, clockText), [clockText, watermarkText]);
-  const previewSeconds = seekPreviewTime ?? currentTime;
-  const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (previewSeconds / duration) * 100)) : 0;
-  const previewPercent = duration > 0 ? Math.min(100, Math.max(0, (previewSeconds / duration) * 100)) : 0;
+  // review F-23: watermark/time/progress derivations now live in their own memo'd
+  // leaf components (WatermarkClock / TimeDisplay / ProgressScrubber) so they no
+  // longer drag the whole player into every clock/ticker update.
   const customPosterUrl = posterUrl?.trim() || null;
   const youTubePosterUrl = youTubeId ? buildYouTubePosterUrl(youTubeId, youTubePosterQuality) : null;
   const pausedCoverPosterUrl = preferCustomPoster && customPosterUrl ? customPosterUrl : youTubePosterUrl;
@@ -657,7 +1061,7 @@ export function CustomVideoPlayer({
         setDuration(nextDuration);
       }
       if (Number.isFinite(nextCurrent) && !isSeekingRef.current) {
-        setCurrentTime(nextCurrent);
+        publishCurrentTime(nextCurrent);
       }
       return;
     }
@@ -667,7 +1071,7 @@ export function CustomVideoPlayer({
 
     setDuration(Number.isFinite(video.duration) ? video.duration : 0);
     if (!isSeekingRef.current) {
-      setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0);
+      publishCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0);
     }
   }
 
@@ -909,6 +1313,14 @@ export function CustomVideoPlayer({
     });
   }
 
+  // review F-23: stable handler passed to the memo'd <ChapterRail> for broken thumbs.
+  function markChapterThumbBroken(key: string) {
+    setChapterThumbBroken((prev) => {
+      if (prev[key]) return prev;
+      return { ...prev, [key]: true };
+    });
+  }
+
   function setGeneratedChapterThumb(key: string, value: string | null) {
     chapterThumbCacheRef.current.set(key, value);
     setGeneratedChapterThumbs((prev) => {
@@ -929,14 +1341,14 @@ export function CustomVideoPlayer({
 
     if (isYouTube) {
       ytPlayerRef.current?.seekTo(safeTime, true);
-      setCurrentTime(safeTime);
+      publishCurrentTime(safeTime);
       return;
     }
 
     const video = uploadVideoRef.current;
     if (!video) return;
     video.currentTime = safeTime;
-    setCurrentTime(safeTime);
+    publishCurrentTime(safeTime);
   }
 
   function setSeekPreview(nextTime: number) {
@@ -947,10 +1359,17 @@ export function CustomVideoPlayer({
     setSeekPreviewTime(safeTime);
   }
 
+  // review F-23: extracted so <ProgressScrubber> can clear the seek preview
+  // without inlining ref/state writes in its onChange handler.
+  function clearSeekPreview() {
+    seekPreviewTimeRef.current = null;
+    setSeekPreviewTime(null);
+  }
+
   function beginSeeking(nextTime?: number) {
     isSeekingRef.current = true;
     setIsSeeking(true);
-    setSeekPreview(Number.isFinite(nextTime) ? Number(nextTime) : currentTime);
+    setSeekPreview(Number.isFinite(nextTime) ? Number(nextTime) : timeStore.getSnapshot());
     setShowControls(true);
   }
 
@@ -1481,16 +1900,7 @@ export function CustomVideoPlayer({
       protectionLockRef.current = false;
     };
   }, []);
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setClockText(formatBadgeClock(new Date()));
-    }, 1000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, []);
+  // review F-23: the 1s watermark clock interval now lives inside <WatermarkClock>.
 
   useEffect(() => {
     const nativeWindow = window as Window & {
@@ -1988,11 +2398,8 @@ export function CustomVideoPlayer({
             <div className="pointer-events-none absolute inset-0 z-[5] bg-black/38 transition-opacity duration-220" />
           ) : null}
 
-          {watermarkLabel ? (
-            <div className="pointer-events-none absolute left-4 top-4 z-[7] max-w-[calc(100%-6.25rem)] truncate rounded-xl border border-white/20 bg-slate-950/44 px-2.5 py-1 text-[10px] font-bold text-white/90 backdrop-blur-xl">
-              {watermarkLabel}
-            </div>
-          ) : null}
+          {/* review F-23: self-contained 1s clock, isolated from the player tree. */}
+          <WatermarkClock watermarkText={watermarkText} />
 
           <button
             data-player-control="true"
@@ -2091,76 +2498,14 @@ export function CustomVideoPlayer({
             </div>
 
             <div className="max-h-[44vh] overflow-y-auto p-3 sm:max-h-[62vh]">
-              {hasSegments ? (
-                <div className="space-y-4">
-                  {(["parts", "topics", "questions"] as VideoSegmentType[]).map((segmentType) => {
-                    const list = groupedSegmentEntries[segmentType];
-                    if (list.length === 0) return null;
-
-                    return (
-                      <div key={segmentType} className="space-y-2">
-                        <p className="px-1 text-[11px] font-bold text-sky-100/90">{segmentTypeLabel(segmentType)}</p>
-                        {list.map((segment) => {
-                          const active = currentTime >= segment.startSeconds && currentTime < segment.endSeconds;
-                          const completed = currentTime >= segment.endSeconds - 0.2;
-                          const rawSpan = Math.max(1, segment.endSeconds - segment.startSeconds);
-                          const rawProgress = ((currentTime - segment.startSeconds) / rawSpan) * 100;
-                          const progress = completed ? 100 : active ? Math.min(100, Math.max(0, rawProgress)) : 0;
-                          return (
-                            <button
-                              key={`${segment.id}-${segment.startSeconds}-${segment.orderIndex}`}
-                              type="button"
-                              onClick={() => jumpToSegment(segment.startSeconds)}
-                              className={`w-full rounded-2xl border p-3 text-right transition ${
-                                active
-                                  ? "border-sky-300/60 bg-sky-500/18"
-                                  : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"
-                              }`}
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-white">{segment.title}</p>
-                                  <p className="text-xs text-white/65">{formatSegmentTime(segment.startSeconds)}</p>
-                                </div>
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${segmentTypeBadgeClass(segment.segmentType)}`}>
-                                  {segmentTypeLabel(segment.segmentType)}
-                                </span>
-                              </div>
-                              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15">
-                                <div
-                                  className={`h-full rounded-full ${completed ? "bg-emerald-300" : "bg-sky-300"}`}
-                                  style={{ width: `${progress}%` }}
-                                />
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {chapterEntries.map((chapter, index) => {
-                    const active = currentTime >= chapter.startSeconds && currentTime < chapter.endSeconds;
-                    return (
-                      <button
-                        key={`${chapter.id}-${index}`}
-                        type="button"
-                        onClick={() => jumpToSegment(chapter.startSeconds)}
-                        className={`w-full rounded-2xl border p-3 text-right transition ${
-                          active
-                            ? "border-sky-300/60 bg-sky-500/18"
-                            : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"
-                        }`}
-                      >
-                        <p className="truncate text-sm font-semibold text-white">{chapter.title}</p>
-                        <p className="mt-1 text-xs text-white/65">{formatSegmentTime(chapter.startSeconds)}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+              {/* review F-23: active-segment highlight subscribes to the time store only. */}
+              <LessonSegmentList
+                timeStore={timeStore}
+                hasSegments={hasSegments}
+                groupedSegmentEntries={groupedSegmentEntries}
+                chapterEntries={chapterEntries}
+                onJump={jumpToSegment}
+              />
             </div>
           </div>
         ) : null}
@@ -2245,71 +2590,21 @@ export function CustomVideoPlayer({
                   <SeekTenIcon forward />
                 </button>
 
-                <div className="order-10 basis-full lg:order-none lg:basis-auto lg:flex-1 lg:min-w-[170px]">
-                  <div className="relative w-full">
-                    {isSeeking && seekPreviewTime !== null ? (
-                      <div
-                        className="pointer-events-none absolute -top-7 z-[17] -translate-x-1/2 rounded-md border border-white/20 bg-black/78 px-2 py-0.5 text-[10px] font-semibold text-white animate-[ofqFadeIn_150ms_ease-out]"
-                        style={{ left: `${previewPercent}%` }}
-                      >
-                        {formatTime(seekPreviewTime)}
-                      </div>
-                    ) : null}
-                    <input
-                      type="range"
-                      min={0}
-                      max={Math.max(duration, 0.0001)}
-                      step={0.1}
-                      value={Math.min(previewSeconds, duration || 0)}
-                      onChange={(event) => {
-                        event.stopPropagation();
-                        const value = Number.parseFloat(event.target.value);
-                        if (isSeekingRef.current) {
-                          setSeekPreview(value);
-                          return;
-                        }
-                        seekPreviewTimeRef.current = null;
-                        setSeekPreviewTime(null);
-                        seekTo(value);
-                      }}
-                      onClick={(event) => event.stopPropagation()}
-                      onPointerDown={(event) => {
-                        event.stopPropagation();
-                        beginSeeking(Number.parseFloat(event.currentTarget.value));
-                      }}
-                      onPointerUp={(event) => {
-                        event.stopPropagation();
-                        finishSeeking(Number.parseFloat(event.currentTarget.value));
-                      }}
-                      onMouseDown={(event) => {
-                        event.stopPropagation();
-                        beginSeeking(Number.parseFloat(event.currentTarget.value));
-                      }}
-                      onMouseUp={(event) => {
-                        event.stopPropagation();
-                        finishSeeking(Number.parseFloat(event.currentTarget.value));
-                      }}
-                      onTouchStart={(event) => {
-                        event.stopPropagation();
-                        beginSeeking(Number.parseFloat(event.currentTarget.value));
-                      }}
-                      onTouchEnd={(event) => {
-                        event.stopPropagation();
-                        finishSeeking();
-                      }}
-                      className="w-full ofq-progress-slider"
-                      dir="ltr"
-                      aria-label="شريط التقدم"
-                      style={{
-                        "--ofq-range-progress": `${progressPercent}%`,
-                      } as CSSProperties}
-                    />
-                  </div>
-                </div>
+                {/* review F-23: scrubber + time text subscribe to the time store only. */}
+                <ProgressScrubber
+                  timeStore={timeStore}
+                  duration={duration}
+                  seekPreviewTime={seekPreviewTime}
+                  isSeeking={isSeeking}
+                  isSeekingRef={isSeekingRef}
+                  onSeekPreview={setSeekPreview}
+                  onClearSeekPreview={clearSeekPreview}
+                  onSeekTo={seekTo}
+                  onBeginSeeking={beginSeeking}
+                  onFinishSeeking={finishSeeking}
+                />
 
-                <span className="min-w-[94px] text-center text-xs font-semibold tracking-wide text-white/90">
-                  {formatTime(previewSeconds)} / {formatTime(duration)}
-                </span>
+                <TimeDisplay timeStore={timeStore} duration={duration} seekPreviewTime={seekPreviewTime} />
 
                 <select
                   value={quality}
@@ -2467,91 +2762,18 @@ export function CustomVideoPlayer({
           </div>
 
           {chapterEntries.length > 0 ? (
-            <div className="space-y-2.5">
-              {chapterEntries.map((chapter, index) => {
-                const active = currentTime >= chapter.startSeconds && currentTime < chapter.endSeconds;
-                const thumbKey = `${videoUrl}::${chapter.id}::${chapter.startSeconds}`;
-                const generatedThumbnail = generatedChapterThumbs[thumbKey];
-                const isThumbnailLoading = chapterThumbLoading[thumbKey] ?? false;
-                const isThumbnailBroken = chapterThumbBroken[thumbKey] ?? false;
-                const chapterThumbnailSource = chapter.thumbnailUrl?.trim();
-                const isProtectedThumbnail = Boolean(chapterThumbnailSource && isProtectedSegmentThumbnailUrl(chapterThumbnailSource));
-                const thumbnail =
-                  generatedThumbnail ||
-                  (!isProtectedThumbnail ? chapterThumbnailSource : undefined) ||
-                  chapterFallbackThumb;
-                const showThumbnailSkeleton = isThumbnailLoading && !generatedThumbnail;
-
-                return (
-                  <button
-                    key={`${chapter.id}-${chapter.startSeconds}-${index}`}
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      jumpToSegment(chapter.startSeconds, { autoPlay: true, closePanel: true });
-                    }}
-                    className={`group w-full rounded-2xl border px-2.5 py-2 text-right transition-all duration-200 sm:px-3 sm:py-2.5 ${
-                      active
-                        ? "border-sky-300/70 bg-sky-500/14 shadow-[0_0_0_1px_rgba(147,197,253,0.18)]"
-                        : "border-white/12 bg-white/[0.04] hover:border-white/24 hover:bg-white/[0.08]"
-                    }`}
-                    aria-label={`الانتقال إلى ${chapter.title}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="relative h-[68px] w-[118px] flex-shrink-0 overflow-hidden rounded-xl border border-white/14 bg-slate-900/60 sm:h-[72px] sm:w-[128px]">
-                        {showThumbnailSkeleton ? (
-                          <div className="h-full w-full animate-pulse bg-white/10" />
-                        ) : thumbnail && !isThumbnailBroken ? (
-                          <img
-                            src={thumbnail}
-                            alt={chapter.title}
-                            className="h-full w-full object-cover"
-                            loading="lazy"
-                            decoding="async"
-                            onError={() => {
-                              setChapterThumbBroken((prev) => {
-                                if (prev[thumbKey]) return prev;
-                                return { ...prev, [thumbKey]: true };
-                              });
-                            }}
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center bg-slate-800/80 text-[11px] font-bold text-white/70">
-                            معاينة الدرس
-                          </div>
-                        )}
-                        <span className="absolute bottom-1 right-1 rounded-md border border-white/25 bg-black/60 px-1.5 py-[2px] text-[10px] font-bold text-white">
-                          {formatSegmentTime(chapter.startSeconds)}
-                        </span>
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-white">{chapter.title}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-white/70">
-                          <span className="rounded-full bg-white/10 px-2 py-0.5">
-                            يبدأ: {formatSegmentTime(chapter.startSeconds)}
-                          </span>
-                        </div>
-                        {chapter.description ? (
-                          <p className="mt-1 line-clamp-2 text-xs text-white/65">{chapter.description}</p>
-                        ) : null}
-                      </div>
-
-                      <span
-                        className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border transition-all ${
-                          active
-                            ? "border-sky-200/65 bg-sky-300/18 text-sky-100"
-                            : "border-white/18 bg-white/[0.05] text-white/85 group-hover:bg-white/12"
-                        }`}
-                        aria-hidden
-                      >
-                        <Play className="h-[18px] w-[18px] translate-x-[1px]" strokeWidth={2.25} />
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+            /* review F-23: active-chapter highlight subscribes to the time store only. */
+            <ChapterRail
+              timeStore={timeStore}
+              chapterEntries={chapterEntries}
+              videoUrl={videoUrl}
+              chapterFallbackThumb={chapterFallbackThumb}
+              generatedChapterThumbs={generatedChapterThumbs}
+              chapterThumbLoading={chapterThumbLoading}
+              chapterThumbBroken={chapterThumbBroken}
+              onJump={jumpToSegment}
+              onThumbBroken={markChapterThumbBroken}
+            />
           ) : (
             <div className="rounded-2xl border border-dashed border-white/18 bg-white/[0.03] px-4 py-4 text-center text-sm font-semibold text-white/70">
               لا توجد أقسام متاحة لهذا الدرس حتى الآن.

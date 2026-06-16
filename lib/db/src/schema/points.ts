@@ -7,7 +7,7 @@ export const pointsAccountTable = pgTable("points_account", {
   balance: integer("balance").notNull().default(100),
   totalEarned: integer("total_earned").notNull().default(100),
   totalSpent: integer("total_spent").notNull().default(0),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const pointsTransactionsTable = pgTable("points_transactions", {
@@ -15,7 +15,7 @@ export const pointsTransactionsTable = pgTable("points_transactions", {
   type: text("type").notNull(),
   amount: integer("amount").notNull(),
   description: text("description").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const insertPointsTransactionSchema = createInsertSchema(pointsTransactionsTable).omit({ id: true, createdAt: true });

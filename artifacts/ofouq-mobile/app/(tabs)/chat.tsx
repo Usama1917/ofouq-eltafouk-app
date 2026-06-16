@@ -17,7 +17,7 @@ import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
-import { getBaseUrl } from "@/constants/api";
+import { apiFetch, type ApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toEnglishDigits } from "@/lib/format";
 
@@ -118,23 +118,18 @@ export default function ChatScreen() {
     setIsLoading(true);
 
     try {
-      const base = getBaseUrl();
-      const res = await fetch(`${base}/api/ai/chat`, {
+      // review F-30: route through the shared apiFetch (instead of a raw fetch)
+      // so a 401 from an expired token triggers the central onUnauthorized
+      // handler — the same sign-out + redirect-to-login the rest of the app
+      // uses — rather than silently showing a generic error bubble while the
+      // user stays "logged in". apiFetch still attaches the Authorization header
+      // from `token`.
+      const data = await apiFetch<{ reply?: string; message?: string }>("/api/ai/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        token,
         body: JSON.stringify({ message: content }),
       });
-
-      let replyContent = "";
-      if (res.ok) {
-        const data = await res.json();
-        replyContent = data.reply ?? data.message ?? "حدث خطأ في الرد.";
-      } else {
-        replyContent = "عذراً، حدث خطأ في الاتصال. يرجى المحاولة مجدداً.";
-      }
+      const replyContent = data?.reply ?? data?.message ?? "حدث خطأ في الرد.";
 
       const assistantMsg: Message = {
         id: String(Date.now() + 1),
@@ -143,7 +138,10 @@ export default function ChatScreen() {
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
-    } catch {
+    } catch (err) {
+      // On 401 apiFetch already kicked off the central sign-out/redirect; don't
+      // also append a misleading "connection error" bubble.
+      if ((err as ApiError)?.status === 401) return;
       setMessages((prev) => [
         ...prev,
         {

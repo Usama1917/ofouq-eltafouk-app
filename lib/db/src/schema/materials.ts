@@ -7,7 +7,7 @@ export const materialsTable = pgTable("materials", {
   name: text("name").notNull().unique(),
   classification: text("classification").notNull().default(""),
   sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const insertMaterialSchema = createInsertSchema(materialsTable).omit({ id: true, createdAt: true });

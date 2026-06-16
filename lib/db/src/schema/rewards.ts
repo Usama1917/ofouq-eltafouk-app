@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -10,7 +10,7 @@ export const rewardsTable = pgTable("rewards", {
   pointsCost: integer("points_cost").notNull(),
   imageUrl: text("image_url"),
   available: boolean("available").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const redemptionsTable = pgTable("redemptions", {
@@ -19,8 +19,11 @@ export const redemptionsTable = pgTable("redemptions", {
   rewardTitle: text("reward_title").notNull(),
   pointsSpent: integer("points_spent").notNull(),
   status: text("status").notNull().default("pending"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  // Index the FK so parent-reward deletes / lookups are index-backed (review B-31).
+  rewardIdx: index("redemptions_reward_idx").on(table.rewardId),
+}));
 
 export const insertRewardSchema = createInsertSchema(rewardsTable).omit({ id: true, createdAt: true });
 export type InsertReward = z.infer<typeof insertRewardSchema>;

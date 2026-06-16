@@ -9,7 +9,7 @@ export const usersTable = pgTable("users", {
   password: text("password").notNull().default(""),
   role: text("role").notNull().default("student"),
   status: text("status").notNull().default("active"),
-  lastActiveAt: timestamp("last_active_at"),
+  lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   avatarUrl: text("avatar_url"),
   phone: text("phone"),
   age: integer("age"),
@@ -31,7 +31,9 @@ export const usersTable = pgTable("users", {
   // When true, the admin is excluded from the fair workload distribution (frozen):
   // not counted in the denominator and not scored. Distinct from `status`.
   scoringFrozen: boolean("scoring_frozen").notNull().default(false),
-  joinedAt: timestamp("joined_at").notNull().defaultNow(),
+  // Bumped on logout / password change to invalidate all previously-issued tokens. See review B-02.
+  tokenVersion: integer("token_version").notNull().default(0),
+  joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, joinedAt: true });

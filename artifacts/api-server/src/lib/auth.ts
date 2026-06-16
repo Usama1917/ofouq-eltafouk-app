@@ -2,19 +2,33 @@ import crypto from "node:crypto";
 
 // ── Auth primitives (no external deps) ──────────────────────────────────────
 // Passwords are hashed with scrypt; session tokens are HMAC-signed and stateless
-// (carry the user id + an expiry, verified by signature). This replaces the old
-// forgeable `session_<id>` scheme and the plaintext password storage.
+// (carry the user id + a token version + an expiry, verified by signature). The
+// token version lets us invalidate all of a user's sessions on logout / password
+// change without a server-side session store (review B-02).
 
 const AUTH_SECRET = process.env.AUTH_SECRET || process.env.SESSION_SECRET || "";
+const DEV_FALLBACK_KEY = "dev-only-insecure-key-do-not-use-in-production";
 
-// In production we refuse to run with an unsigned/guessable key. Locally we fall
-// back to a fixed dev key so `pnpm dev` keeps working without extra setup.
-if (!AUTH_SECRET && process.env.NODE_ENV === "production") {
-  throw new Error(
-    "AUTH_SECRET must be set in production (used to sign login tokens). Set a long random value in the server environment.",
-  );
+// SECURITY (review B-06): the insecure dev fallback key is only permitted when
+// NODE_ENV is EXPLICITLY "development" or "test". Any other value — unset, "prod",
+// "staging", a typo — is treated as production and MUST provide a real secret.
+// Previously the guard only fired on the exact string "production", so a mis-set
+// env silently shipped a public, forgeable signing key.
+const isExplicitDev = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+if (!isExplicitDev) {
+  if (!AUTH_SECRET) {
+    throw new Error(
+      "AUTH_SECRET (or SESSION_SECRET) must be set unless NODE_ENV is explicitly 'development' or 'test'. Set a long random value in the server environment.",
+    );
+  }
+  if (AUTH_SECRET === DEV_FALLBACK_KEY) {
+    throw new Error("AUTH_SECRET must not equal the built-in dev fallback key.");
+  }
+  if (AUTH_SECRET.length < 32) {
+    throw new Error("AUTH_SECRET must be at least 32 characters long.");
+  }
 }
-const SIGNING_KEY = AUTH_SECRET || "dev-only-insecure-key-do-not-use-in-production";
+const SIGNING_KEY = AUTH_SECRET || DEV_FALLBACK_KEY;
 
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
@@ -33,7 +47,7 @@ export function isHashed(stored: string | null | undefined): boolean {
  * Verify a password against the stored value. Hashed values are compared with a
  * constant-time check. Legacy plaintext values (pre-migration) are also accepted
  * so existing accounts can still log in — callers should rehash on success
- * (see `needsRehash`).
+ * (see `needsRehash`). The legacy branch is also constant-time (review B-23).
  */
 export function verifyPassword(plain: string, stored: string | null | undefined): boolean {
   if (!stored) return false;
@@ -50,7 +64,10 @@ export function verifyPassword(plain: string, stored: string | null | undefined)
     return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
   }
   // Legacy plaintext fallback (one-time, until the row is rehashed on next login).
-  return String(plain) === String(stored);
+  // Compare fixed-length digests so the comparison is constant-time (review B-23).
+  const a = crypto.createHash("sha256").update(String(plain)).digest();
+  const b = crypto.createHash("sha256").update(String(stored)).digest();
+  return crypto.timingSafeEqual(a, b);
 }
 
 /** True when the stored password is still legacy plaintext and should be upgraded. */
@@ -63,13 +80,21 @@ function sign(data: string): string {
   return crypto.createHmac("sha256", SIGNING_KEY).update(data).digest("base64url");
 }
 
-export function issueToken(userId: number): string {
+export function issueToken(userId: number, tokenVersion = 0): string {
   const expiresAt = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
-  const body = Buffer.from(`${userId}.${expiresAt}`).toString("base64url");
+  const body = Buffer.from(`${userId}.${tokenVersion}.${expiresAt}`).toString("base64url");
   return `${body}.${sign(body)}`;
 }
 
-export function verifyToken(token: string | null | undefined): number | null {
+export type TokenPayload = { userId: number; tokenVersion: number };
+
+/**
+ * Verify a token's signature + expiry and return its payload. Accepts both the
+ * legacy 2-part body (`userId.exp`, treated as tokenVersion 0) and the current
+ * 3-part body (`userId.version.exp`) so already-issued tokens keep working across
+ * the deploy that introduces versioning.
+ */
+export function verifyTokenPayload(token: string | null | undefined): TokenPayload | null {
   if (!token) return null;
   const parts = token.split(".");
   if (parts.length !== 2) return null;
@@ -87,12 +112,28 @@ export function verifyToken(token: string | null | undefined): number | null {
   } catch {
     return null;
   }
-  const [uidStr, expStr] = decoded.split(".");
+  const segs = decoded.split(".");
+  let uidStr: string;
+  let verStr: string;
+  let expStr: string;
+  if (segs.length === 3) {
+    [uidStr, verStr, expStr] = segs;
+  } else if (segs.length === 2) {
+    [uidStr, expStr] = segs;
+    verStr = "0";
+  } else {
+    return null;
+  }
   const userId = Number.parseInt(uidStr, 10);
+  const tokenVersion = Number.parseInt(verStr, 10);
   const expiresAt = Number.parseInt(expStr, 10);
   if (!Number.isFinite(userId) || userId <= 0) return null;
   if (!Number.isFinite(expiresAt) || expiresAt * 1000 < Date.now()) return null;
-  return userId;
+  return { userId, tokenVersion: Number.isFinite(tokenVersion) ? tokenVersion : 0 };
+}
+
+export function verifyToken(token: string | null | undefined): number | null {
+  return verifyTokenPayload(token)?.userId ?? null;
 }
 
 // ── Request helpers ───────────────────────────────────────────────────────────
@@ -105,4 +146,9 @@ export function getBearerToken(req: any): string | null {
 /** Extract and verify the caller's user id from the Authorization header, or null. */
 export function getSessionUserId(req: any): number | null {
   return verifyToken(getBearerToken(req));
+}
+
+/** Like getSessionUserId but also returns the token version (for freshness checks). */
+export function getSessionTokenPayload(req: any): TokenPayload | null {
+  return verifyTokenPayload(getBearerToken(req));
 }

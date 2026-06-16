@@ -33,6 +33,7 @@ export default function GeneralSettingsScreen() {
     language,
     strings,
     isRTL,
+    reduceMotion,
     textAlign,
     direction,
     rowDirection,
@@ -52,13 +53,19 @@ export default function GeneralSettingsScreen() {
   const themeMotion = React.useRef(new Animated.Value(isDark ? 1 : 0)).current;
 
   React.useEffect(() => {
+    // review F-10: skip the cross-fade when the OS "reduce motion" setting is on —
+    // snap the theme values to their target instead of animating between them.
+    if (reduceMotion) {
+      themeMotion.setValue(isDark ? 1 : 0);
+      return;
+    }
     Animated.timing(themeMotion, {
       toValue: isDark ? 1 : 0,
       duration: 280,
       easing: Easing.bezier(0.22, 1, 0.36, 1),
       useNativeDriver: false,
     }).start();
-  }, [isDark, themeMotion]);
+  }, [isDark, reduceMotion, themeMotion]);
 
   const lightGradientOpacity = themeMotion.interpolate({
     inputRange: [0, 1],

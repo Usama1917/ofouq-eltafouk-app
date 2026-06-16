@@ -96,13 +96,13 @@ function ActiveChat({ conversationId }: { conversationId: number }) {
   const { data: conversation, refetch } = useGetOpenaiConversation(conversationId, {
     query: { queryKey: getGetOpenaiConversationQueryKey(conversationId), refetchInterval: false },
   });
-  const { sendMessage, isStreaming, streamedText } = useChatStream(conversationId);
+  const { sendMessage, isStreaming, streamedText, error } = useChatStream(conversationId);
   const [input, setInput] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [conversation?.messages, streamedText]);
+  }, [conversation?.messages, streamedText, error]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -163,6 +163,19 @@ function ActiveChat({ conversationId }: { conversationId: number }) {
               <div className="prose prose-sm max-w-none">
                 <ReactMarkdown>{streamedText}</ReactMarkdown>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* review F-15: surface a streaming/connection error to the user as a
+            clear Arabic bubble instead of failing silently. */}
+        {error && !isStreaming && (
+          <div className="flex gap-3.5">
+            <div className="w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-red-400 to-red-500 text-white shadow-sm">
+              <Bot className="w-4 h-4" />
+            </div>
+            <div className="max-w-[78%] rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed bg-red-50 border border-red-200 text-red-700 shadow-sm">
+              {error}
             </div>
           </div>
         )}

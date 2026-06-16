@@ -9,10 +9,10 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  FlatList,
   LayoutAnimation,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   UIManager,
@@ -107,7 +107,7 @@ type SubjectHistoryCardProps = Pick<
   onToggle: () => void;
 };
 
-function SubjectHistoryCard({
+const SubjectHistoryCard = React.memo(function SubjectHistoryCard({
   subject,
   colors,
   strings,
@@ -124,7 +124,8 @@ function SubjectHistoryCard({
   const motion = React.useRef(new Animated.Value(isExpanded ? 1 : 0)).current;
   const pressMotion = React.useRef(new Animated.Value(0)).current;
   const subjectProgress = clampProgress(subject.progressRatio);
-  const watchedLessons = getWatchedLessons(subject);
+  // review F-21: getWatchedLessons re-sorts on every render — memoize per card.
+  const watchedLessons = React.useMemo(() => getWatchedLessons(subject), [subject]);
 
   React.useEffect(() => {
     const animation = isExpanded
@@ -413,7 +414,7 @@ function SubjectHistoryCard({
       ) : null}
     </Animated.View>
   );
-}
+});
 
 export default function WatchHistoryScreen() {
   const {
@@ -573,7 +574,11 @@ export default function WatchHistoryScreen() {
           </Pressable>
         </View>
       ) : (
-        <ScrollView
+        // review F-21: render the subjects with a FlatList (virtualized) instead of
+        // mapping inside a ScrollView; the summary + empty state live in the header.
+        <FlatList
+          data={subjects}
+          keyExtractor={(subject) => String(subject.subscriptionId)}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             paddingTop: headerOverlayHeight + 18,
@@ -581,72 +586,73 @@ export default function WatchHistoryScreen() {
             paddingBottom: insets.bottom + 118,
             gap: 14,
           }}
-        >
-          <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View
-              pointerEvents="none"
-              style={[
-                styles.summaryFill,
-                {
-                  width: `${totalProgress * 100}%`,
-                  backgroundColor: isDark ? "rgba(37,99,235,0.28)" : "rgba(29,78,216,0.12)",
-                  ...(isRTL ? { right: 0 } : { left: 0 }),
-                },
-              ]}
-            />
-            <View style={[styles.summaryTop, { flexDirection: rowDirection, direction }]}>
-              <View style={[styles.summaryIcon, isDark && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
-                <Feather name="bar-chart-2" size={22} color={isDark ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+          ListHeaderComponent={
+            <View style={{ gap: 14 }}>
+              <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.summaryFill,
+                    {
+                      width: `${totalProgress * 100}%`,
+                      backgroundColor: isDark ? "rgba(37,99,235,0.28)" : "rgba(29,78,216,0.12)",
+                      ...(isRTL ? { right: 0 } : { left: 0 }),
+                    },
+                  ]}
+                />
+                <View style={[styles.summaryTop, { flexDirection: rowDirection, direction }]}>
+                  <View style={[styles.summaryIcon, isDark && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+                    <Feather name="bar-chart-2" size={22} color={isDark ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+                  </View>
+                  <View style={[styles.summaryTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                    <Text style={[styles.summaryTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+                      {strings.settings.subscriptions}
+                    </Text>
+                    <Text style={[styles.summarySubtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                      {subjects.length === 0
+                        ? strings.settings.watchHistoryEmptyTitle
+                        : `${toEnglishDigits(String(totals?.subscriptionCount ?? subjects.length))} ${strings.settings.watchHistoryActiveSubjects}`}
+                    </Text>
+                  </View>
+                  <Text style={styles.summaryPercent}>{formatProgressPercent(totalProgress)}</Text>
+                </View>
+                <View style={[styles.summaryNumbers, { flexDirection: rowDirection, direction }]}>
+                  <View style={styles.summaryMetric}>
+                    <Text style={[styles.summaryMetricValue, { color: colors.text }]}>
+                      {formatStudyDuration(totals?.watchedSeconds ?? 0, language)}
+                    </Text>
+                    <Text style={[styles.summaryMetricLabel, { color: colors.textSecondary }]}>{strings.settings.watchHistoryStatWatched}</Text>
+                  </View>
+                  <View style={styles.summaryMetric}>
+                    <Text style={[styles.summaryMetricValue, { color: colors.text }]}>
+                      {formatStudyDuration(totals?.totalSeconds ?? 0, language)}
+                    </Text>
+                    <Text style={[styles.summaryMetricLabel, { color: colors.textSecondary }]}>{strings.settings.watchHistoryStatContent}</Text>
+                  </View>
+                  <View style={styles.summaryMetric}>
+                    <Text style={[styles.summaryMetricValue, { color: colors.text }]}>
+                      {toEnglishDigits(String(totals?.completedLessons ?? 0))}
+                    </Text>
+                    <Text style={[styles.summaryMetricLabel, { color: colors.textSecondary }]}>{strings.settings.watchHistoryCompleted}</Text>
+                  </View>
+                </View>
               </View>
-              <View style={[styles.summaryTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-                <Text style={[styles.summaryTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
-                  {strings.settings.subscriptions}
-                </Text>
-                <Text style={[styles.summarySubtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                  {subjects.length === 0
-                    ? strings.settings.watchHistoryEmptyTitle
-                    : `${toEnglishDigits(String(totals?.subscriptionCount ?? subjects.length))} ${strings.settings.watchHistoryActiveSubjects}`}
-                </Text>
-              </View>
-              <Text style={styles.summaryPercent}>{formatProgressPercent(totalProgress)}</Text>
-            </View>
-            <View style={[styles.summaryNumbers, { flexDirection: rowDirection, direction }]}>
-              <View style={styles.summaryMetric}>
-                <Text style={[styles.summaryMetricValue, { color: colors.text }]}>
-                  {formatStudyDuration(totals?.watchedSeconds ?? 0, language)}
-                </Text>
-                <Text style={[styles.summaryMetricLabel, { color: colors.textSecondary }]}>{strings.settings.watchHistoryStatWatched}</Text>
-              </View>
-              <View style={styles.summaryMetric}>
-                <Text style={[styles.summaryMetricValue, { color: colors.text }]}>
-                  {formatStudyDuration(totals?.totalSeconds ?? 0, language)}
-                </Text>
-                <Text style={[styles.summaryMetricLabel, { color: colors.textSecondary }]}>{strings.settings.watchHistoryStatContent}</Text>
-              </View>
-              <View style={styles.summaryMetric}>
-                <Text style={[styles.summaryMetricValue, { color: colors.text }]}>
-                  {toEnglishDigits(String(totals?.completedLessons ?? 0))}
-                </Text>
-                <Text style={[styles.summaryMetricLabel, { color: colors.textSecondary }]}>{strings.settings.watchHistoryCompleted}</Text>
-              </View>
-            </View>
-          </View>
 
-          {subjects.length === 0 ? (
-            <View style={[styles.stateCardInline, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Feather name="book-open" size={28} color={COLORS.primary} />
-              <Text style={[styles.stateTitle, { color: colors.text, writingDirection: direction }]}>
-                {strings.settings.watchHistoryEmptyTitle}
-              </Text>
-              <Text style={[styles.stateText, { color: colors.textSecondary, writingDirection: direction }]}>
-                {strings.settings.watchHistoryEmptyText}
-              </Text>
+              {subjects.length === 0 ? (
+                <View style={[styles.stateCardInline, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Feather name="book-open" size={28} color={COLORS.primary} />
+                  <Text style={[styles.stateTitle, { color: colors.text, writingDirection: direction }]}>
+                    {strings.settings.watchHistoryEmptyTitle}
+                  </Text>
+                  <Text style={[styles.stateText, { color: colors.textSecondary, writingDirection: direction }]}>
+                    {strings.settings.watchHistoryEmptyText}
+                  </Text>
+                </View>
+              ) : null}
             </View>
-          ) : null}
-
-          {subjects.map((subject) => (
+          }
+          renderItem={({ item: subject }) => (
             <SubjectHistoryCard
-              key={subject.subscriptionId}
               subject={subject}
               colors={colors}
               strings={strings}
@@ -660,8 +666,8 @@ export default function WatchHistoryScreen() {
               isExpanded={expandedSubjectId === subject.subscriptionId}
               onToggle={() => toggleSubject(subject.subscriptionId)}
             />
-          ))}
-        </ScrollView>
+          )}
+        />
       )}
     </View>
   );

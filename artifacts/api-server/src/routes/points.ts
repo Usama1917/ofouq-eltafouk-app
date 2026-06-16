@@ -14,16 +14,28 @@ router.use("/points", (req, res, next) => {
   next();
 });
 
+// review B-49: the original read-then-insert could create two accounts (and two
+// welcome bonuses) when two requests raced before the first row existed. The
+// points_account table has no natural unique key to ON CONFLICT against, so we do
+// the create inside a transaction and re-select first: under the default READ
+// COMMITTED isolation a second caller that arrives after the first commits will
+// see the row and skip the insert. (Per-user wallets remain deferred.)
 async function getOrCreateAccount() {
   const accounts = await db.select().from(pointsAccountTable).limit(1);
   if (accounts.length > 0) return accounts[0];
-  const [account] = await db.insert(pointsAccountTable).values({ balance: 100, totalEarned: 100, totalSpent: 0 }).returning();
-  await db.insert(pointsTransactionsTable).values({
-    type: "earn",
-    amount: 100,
-    description: "نقاط ترحيبية للمستخدم الجديد",
+
+  return db.transaction(async (tx) => {
+    const existing = await tx.select().from(pointsAccountTable).limit(1);
+    if (existing.length > 0) return existing[0];
+
+    const [account] = await tx.insert(pointsAccountTable).values({ balance: 100, totalEarned: 100, totalSpent: 0 }).returning();
+    await tx.insert(pointsTransactionsTable).values({
+      type: "earn",
+      amount: 100,
+      description: "نقاط ترحيبية للمستخدم الجديد",
+    });
+    return account;
   });
-  return account;
 }
 
 router.get("/points", async (req, res) => {

@@ -51,7 +51,7 @@ async function start() {
     process.exit(1);
   }
 
-  app.listen(port, "0.0.0.0", (err) => {
+  const server = app.listen(port, "0.0.0.0", (err) => {
     if (err) {
       logger.error({ err }, "Error listening on port");
       process.exit(1);
@@ -59,6 +59,42 @@ async function start() {
 
     logger.info({ host: "0.0.0.0", port }, "Server listening");
   });
+
+  // Graceful shutdown (review B-14): stop accepting new connections and let
+  // in-flight requests drain before exiting, so deploys/restarts don't drop
+  // students mid-request. Force-exit if draining hangs.
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info({ signal }, "Shutting down gracefully");
+    const forceTimer = setTimeout(() => {
+      logger.error("Graceful shutdown timed out — forcing exit");
+      process.exit(1);
+    }, 25_000);
+    forceTimer.unref();
+    server.close((closeErr) => {
+      if (closeErr) {
+        logger.error({ err: closeErr }, "Error during server close");
+        process.exit(1);
+      }
+      logger.info("Server closed");
+      process.exit(0);
+    });
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
+
+// Last-resort safety nets (review B-37): route through the structured logger
+// (which redacts auth headers) instead of Node's bare default, and exit cleanly on
+// a fatal uncaught exception so the process manager can restart us.
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "unhandledRejection");
+});
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "uncaughtException");
+  process.exit(1);
+});
 
 void start();

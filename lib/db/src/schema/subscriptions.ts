@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp, unique, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -15,8 +15,8 @@ export const subjectSubscriptionRequestsTable = pgTable(
     codeImageUrl: text("code_image_url"),
     status: text("status").notNull().default("pending"),
     reviewNotes: text("review_notes").notNull().default(""),
-    submittedAt: timestamp("submitted_at").notNull().defaultNow(),
-    reviewedAt: timestamp("reviewed_at"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     reviewedBy: integer("reviewed_by").references(() => usersTable.id, { onDelete: "set null" }),
   },
   (table) => ({
@@ -26,6 +26,8 @@ export const subjectSubscriptionRequestsTable = pgTable(
       table.code,
       table.status,
     ),
+    studentIdx: index("subject_subscription_requests_student_idx").on(table.studentId, table.status),
+    statusIdx: index("subject_subscription_requests_status_idx").on(table.status),
   }),
 );
 
@@ -42,11 +44,14 @@ export const subjectSubscriptionsTable = pgTable(
       onDelete: "set null",
     }),
     grantedByUserId: integer("granted_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     studentSubjectUnique: unique("subject_subscriptions_student_subject_uniq").on(table.studentId, table.subjectId),
+    // Paywall checks: WHERE student_id = ? AND status = 'active'. See review B-11.
+    studentStatusIdx: index("subject_subscriptions_student_status_idx").on(table.studentId, table.status),
+    subjectIdx: index("subject_subscriptions_subject_idx").on(table.subjectId),
   }),
 );
 

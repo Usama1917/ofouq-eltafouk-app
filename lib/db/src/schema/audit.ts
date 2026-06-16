@@ -25,7 +25,7 @@ export const adminAuditLogTable = pgTable(
     metadata: jsonb("metadata"),
     ip: text("ip"),
     userAgent: text("user_agent"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     actorIdx: index("admin_audit_log_actor_idx").on(table.actorUserId),

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -16,15 +16,17 @@ export const booksTable = pgTable("books", {
   sortOrder: integer("sort_order").notNull().default(0),
   freeShipping: boolean("free_shipping").notNull().default(false),
   available: boolean("available").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const bookReservationsTable = pgTable("book_reservations", {
   id: serial("id").primaryKey(),
   bookId: integer("book_id").notNull().references(() => booksTable.id),
   status: text("status").notNull().default("pending"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  bookIdx: index("book_reservations_book_idx").on(table.bookId),
+}));
 
 export const bookPurchasesTable = pgTable("book_purchases", {
   id: serial("id").primaryKey(),
@@ -36,8 +38,10 @@ export const bookPurchasesTable = pgTable("book_purchases", {
   finalPriceEgp: integer("final_price_egp").notNull().default(0),
   shippingCostEgp: integer("shipping_cost_egp").notNull().default(0),
   voucherCode: text("voucher_code"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  bookIdx: index("book_purchases_book_idx").on(table.bookId),
+}));
 
 export const bookVouchersTable = pgTable("book_vouchers", {
   id: serial("id").primaryKey(),
@@ -49,10 +53,12 @@ export const bookVouchersTable = pgTable("book_vouchers", {
   active: boolean("active").notNull().default(true),
   usageLimit: integer("usage_limit"),
   usedCount: integer("used_count").notNull().default(0),
-  startsAt: timestamp("starts_at"),
-  expiresAt: timestamp("expires_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  startsAt: timestamp("starts_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  bookIdx: index("book_vouchers_book_idx").on(table.bookId),
+}));
 
 export const insertBookSchema = createInsertSchema(booksTable).omit({ id: true, createdAt: true });
 export type InsertBook = z.infer<typeof insertBookSchema>;

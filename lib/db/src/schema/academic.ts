@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { videosTable } from "./videos";
@@ -13,7 +13,7 @@ export const academicYearsTable = pgTable("academic_years", {
   descriptionEn: text("description_en"),
   orderIndex: integer("order_index").notNull().default(0),
   isPublished: boolean("is_published").notNull().default(false),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const subjectsTable = pgTable("subjects", {
@@ -27,8 +27,11 @@ export const subjectsTable = pgTable("subjects", {
   unitLabel: text("unit_label").notNull().default("unit"),
   orderIndex: integer("order_index").notNull().default(0),
   isPublished: boolean("is_published").notNull().default(false),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  // Hot path: list subjects for a year (paywall + student tree). See review B-04/B-11.
+  yearIdx: index("subjects_year_idx").on(table.yearId, table.isPublished),
+}));
 
 export const unitsTable = pgTable("units", {
   id: serial("id").primaryKey(),
@@ -39,8 +42,10 @@ export const unitsTable = pgTable("units", {
   descriptionEn: text("description_en"),
   orderIndex: integer("order_index").notNull().default(0),
   isPublished: boolean("is_published").notNull().default(false),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  subjectIdx: index("units_subject_idx").on(table.subjectId),
+}));
 
 export const lessonsTable = pgTable("lessons", {
   id: serial("id").primaryKey(),
@@ -53,8 +58,11 @@ export const lessonsTable = pgTable("lessons", {
   videoId: integer("video_id").references(() => videosTable.id, { onDelete: "set null" }),
   orderIndex: integer("order_index").notNull().default(0),
   isPublished: boolean("is_published").notNull().default(false),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  unitIdx: index("lessons_unit_idx").on(table.unitId),
+  videoIdx: index("lessons_video_idx").on(table.videoId),
+}));
 
 export const insertAcademicYearSchema = createInsertSchema(academicYearsTable).omit({ id: true, createdAt: true });
 export const insertSubjectSchema = createInsertSchema(subjectsTable).omit({ id: true, createdAt: true });
