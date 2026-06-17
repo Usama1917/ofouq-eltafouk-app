@@ -137,6 +137,17 @@ export function InternalChatWidget({ isDark }: { isDark?: boolean }) {
 
   if (!isStaff) return null;
 
+  // Morph palette: the panel literally grows out of the FAB, so it starts at the
+  // button's exact blue (mirrors --primary in index.css — light 217 91% 45%,
+  // dark 209 100% 52%) and lightens into the card's surface colour for the theme.
+  const fabColor = isDark ? "rgb(10, 137, 255)" : "rgb(10, 90, 219)";
+  const cardColor = isDark ? "rgba(17, 21, 27, 0.97)" : "rgba(255, 255, 255, 0.95)";
+  const cardBorder = isDark ? "rgba(255, 255, 255, 0.10)" : "rgba(255, 255, 255, 0.60)";
+  // Geometry endpoints: a 56px circle sitting exactly over the FAB (bottom-6) ⇄
+  // the full card lifted to bottom-24, growing upward and lightening as it goes.
+  const fabBox = { width: 56, height: 56, bottom: 24, borderRadius: 28, backgroundColor: fabColor, borderColor: "rgba(255, 255, 255, 0)" };
+  const cardBox = { width: size.w, height: size.h, bottom: 96, borderRadius: 24, backgroundColor: cardColor, borderColor: cardBorder };
+
   return (
     <>
       <button
@@ -180,39 +191,53 @@ export function InternalChatWidget({ isDark }: { isDark?: boolean }) {
         ) : null}
       </AnimatePresence>
 
+      {/* The panel grows straight out of the FAB: it mounts as a blue circle sitting
+          on top of the button, then rises to bottom-24 while widening and fading to
+          the card colour — uncovering the FAB beneath it, which now reads as the
+          close button (same spot the chat button sat when closed). */}
       <AnimatePresence>
         {open ? (
           <motion.div
-            initial={{ opacity: 0, y: 24, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 24, scale: 0.96 }}
-            transition={{ type: "tween", ease: [0.4, 0, 0.2, 1], duration: 0.22 }}
-            style={{ width: size.w, height: size.h }}
-            className="fixed bottom-24 left-6 z-50 max-h-[calc(100vh-7rem)] max-w-[calc(100vw-3rem)] overflow-hidden rounded-3xl border border-white/60 bg-white/95 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#11151b]/97"
+            key="chat-card"
+            initial={fabBox}
+            animate={cardBox}
+            exit={fabBox}
+            transition={{ type: "tween", ease: [0.22, 1, 0.36, 1], duration: 0.36 }}
+            style={{ left: 24 }}
+            className="fixed z-[51] max-h-[calc(100vh-7rem)] max-w-[calc(100vw-3rem)] overflow-hidden border shadow-2xl backdrop-blur-xl"
           >
-            <ChatPane
-              onClose={() => setOpen(false)}
-              headerActions={
-                <button onClick={openInNewTab} title="فتح في تبويب مستقل" className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-primary" aria-label="فتح في تبويب مستقل">
-                  <ExternalLink className="h-4 w-4" />
-                </button>
-              }
-            />
-            {/* Resize grip — top-right corner (the panel's free corner). A thick,
-                round-capped quarter-circle arc that traces the panel's rounded corner. */}
-            <div
-              onPointerDown={startResize}
-              className="group/grip absolute right-0 top-0 z-20 h-7 w-7 cursor-nesw-resize"
-              title="اسحب لتغيير الحجم"
+            {/* Contents fade in only once the box has grown (and out fast before it
+                collapses) so the chat never shows squished inside the circle phase. */}
+            <motion.div
+              variants={{ hidden: { opacity: 0 }, shown: { opacity: 1, transition: { duration: 0.16, delay: 0.18 } }, gone: { opacity: 0, transition: { duration: 0.1 } } }}
+              initial="hidden" animate="shown" exit="gone"
+              style={{ width: size.w, height: size.h }}
+              className="relative"
             >
-              <svg
-                viewBox="0 0 24 24"
-                className="absolute right-1 top-1 h-5 w-5 text-muted-foreground/45 transition-colors group-hover/grip:text-primary"
-                fill="none"
+              <ChatPane
+                onClose={() => setOpen(false)}
+                headerActions={
+                  <button onClick={openInNewTab} title="فتح في تبويب مستقل" className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-primary" aria-label="فتح في تبويب مستقل">
+                    <ExternalLink className="h-4 w-4" />
+                  </button>
+                }
+              />
+              {/* Resize grip — top-right corner (the panel's free corner). A thick,
+                  round-capped quarter-circle arc that traces the panel's rounded corner. */}
+              <div
+                onPointerDown={startResize}
+                className="group/grip absolute right-0 top-0 z-20 h-7 w-7 cursor-nesw-resize"
+                title="اسحب لتغيير الحجم"
               >
-                <path d="M6 4 A14 14 0 0 1 20 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-              </svg>
-            </div>
+                <svg
+                  viewBox="0 0 24 24"
+                  className="absolute right-1 top-1 h-5 w-5 text-muted-foreground/45 transition-colors group-hover/grip:text-primary"
+                  fill="none"
+                >
+                  <path d="M6 4 A14 14 0 0 1 20 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                </svg>
+              </div>
+            </motion.div>
           </motion.div>
         ) : null}
       </AnimatePresence>
