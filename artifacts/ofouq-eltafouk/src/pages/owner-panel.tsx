@@ -8,13 +8,15 @@ import {
   CheckCircle2, Clock, FolderTree, ListVideo, Sun, Moon, Info, X, History,
   Download, FileSpreadsheet, FileText, Loader2, Star, Snowflake,
   Search, SlidersHorizontal, GripVertical, Settings2, RotateCcw, Check, ChevronRight, ChevronLeft,
+  CalendarDays, KeyRound, Trash2, Eye, EyeOff,
 } from "lucide-react";
 import { fetchReport, exportExcel, exportPdf } from "@/lib/activity-export";
 import { numTick, numAxisWidth, catAxisWidth, AXIS_GAP } from "@/lib/chart-axis";
 import { EgyptHeatmap } from "@/components/egypt-heatmap";
 import { InternalChatWidget } from "@/components/internal-chat-widget";
+import { RoleIcon } from "@/components/role-icon";
 import { Calendar } from "@/components/ui/calendar";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, intervalToDuration, addDays } from "date-fns";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -127,6 +129,27 @@ function dayLabel(d: string) {
   } catch {
     return d;
   }
+}
+
+// Human Arabic duration of an inclusive date range (both endpoints count as
+// selected days), broken into years/months/days with digits — e.g.
+// "شهر و3 أيام", "سنة وشهرين", "15 يوم" — instead of a raw day count.
+function formatRangeDurationAr(from: string | null, to: string | null): string {
+  if (!from || !to) return "";
+  let start = parseISO(from);
+  let end = parseISO(to);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return "";
+  if (end < start) { const t = start; start = end; end = t; }
+  // +1 day so the range is inclusive (1→1 reads as "يوم", not "0").
+  const dur = intervalToDuration({ start, end: addDays(end, 1) });
+  // Arabic count grammar: 1 = bare noun, 2 = dual, 3–10 = "N <plural>", 11+ = "N <singular>".
+  const unit = (n: number, one: string, two: string, few: string, many: string) =>
+    n === 1 ? one : n === 2 ? two : n <= 10 ? `${n} ${few}` : `${n} ${many}`;
+  const parts: string[] = [];
+  if (dur.years) parts.push(unit(dur.years, "سنة", "سنتين", "سنوات", "سنة"));
+  if (dur.months) parts.push(unit(dur.months, "شهر", "شهرين", "أشهر", "شهر"));
+  if (dur.days) parts.push(unit(dur.days, "يوم", "يومين", "أيام", "يوم"));
+  return parts.length ? parts.join(" و") : "يوم";
 }
 
 function useOwnerSummary() {
@@ -311,6 +334,53 @@ function MonthRangePicker({ from, to, onChange }: {
   );
 }
 
+// One editable "من / إلى" line: three numeric boxes (day / month / year) that
+// read & write a YYYY-MM-DD ISO string. A local draft lets the user clear/retype
+// a box without the half-typed date being committed or reformatted underneath
+// them; it re-syncs whenever `value` changes from outside (e.g. the calendar).
+function DateMyField({ label, value, onChange }: {
+  label: string; value: string | null; onChange: (iso: string | null) => void;
+}) {
+  const [d, setD] = useState("");
+  const [m, setM] = useState("");
+  const [y, setY] = useState("");
+  useEffect(() => {
+    if (value) {
+      const [yy, mm, dd] = value.split("-");
+      setY(yy); setM(String(Number(mm))); setD(String(Number(dd)));
+    } else {
+      setY(""); setM(""); setD("");
+    }
+  }, [value]);
+  // Commit only a fully-valid date; clamp the day to the month's last day so
+  // e.g. 31/2 lands on 28/29 Feb instead of silently rolling into March.
+  const commit = (nd: string, nm: string, ny: string) => {
+    const dn = Number(nd), mn = Number(nm), yn = Number(ny);
+    if (!nd || !nm || ny.length !== 4 || mn < 1 || mn > 12 || dn < 1 || yn < 1) return;
+    const cd = Math.min(dn, new Date(yn, mn, 0).getDate());
+    onChange(`${yn}-${String(mn).padStart(2, "0")}-${String(cd).padStart(2, "0")}`);
+  };
+  const box = "w-9 rounded-md border border-white/60 bg-white/70 px-1 py-1 text-center text-xs tabular-nums outline-none focus:border-primary dark:border-white/10 dark:bg-white/[0.06]";
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-7 shrink-0 text-[11px] font-bold text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-1" dir="ltr">
+        <input value={d} inputMode="numeric" aria-label={`${label} — اليوم`} placeholder="يوم"
+          onChange={(e) => { const v = e.target.value.replace(/\D/g, "").slice(0, 2); setD(v); commit(v, m, y); }}
+          className={box} />
+        <span className="text-muted-foreground">/</span>
+        <input value={m} inputMode="numeric" aria-label={`${label} — الشهر`} placeholder="شهر"
+          onChange={(e) => { const v = e.target.value.replace(/\D/g, "").slice(0, 2); setM(v); commit(d, v, y); }}
+          className={box} />
+        <span className="text-muted-foreground">/</span>
+        <input value={y} inputMode="numeric" aria-label={`${label} — السنة`} placeholder="سنة"
+          onChange={(e) => { const v = e.target.value.replace(/\D/g, "").slice(0, 4); setY(v); commit(d, m, v); }}
+          className={`${box} w-14`} />
+      </div>
+    </div>
+  );
+}
+
 // The gear's popover body — series/category toggles, time range, Y-axis cap.
 function ChartSettingsPanel({ id, categories, settings, onChange, onReset }: {
   id: string; categories: string[]; settings: CardSettings;
@@ -328,38 +398,75 @@ function ChartSettingsPanel({ id, categories, settings, onChange, onReset }: {
     from: settings.from ? parseISO(settings.from) : undefined,
     to: settings.to ? parseISO(settings.to) : undefined,
   };
+  const [calOpen, setCalOpen] = useState(false);
+  const isMonth = meta?.dateGranularity === "month";
   return (
     <div className="w-full space-y-3 text-right">
       {meta?.dateRange ? (
         <div className="space-y-1.5">
-          <p className="text-[11px] font-bold text-muted-foreground">الفترة الزمنية</p>
-          {meta.dateGranularity === "month" ? (
-            <MonthRangePicker from={settings.from} to={settings.to} onChange={(f, t) => onChange({ from: f, to: t })} />
-          ) : (
-            // dir="ltr" so the weekday columns + dates read in the normal order
-            // (the RTL page would otherwise mirror them: Sa Fr Th … instead of Su Mo …).
-            <Calendar
-              mode="range"
-              dir="ltr"
-              numberOfMonths={1}
-              selected={range as any}
-              onSelect={(r: any) => onChange({
-                from: r?.from ? format(r.from, "yyyy-MM-dd") : null,
-                to: r?.to ? format(r.to, "yyyy-MM-dd") : null,
-              })}
-              className="mx-auto rounded-xl border border-white/60 bg-white/50 p-2 dark:border-white/10 dark:bg-white/[0.04] [--cell-size:1.9rem]"
-            />
-          )}
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-[11px] text-muted-foreground">
-              {settings.from && settings.to
-                ? (meta.dateGranularity === "month" ? `${settings.from.slice(0, 7)} ← ${settings.to.slice(0, 7)}` : `${settings.from} ← ${settings.to}`)
-                : "الافتراضي (آخر فترة)"}
-            </span>
-            {settings.from || settings.to ? (
-              <button onClick={() => onChange({ from: null, to: null })} className="shrink-0 text-[11px] font-bold text-muted-foreground hover:text-primary">مسح</button>
+            <p className="text-[11px] font-bold text-muted-foreground">الفترة الزمنية</p>
+            {!isMonth ? (
+              <button onClick={() => setCalOpen((o) => !o)} title="افتح التقويم" aria-expanded={calOpen}
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${calOpen ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted hover:text-primary"}`}>
+                <CalendarDays className="h-3.5 w-3.5" />
+              </button>
             ) : null}
           </div>
+          {isMonth ? (
+            <>
+              <MonthRangePicker from={settings.from} to={settings.to} onChange={(f, t) => onChange({ from: f, to: t })} />
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-[11px] text-muted-foreground">
+                  {settings.from && settings.to ? `${settings.from.slice(0, 7)} ← ${settings.to.slice(0, 7)}` : "الافتراضي (آخر فترة)"}
+                </span>
+                {settings.from || settings.to ? (
+                  <button onClick={() => onChange({ from: null, to: null })} className="shrink-0 text-[11px] font-bold text-muted-foreground hover:text-primary">مسح</button>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Editable من / إلى lines (always visible) + a readable duration. */}
+              <div className="space-y-1.5 rounded-xl border border-white/60 bg-white/50 p-2.5 dark:border-white/10 dark:bg-white/[0.04]">
+                <DateMyField label="من" value={settings.from} onChange={(iso) => onChange({ from: iso })} />
+                <DateMyField label="إلى" value={settings.to} onChange={(iso) => onChange({ to: iso })} />
+                <div className="flex items-center justify-between gap-2 border-t border-white/60 pt-1.5 dark:border-white/10">
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {settings.from && settings.to
+                      ? <>المدة: <span className="font-bold text-foreground">{formatRangeDurationAr(settings.from, settings.to)}</span></>
+                      : "الافتراضي (آخر فترة)"}
+                  </span>
+                  {settings.from || settings.to ? (
+                    <button onClick={() => onChange({ from: null, to: null })} className="shrink-0 text-[11px] font-bold text-muted-foreground hover:text-primary">مسح</button>
+                  ) : null}
+                </div>
+              </div>
+              {/* Same range picker as before, now revealed by the calendar button.
+                  dir="ltr" so the weekday columns read Su Mo … not the RTL mirror.
+                  Edits here and in the من/إلى lines share one source of truth, so
+                  changing one updates the other. */}
+              <AnimatePresence initial={false}>
+                {calOpen ? (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.18 }} className="overflow-hidden">
+                    <Calendar
+                      mode="range"
+                      dir="ltr"
+                      numberOfMonths={1}
+                      selected={range as any}
+                      onSelect={(r: any) => onChange({
+                        from: r?.from ? format(r.from, "yyyy-MM-dd") : null,
+                        to: r?.to ? format(r.to, "yyyy-MM-dd") : null,
+                      })}
+                      className="mx-auto rounded-xl border border-white/60 bg-white/50 p-2 dark:border-white/10 dark:bg-white/[0.04] [--cell-size:1.9rem]"
+                    />
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </>
+          )}
         </div>
       ) : null}
 
@@ -1281,7 +1388,7 @@ function ActivityDrawer({ userId, onClose }: { userId: number | null; onClose: (
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white font-black text-lg flex-shrink-0">{data.user.name.charAt(0)}</div>
-                        <div className="min-w-0"><p className="font-bold truncate">{data.user.name}</p><p className="text-xs text-muted-foreground truncate">{data.user.email}</p></div>
+                        <div className="min-w-0"><p className="flex items-center gap-1.5 font-bold"><span className="truncate">{data.user.name}</span><RoleIcon role={(data.user as { role?: string }).role} className="h-3.5 w-3.5" /></p><p className="text-xs text-muted-foreground truncate">{data.user.email}</p></div>
                       </div>
                       {data.user.role === "admin" && (
                         <ScoringControl
@@ -1349,6 +1456,34 @@ function AdminsTab() {
   const [form, setForm] = useState({ name: "", email: "", password: "", role: "admin" });
   const [detailsId, setDetailsId] = useState<number | null>(null);
   const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }));
+  // Owner-only password reset for another admin/owner account. Hidden for the
+  // actor's own card — resetting your own password here would bump your token
+  // version and sign you out immediately (use the profile flow for that).
+  const { user: me } = useAuth();
+  const isOwnerActor = (me?.role as unknown as string) === "owner";
+  const [pwTarget, setPwTarget] = useState<{ id: number; name: string } | null>(null);
+  const [pwValue, setPwValue] = useState("");
+  const [pwShow, setPwShow] = useState(false);
+  const [pwBusy, setPwBusy] = useState(false);
+  const submitPassword = async () => {
+    if (!pwTarget || pwValue.length < 8) { toast.error("كلمة المرور يجب أن تكون 8 أحرف على الأقل"); return; }
+    setPwBusy(true);
+    try {
+      const res = await fetch(apiPath(`/api/admin/users/${pwTarget.id}/password`), {
+        method: "PUT",
+        headers: { ...authHeader(), "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pwValue }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string })?.error || "تعذّر تغيير كلمة المرور");
+      toast.success(`تم تغيير كلمة مرور ${pwTarget.name}`);
+      setPwTarget(null); setPwValue("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "تعذّر تغيير كلمة المرور");
+    } finally {
+      setPwBusy(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -1377,7 +1512,14 @@ function AdminsTab() {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => { createUser.mutate({ data: form as any }, { onSuccess: () => { refetch(); setAdding(false); setForm({ name: "", email: "", password: "", role: "admin" }); } }); }} className="btn-primary text-sm py-2">إضافة</button>
+            <button onClick={() => {
+              if (!form.name.trim() || !form.email.trim()) { toast.error("الاسم والبريد الإلكتروني مطلوبان"); return; }
+              if (form.password.length < 8) { toast.error("كلمة المرور يجب أن تكون 8 أحرف على الأقل"); return; }
+              createUser.mutate({ data: form as any }, {
+                onSuccess: () => { refetch(); setAdding(false); setForm({ name: "", email: "", password: "", role: "admin" }); toast.success("تم إنشاء الحساب"); },
+                onError: (e) => toast.error(e instanceof Error ? e.message : "تعذّر إنشاء الحساب"),
+              });
+            }} className="btn-primary text-sm py-2">إضافة</button>
             <button onClick={() => setAdding(false)} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:bg-muted transition-all">إلغاء</button>
           </div>
         </div>
@@ -1390,7 +1532,7 @@ function AdminsTab() {
             <div key={u.id} className="glass-card p-5 pl-16 flex items-center gap-4 relative">
               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-display font-black text-lg flex-shrink-0 ${isOwner ? "bg-gradient-to-br from-amber-400 to-orange-500" : "bg-gradient-to-br from-violet-500 to-purple-600"}`}>{u.name.charAt(0)}</div>
               <div className="flex-1 min-w-0">
-                <p className="font-bold text-foreground">{u.name}</p>
+                <p className="flex items-center gap-1.5 font-bold text-foreground"><span className="truncate">{u.name}</span><RoleIcon role={u.role as unknown as string} /></p>
                 <p className="text-sm text-muted-foreground">{u.email}</p>
                 <span className={`inline-block mt-1 text-xs font-bold px-2.5 py-0.5 rounded-full ${isOwner ? "bg-amber-100 text-amber-700" : "bg-violet-100 text-violet-700"}`}>{isOwner ? "مالك" : "مشرف"}</span>
               </div>
@@ -1399,6 +1541,9 @@ function AdminsTab() {
                   <button onClick={() => { if (confirm(`ترقية ${u.name} إلى مالك بصلاحيات كاملة؟`)) updateUser.mutate({ id: u.id, data: { role: "owner" } as any }, { onSuccess: () => refetch() }); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition-all">ترقية لمالك</button>
                 )}
                 <button onClick={() => { if (confirm(`إزالة ${u.name} من المشرفين؟`)) updateUser.mutate({ id: u.id, data: { role: "student" } as any }, { onSuccess: () => refetch() }); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all">إزالة الصلاحيات</button>
+                {isOwnerActor && u.id !== me?.id && (
+                  <button onClick={() => { setPwTarget({ id: u.id, name: u.name }); setPwValue(""); setPwShow(false); }} className="inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-sky-100 text-sky-700 hover:bg-sky-200 transition-all"><KeyRound className="w-3.5 h-3.5" /> تغيير كلمة المرور</button>
+                )}
               </div>
               <button onClick={() => setDetailsId(u.id)} title="تفاصيل وسجل النشاط" className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-xl bg-white/70 dark:bg-white/10 border border-white/70 dark:border-white/10 flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-white dark:hover:bg-white/20 transition-all">
                 <Info className="w-4.5 h-4.5" />
@@ -1407,6 +1552,50 @@ function AdminsTab() {
           );
         })}
       </div>
+
+      {/* Owner-only password reset dialog */}
+      <AnimatePresence>
+        {pwTarget && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => { if (!pwBusy) setPwTarget(null); }}
+              className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              transition={{ type: "tween", ease: [0.22, 1, 0.36, 1], duration: 0.2 }}
+              className="fixed left-1/2 top-1/2 z-[61] w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white/97 dark:bg-[#11151b]/97 backdrop-blur border border-white/70 dark:border-white/10 shadow-2xl p-5 space-y-4 text-right" dir="rtl">
+              <div>
+                <h3 className="font-bold text-foreground flex items-center gap-2"><KeyRound className="w-4 h-4 text-primary" /> تغيير كلمة المرور</h3>
+                <p className="text-xs text-muted-foreground mt-1">للحساب: <span className="font-bold text-foreground">{pwTarget.name}</span></p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-muted-foreground">كلمة المرور الجديدة</label>
+                <div className="relative">
+                  <input
+                    type={pwShow ? "text" : "password"} value={pwValue} autoFocus
+                    onChange={(e) => setPwValue(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !pwBusy) void submitPassword(); }}
+                    placeholder="8 أحرف على الأقل"
+                    className="w-full pl-10 pr-3 py-2.5 rounded-xl bg-white/70 dark:bg-white/[0.06] border border-white/70 dark:border-white/10 text-sm outline-none focus:border-primary/50" />
+                  <button type="button" onClick={() => setPwShow((s) => !s)} title={pwShow ? "إخفاء" : "إظهار"}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:text-primary">
+                    {pwShow ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">سيتم تسجيل خروج هذا الحساب من كل الأجهزة بعد التغيير.</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => void submitPassword()} disabled={pwBusy || pwValue.length < 8}
+                  className="btn-primary text-sm py-2 disabled:opacity-50 disabled:cursor-not-allowed">{pwBusy ? "جارٍ الحفظ…" : "حفظ"}</button>
+                <button onClick={() => setPwTarget(null)} disabled={pwBusy}
+                  className="px-4 py-2 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:bg-muted transition-all">إلغاء</button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       <ActivityDrawer userId={detailsId} onClose={() => setDetailsId(null)} />
     </div>
   );
@@ -1420,6 +1609,11 @@ const PAGE_SIZES = [20, 50, 100, 500];
 function AllUsersTab() {
   const { data: users = [], refetch } = useListAdminUsers();
   const updateUser = useUpdateAdminUser();
+  const deleteUser = useDeleteAdminUser();
+  // Permanent account deletion is an owner-only action and never offered for the
+  // actor's own account (the backend rejects both anyway — defence in depth).
+  const { user: me } = useAuth();
+  const isOwnerActor = (me?.role as unknown as string) === "owner";
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1429,6 +1623,9 @@ function AllUsersTab() {
   const [detailsId, setDetailsId] = useState<number | null>(null);
   const ROLE_LABELS_T: Record<string, string> = { student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", owner: "مالك", moderator: "مشرف محتوى" };
   const ROLE_COLORS: Record<string, string> = { student: "bg-blue-100 text-blue-700", teacher: "bg-emerald-100 text-emerald-700", parent: "bg-amber-100 text-amber-700", admin: "bg-violet-100 text-violet-700", owner: "bg-rose-100 text-rose-700", moderator: "bg-cyan-100 text-cyan-700" };
+  // Avatar gradient per role — solid mid-tone shades (literal classes so Tailwind
+  // generates them) so the white initial stays readable in BOTH light & dark mode.
+  const ROLE_AVATAR: Record<string, string> = { student: "from-blue-500 to-blue-600", teacher: "from-emerald-500 to-emerald-600", parent: "from-amber-500 to-orange-500", admin: "from-violet-500 to-purple-600", owner: "from-rose-500 to-rose-600", moderator: "from-cyan-500 to-cyan-600" };
 
   // Governorates actually present in the data → the filter only offers real options.
   const govOptions = Array.from(new Set(users.map((u) => (u as any).governorate).filter(Boolean) as string[])).sort();
@@ -1524,12 +1721,12 @@ function AllUsersTab() {
             <tbody className="divide-y divide-white/30">
               {visible.map((u) => (
                 <tr key={u.id} className="hover:bg-white/30 transition-colors">
-                  <td className="px-5 py-3.5"><div className="flex items-center gap-2.5"><div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold ${ROLE_COLORS[u.role]?.replace("bg-", "bg-gradient-to-br from-").replace(" text-", "") || "bg-gray-400"}`}>{u.name.charAt(0)}</div><span className="font-semibold text-foreground">{u.name}</span></div></td>
+                  <td className="px-5 py-3.5"><div className="flex items-center gap-2.5"><div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold bg-gradient-to-br ${ROLE_AVATAR[u.role] || "from-slate-500 to-slate-600"}`}>{u.name.charAt(0)}</div><span className="flex items-center gap-1.5 font-semibold text-foreground">{u.name}<RoleIcon role={u.role as unknown as string} className="h-4 w-4" /></span></div></td>
                   <td className="px-5 py-3.5 text-muted-foreground">{u.email}</td>
                   <td className="px-5 py-3.5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold ${ROLE_COLORS[u.role] || "bg-muted text-muted-foreground"}`}>{ROLE_LABELS_T[u.role] || u.role}</span></td>
                   <td className="px-5 py-3.5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold ${u.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>{u.status === "active" ? "نشط" : "موقوف"}</span></td>
                   <td className="px-5 py-3.5 text-muted-foreground text-xs">{(u as any).governorate || "—"}</td>
-                  <td className="px-5 py-3.5"><div className="flex items-center justify-between gap-2 w-full"><button onClick={() => updateUser.mutate({ id: u.id, data: { status: u.status === "active" ? "suspended" : "active" } as any }, { onSuccess: () => refetch() })} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-muted hover:bg-muted/80 transition-all">{u.status === "active" ? "تعليق" : "تفعيل"}</button><button onClick={() => setDetailsId(u.id)} title="تفاصيل وسجل النشاط" className="w-8 h-8 rounded-lg bg-white/60 dark:bg-white/10 border border-white/70 dark:border-white/10 flex items-center justify-center text-muted-foreground hover:text-primary transition-all"><Info className="w-4 h-4" /></button></div></td>
+                  <td className="px-5 py-3.5"><div className="flex items-center justify-between gap-2 w-full"><button onClick={() => updateUser.mutate({ id: u.id, data: { status: u.status === "active" ? "suspended" : "active" } as any }, { onSuccess: () => refetch() })} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-muted hover:bg-muted/80 transition-all">{u.status === "active" ? "تعليق" : "تفعيل"}</button><div className="flex items-center gap-2">{isOwnerActor && u.id !== me?.id && (<button onClick={() => { if (confirm(`حذف نهائي لحساب "${u.name}"؟\nسيُمسح الحساب وكل بياناته من النظام، ولا يمكن التراجع عن هذا الإجراء.`)) deleteUser.mutate({ id: u.id }, { onSuccess: () => { refetch(); toast.success(`تم حذف ${u.name} نهائيًا`); }, onError: (e) => toast.error(e instanceof Error ? e.message : "تعذّر حذف الحساب") }); }} title="حذف نهائي" className="w-8 h-8 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 border border-red-200/60 flex items-center justify-center transition-all"><Trash2 className="w-4 h-4" /></button>)}<button onClick={() => setDetailsId(u.id)} title="تفاصيل وسجل النشاط" className="w-8 h-8 rounded-lg bg-white/60 dark:bg-white/10 border border-white/70 dark:border-white/10 flex items-center justify-center text-muted-foreground hover:text-primary transition-all"><Info className="w-4 h-4" /></button></div></div></td>
                 </tr>
               ))}
             </tbody>
@@ -1638,10 +1835,6 @@ export default function OwnerPanel() {
               <t.icon className="w-4.5 h-4.5 flex-shrink-0" /> {t.label}
             </button>
           ))}
-          <div className="h-px bg-gradient-to-l from-transparent via-border to-transparent my-2" />
-          <button onClick={() => setLocation("/admin")} className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold text-muted-foreground hover:bg-violet-50 hover:text-violet-700 transition-all">
-            <ShieldCheck className="w-4.5 h-4.5" /> لوحة المشرف الكاملة
-          </button>
         </nav>
         <div className="p-4 border-t border-white/40">
           <div className="admin-theme-switch relative mb-4 grid h-12 grid-cols-2 overflow-hidden rounded-3xl border border-border/70 bg-muted/55 p-1 shadow-inner" dir="rtl">
@@ -1670,7 +1863,12 @@ export default function OwnerPanel() {
             </button>
           </div>
           <div className="px-3 py-2 mb-2"><p className="text-xs font-semibold text-foreground">{user.name}</p><p className="text-xs text-muted-foreground">{user.email}</p></div>
-          <button onClick={() => { logout(); setLocation("/login"); }} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-all"><LogOut className="w-4 h-4" /> خروج</button>
+          <div className="flex gap-2">
+            <button onClick={() => setLocation("/admin")} className="flex-1 flex items-center justify-center gap-1 py-2 rounded-xl text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 transition-all dark:bg-violet-400/10 dark:text-violet-200 dark:hover:bg-violet-400/15">
+              <ShieldCheck className="w-3.5 h-3.5" /> لوحة المشرف
+            </button>
+            <button onClick={() => { logout(); setLocation("/login"); }} className="flex-1 flex items-center justify-center gap-1 py-2 rounded-xl text-xs font-bold text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-all dark:hover:bg-rose-400/10 dark:hover:text-rose-200"><LogOut className="w-3.5 h-3.5" /> خروج</button>
+          </div>
         </div>
       </aside>
       <main className="flex-1 md:mr-64 p-5 md:p-8 max-w-full overflow-x-hidden">

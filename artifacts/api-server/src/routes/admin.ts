@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { getSessionUserId } from "../lib/auth";
+import { getSessionUserId, hashPassword } from "../lib/auth";
 // review B-43: shared role allowlists (were re-declared inline in each handler).
 import { VALID_ROLES, PRIVILEGED_ROLES } from "../lib/roles";
 import { invalidateUserAuth } from "../lib/user-cache";
@@ -1469,11 +1469,16 @@ router.post("/admin/users", async (req, res) => {
   try {
     const body = (req.body ?? {}) as Record<string, unknown>;
     // Whitelist + coerce: never feed raw req.body into db.insert (mass-assignment +
-    // crashes on non-string types). Only these four fields may be set on create.
+    // crashes on non-string types). Only these fields may be set on create.
     const name = String(body.name ?? "").trim();
     const email = String(body.email ?? "").trim();
     const role = body.role === undefined ? "student" : String(body.role);
     const status = body.status === undefined ? "active" : String(body.status);
+    // The password is what lets the new account sign in. It MUST be hashed and
+    // stored — previously it was silently dropped from the whitelist, so every
+    // account created via this endpoint had an empty password and could never
+    // log in (the staff "add admin/owner" form was effectively broken).
+    const password = typeof body.password === "string" ? body.password : "";
     // review B-43: VALID_ROLES / PRIVILEGED_ROLES now imported from ../lib/roles.
     const VALID_STATUSES = new Set(["active", "suspended", "inactive"]);
     if (!name) {
@@ -1488,12 +1493,16 @@ router.post("/admin/users", async (req, res) => {
     if (!VALID_STATUSES.has(status)) {
       return res.status(400).json({ error: "حالة غير صالحة" });
     }
+    if (password.length < 8) {
+      return res.status(400).json({ error: "كلمة المرور يجب أن تكون 8 أحرف على الأقل" });
+    }
     if (PRIVILEGED_ROLES.has(role) && (req as any).adminActor?.role !== "owner") {
       return res.status(403).json({ error: "إنشاء حسابات إدارية متاح للمالك فقط" });
     }
-    const [user] = await db.insert(usersTable).values({ name, email, role, status }).returning();
+    const [user] = await db.insert(usersTable).values({ name, email, role, status, password: hashPassword(password) }).returning();
     await logAudit(req, { actionType: "user_create", actionLabel: `أنشأ مستخدمًا (${role})`, entityType: "user", entityId: user.id, entityLabel: name || email, newValue: `${role}/${status}`, metadata: { email, role, status } });
-    res.status(201).json(user);
+    const { password: _pw, ...safeUser } = user; // never return the password hash
+    res.status(201).json(safeUser);
   } catch (err) {
     req.log.error({ err }, "Create user error");
     res.status(500).json({ error: "Internal server error" });
@@ -1560,6 +1569,46 @@ router.put("/admin/users/:id", async (req, res) => {
     res.json(user);
   } catch (err) {
     req.log.error({ err }, "Update user error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Owner-only: set a brand-new password for ANY account (another owner, an
+// admin/moderator, or any user). The owner does NOT supply the old password —
+// this is an administrative reset, not self-service. Bumping tokenVersion signs
+// the target out of every existing session so the old password can't be reused
+// via a stale token (mirrors the self-service flow / review B-02).
+router.put("/admin/users/:id/password", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: "معرف غير صالح" });
+    }
+    const actor = (req as any).adminActor;
+    if (actor?.role !== "owner") {
+      return res.status(403).json({ error: "تغيير كلمة المرور متاح للمالك فقط" });
+    }
+    const newPassword = typeof req.body?.password === "string" ? req.body.password : "";
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: "كلمة المرور يجب أن تكون 8 أحرف على الأقل" });
+    }
+    const [before] = await db
+      .select({ name: usersTable.name, email: usersTable.email, role: usersTable.role })
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1);
+    if (!before) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    await db
+      .update(usersTable)
+      .set({ password: hashPassword(newPassword), tokenVersion: sql`${usersTable.tokenVersion} + 1` })
+      .where(eq(usersTable.id, id));
+    invalidateUserAuth(id); // drop the cached auth; the version bump revokes all live sessions
+    await logAudit(req, { actionType: "user_password_change", actionLabel: "غيّر كلمة مرور مستخدم", entityType: "user", entityId: id, entityLabel: before.name || before.email || String(id) });
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Change user password error");
     res.status(500).json({ error: "Internal server error" });
   }
 });

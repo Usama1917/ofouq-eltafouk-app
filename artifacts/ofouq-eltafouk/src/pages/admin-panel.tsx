@@ -20,6 +20,7 @@ import {
 } from "@workspace/api-client-react";
 import { Logo } from "@/components/logo";
 import { InternalChatWidget } from "@/components/internal-chat-widget";
+import { RoleIcon } from "@/components/role-icon";
 import { AcademicTab } from "./admin-academic";
 import { toEnglishDigits } from "@/lib/format";
 
@@ -1264,7 +1265,7 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-base font-black text-foreground">{u?.name || "—"}</p>
+                  <p className="flex items-center gap-1.5 text-base font-black text-foreground"><span className="truncate">{u?.name || "—"}</span><RoleIcon role={role} className="h-4 w-4" /></p>
                   <p className="truncate text-xs text-muted-foreground" dir="ltr">{u?.email || "—"}</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${DETAIL_ROLE_COLORS[role] || "bg-muted text-muted-foreground"}`}>{DETAIL_ROLE_LABELS[role] || role || "—"}</span>
@@ -1471,6 +1472,11 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
   );
 }
 
+// In the admin panel the users directory lists END USERS only — every staff
+// account (owner / admin / moderator) is hidden, including the signed-in admin's
+// own row. Managing staff is an owner-only capability that lives elsewhere.
+const STAFF_ROLES = new Set(["owner", "admin", "moderator"]);
+
 function UsersTab({
   selectedUserIds,
   onSelectedUserIdsChange,
@@ -1483,7 +1489,10 @@ function UsersTab({
   onSendSupportMessage: (users: AdminUserListItem[]) => void;
 }) {
   const { data: rawUsers = [], isLoading, isError, error, refetch } = useListAdminUsers();
-  const users = rawUsers as AdminUserListItem[];
+  const users = useMemo(
+    () => (rawUsers as AdminUserListItem[]).filter((u) => !STAFF_ROLES.has(String(u.role))),
+    [rawUsers],
+  );
   const deleteUser = useDeleteAdminUser();
   const updateUser = useUpdateAdminUser();
   const createUser = useCreateAdminUser();
@@ -1688,7 +1697,7 @@ function UsersTab({
                     className="h-9 w-32 rounded-xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
                   >
                     <option value="all">كل الأدوار</option>
-                    {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                    {Object.entries(ROLE_LABELS).filter(([value]) => !STAFF_ROLES.has(value)).map(([value, label]) => (
                       <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
@@ -1759,7 +1768,7 @@ function UsersTab({
                       className="h-4 w-4"
                     />
                   </td>
-                  <td className="px-5 py-3.5 font-semibold text-foreground">{u.name}</td>
+                  <td className="px-5 py-3.5 font-semibold text-foreground"><span className="flex items-center gap-1.5">{u.name}<RoleIcon role={u.role} className="h-4 w-4" /></span></td>
                   <td className="px-5 py-3.5 text-muted-foreground">{u.email}</td>
                   <td className="px-5 py-3.5">
                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${ROLE_COLORS[u.role] || "bg-muted text-muted-foreground"}`}>{ROLE_LABELS[u.role] || u.role}</span>
@@ -3475,7 +3484,7 @@ function BroadcastMessagesTab({
                       className="flex w-full items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/80 px-3 py-2 text-right transition-all hover:border-primary/35 hover:bg-primary/5"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-bold">{user.name}</p>
+                        <p className="flex items-center gap-1.5 text-sm font-bold"><span className="truncate">{user.name}</span><RoleIcon role={user.role} className="h-3.5 w-3.5" /></p>
                         <p className="truncate text-xs text-muted-foreground" dir="ltr">{user.email}</p>
                         {user.phone ? <p className="truncate text-xs text-muted-foreground" dir="ltr">{user.phone}</p> : null}
                       </div>
@@ -3512,7 +3521,7 @@ function BroadcastMessagesTab({
                 <div className="mt-3 flex flex-wrap gap-2">
                   {targetUsers.slice(0, 6).map((user) => (
                     <div key={user.id} className="rounded-xl bg-background/80 px-2.5 py-1 text-[11px] font-bold text-foreground">
-                      <p>{user.name}</p>
+                      <p className="flex items-center gap-1">{user.name}<RoleIcon role={user.role} className="h-3 w-3" /></p>
                       <p className="font-medium text-muted-foreground" dir="ltr">{user.email}</p>
                       {user.phone ? <p className="font-medium text-muted-foreground" dir="ltr">{user.phone}</p> : null}
                     </div>
@@ -4267,7 +4276,7 @@ function SupportMessagesTab({
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="font-bold text-sm text-foreground truncate">{conversation.user.name}</p>
+                        <p className="flex min-w-0 items-center gap-1 font-bold text-sm text-foreground"><span className="truncate">{conversation.user.name}</span><RoleIcon role={conversation.user.role} className="h-3.5 w-3.5" /></p>
                         {conversation.unreadCount > 0 ? (
                           <span className="min-w-5 h-5 px-1.5 rounded-full bg-rose-500 text-white text-[11px] font-bold flex items-center justify-center">
                             {conversation.unreadCount}
@@ -4318,7 +4327,7 @@ function SupportMessagesTab({
             <>
               <div className="relative z-10 p-4 border-b border-slate-200/80 shadow-[0_10px_24px_rgba(15,23,42,0.06)] flex shrink-0 items-center justify-between gap-3 bg-white/70 backdrop-blur">
                 <div>
-                  <p className="font-bold text-foreground">{selectedConversation.user.name}</p>
+                  <p className="flex items-center gap-1.5 font-bold text-foreground">{selectedConversation.user.name}<RoleIcon role={selectedConversation.user.role} className="h-4 w-4" /></p>
                   <p className="text-xs text-muted-foreground">{selectedConversation.user.email}</p>
                 </div>
                 <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
@@ -4645,7 +4654,7 @@ function SupportMessagesTab({
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <div className="min-w-0">
-                                <p className="automatic-report-name truncate text-sm font-bold text-foreground">{item.user.name}</p>
+                                <p className="automatic-report-name flex items-center gap-1.5 text-sm font-bold text-foreground"><span className="truncate">{item.user.name}</span><RoleIcon role={item.user.role} className="h-3.5 w-3.5" /></p>
                                 <p className="automatic-report-meta truncate text-[11px] text-muted-foreground">
                                   {item.user.email}{item.user.phone ? ` · ${item.user.phone}` : ""}
                                 </p>

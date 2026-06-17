@@ -285,8 +285,10 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
                       <div className="flex justify-between gap-2"><span>الاشتراكات</span><span className="font-bold text-foreground">{fmt(active.subscriptions)}</span></div>
                       <div className="flex justify-between gap-2 pt-1 border-t border-border/60"><span>الأكثر اشتراكًا</span><span className="font-bold text-primary truncate max-w-[100px]">{active.topSubject || "—"}</span></div>
                     </div>
-                    {/* caret */}
-                    <div className={`absolute ${popBelow ? "-top-1.5" : "-bottom-1.5"} left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-white dark:bg-[#11151b] border-white/70 dark:border-white/10 ${popBelow ? "border-t border-r" : "border-b border-l"}`} />
+                    {/* caret — same translucency + blur as the bubble so the
+                        protruding tip matches the card's shade (a solid fill read
+                        as a mismatched diamond in dark mode). */}
+                    <div className={`absolute ${popBelow ? "-top-1.5" : "-bottom-1.5"} left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-white/97 dark:bg-[#11151b]/97 backdrop-blur border-white/70 dark:border-white/10 ${popBelow ? "border-t border-r" : "border-b border-l"}`} />
                   </div>
                 </div>
               )}
