@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { resolveMediaUrl } from "@/lib/media";
 import { dirOf } from "@/lib/text-direction";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { RoleIcon } from "@/components/role-icon";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 export const apiPath = (p: string) => `${BASE}${p}`;
@@ -248,7 +249,10 @@ function ConversationList({ conversations, onOpen }: { conversations: Conversati
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-2">
-              <span className="flex-1 truncate text-sm font-bold text-foreground">{c.title}</span>
+              <span className="flex min-w-0 flex-1 items-center gap-1">
+                <span className="truncate text-sm font-bold text-foreground">{c.title}</span>
+                <RoleIcon role={c.counterpart?.role} className="h-3.5 w-3.5" />
+              </span>
               {c.lastMessageAt ? <span className="shrink-0 text-[10px] text-muted-foreground">{timeLabel(c.lastMessageAt)}</span> : null}
             </span>
             <span className="mt-0.5 flex items-center gap-2">
@@ -276,7 +280,7 @@ function MessageBubble({ m, mine, mentionsMe, showSender, onImage, onEdit, onDel
   // received → left side (items-end), flatten bottom-LEFT corner.
   return (
     <div className={`group flex flex-col ${mine ? "items-start" : "items-end"}`}>
-      {showSender && !deleted ? <span className="mb-0.5 px-1 text-[10px] font-bold text-muted-foreground">{m.senderName}</span> : null}
+      {showSender && !deleted ? <span className="mb-0.5 flex items-center gap-1 px-1 text-[10px] font-bold text-muted-foreground">{m.senderName}<RoleIcon role={m.senderRole} className="h-3 w-3" /></span> : null}
       <div className={`relative max-w-[82%] rounded-2xl border px-3 py-2 text-sm ${
         deleted
           ? "rounded-br-md border-dashed border-border bg-transparent italic text-muted-foreground"

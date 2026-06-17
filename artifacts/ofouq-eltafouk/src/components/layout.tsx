@@ -9,6 +9,7 @@ import {
 import { getGetPointsQueryKey, useGetPoints } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth-context";
 import { Logo } from "@/components/logo";
+import { RoleIcon } from "@/components/role-icon";
 import { isStudentFeatureVisible, type StudentFeature } from "@/config/soft-launch";
 import { formatNumber, toEnglishDigits } from "@/lib/format";
 import { resolveMediaUrl } from "@/lib/media";
@@ -92,7 +93,7 @@ function UserBadge() {
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-foreground truncate">{displayName}</p>
+            <p className="flex items-center gap-1.5 text-sm font-bold text-foreground"><span className="truncate">{displayName}</span><RoleIcon role={user.role} className="h-3.5 w-3.5" /></p>
             <p className="text-xs text-muted-foreground">{ROLE_LABELS[user.role] || user.role}</p>
           </div>
           <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />

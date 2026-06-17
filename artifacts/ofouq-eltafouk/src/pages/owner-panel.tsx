@@ -14,6 +14,7 @@ import { fetchReport, exportExcel, exportPdf } from "@/lib/activity-export";
 import { numTick, numAxisWidth, catAxisWidth, AXIS_GAP } from "@/lib/chart-axis";
 import { EgyptHeatmap } from "@/components/egypt-heatmap";
 import { InternalChatWidget } from "@/components/internal-chat-widget";
+import { RoleIcon } from "@/components/role-icon";
 import { Calendar } from "@/components/ui/calendar";
 import { format, parseISO, intervalToDuration, addDays } from "date-fns";
 import { useAuth } from "@/contexts/auth-context";
@@ -1387,7 +1388,7 @@ function ActivityDrawer({ userId, onClose }: { userId: number | null; onClose: (
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white font-black text-lg flex-shrink-0">{data.user.name.charAt(0)}</div>
-                        <div className="min-w-0"><p className="font-bold truncate">{data.user.name}</p><p className="text-xs text-muted-foreground truncate">{data.user.email}</p></div>
+                        <div className="min-w-0"><p className="flex items-center gap-1.5 font-bold"><span className="truncate">{data.user.name}</span><RoleIcon role={(data.user as { role?: string }).role} className="h-3.5 w-3.5" /></p><p className="text-xs text-muted-foreground truncate">{data.user.email}</p></div>
                       </div>
                       {data.user.role === "admin" && (
                         <ScoringControl
@@ -1531,7 +1532,7 @@ function AdminsTab() {
             <div key={u.id} className="glass-card p-5 pl-16 flex items-center gap-4 relative">
               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-display font-black text-lg flex-shrink-0 ${isOwner ? "bg-gradient-to-br from-amber-400 to-orange-500" : "bg-gradient-to-br from-violet-500 to-purple-600"}`}>{u.name.charAt(0)}</div>
               <div className="flex-1 min-w-0">
-                <p className="font-bold text-foreground">{u.name}</p>
+                <p className="flex items-center gap-1.5 font-bold text-foreground"><span className="truncate">{u.name}</span><RoleIcon role={u.role as unknown as string} /></p>
                 <p className="text-sm text-muted-foreground">{u.email}</p>
                 <span className={`inline-block mt-1 text-xs font-bold px-2.5 py-0.5 rounded-full ${isOwner ? "bg-amber-100 text-amber-700" : "bg-violet-100 text-violet-700"}`}>{isOwner ? "مالك" : "مشرف"}</span>
               </div>
@@ -1622,6 +1623,9 @@ function AllUsersTab() {
   const [detailsId, setDetailsId] = useState<number | null>(null);
   const ROLE_LABELS_T: Record<string, string> = { student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", owner: "مالك", moderator: "مشرف محتوى" };
   const ROLE_COLORS: Record<string, string> = { student: "bg-blue-100 text-blue-700", teacher: "bg-emerald-100 text-emerald-700", parent: "bg-amber-100 text-amber-700", admin: "bg-violet-100 text-violet-700", owner: "bg-rose-100 text-rose-700", moderator: "bg-cyan-100 text-cyan-700" };
+  // Avatar gradient per role — solid mid-tone shades (literal classes so Tailwind
+  // generates them) so the white initial stays readable in BOTH light & dark mode.
+  const ROLE_AVATAR: Record<string, string> = { student: "from-blue-500 to-blue-600", teacher: "from-emerald-500 to-emerald-600", parent: "from-amber-500 to-orange-500", admin: "from-violet-500 to-purple-600", owner: "from-rose-500 to-rose-600", moderator: "from-cyan-500 to-cyan-600" };
 
   // Governorates actually present in the data → the filter only offers real options.
   const govOptions = Array.from(new Set(users.map((u) => (u as any).governorate).filter(Boolean) as string[])).sort();
@@ -1717,7 +1721,7 @@ function AllUsersTab() {
             <tbody className="divide-y divide-white/30">
               {visible.map((u) => (
                 <tr key={u.id} className="hover:bg-white/30 transition-colors">
-                  <td className="px-5 py-3.5"><div className="flex items-center gap-2.5"><div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold ${ROLE_COLORS[u.role]?.replace("bg-", "bg-gradient-to-br from-").replace(" text-", "") || "bg-gray-400"}`}>{u.name.charAt(0)}</div><span className="font-semibold text-foreground">{u.name}</span></div></td>
+                  <td className="px-5 py-3.5"><div className="flex items-center gap-2.5"><div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold bg-gradient-to-br ${ROLE_AVATAR[u.role] || "from-slate-500 to-slate-600"}`}>{u.name.charAt(0)}</div><span className="flex items-center gap-1.5 font-semibold text-foreground">{u.name}<RoleIcon role={u.role as unknown as string} className="h-4 w-4" /></span></div></td>
                   <td className="px-5 py-3.5 text-muted-foreground">{u.email}</td>
                   <td className="px-5 py-3.5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold ${ROLE_COLORS[u.role] || "bg-muted text-muted-foreground"}`}>{ROLE_LABELS_T[u.role] || u.role}</span></td>
                   <td className="px-5 py-3.5"><span className={`px-2.5 py-1 rounded-full text-xs font-bold ${u.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>{u.status === "active" ? "نشط" : "موقوف"}</span></td>
@@ -1831,10 +1835,6 @@ export default function OwnerPanel() {
               <t.icon className="w-4.5 h-4.5 flex-shrink-0" /> {t.label}
             </button>
           ))}
-          <div className="h-px bg-gradient-to-l from-transparent via-border to-transparent my-2" />
-          <button onClick={() => setLocation("/admin")} className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold text-muted-foreground hover:bg-violet-50 hover:text-violet-700 transition-all">
-            <ShieldCheck className="w-4.5 h-4.5" /> لوحة المشرف الكاملة
-          </button>
         </nav>
         <div className="p-4 border-t border-white/40">
           <div className="admin-theme-switch relative mb-4 grid h-12 grid-cols-2 overflow-hidden rounded-3xl border border-border/70 bg-muted/55 p-1 shadow-inner" dir="rtl">
@@ -1863,7 +1863,12 @@ export default function OwnerPanel() {
             </button>
           </div>
           <div className="px-3 py-2 mb-2"><p className="text-xs font-semibold text-foreground">{user.name}</p><p className="text-xs text-muted-foreground">{user.email}</p></div>
-          <button onClick={() => { logout(); setLocation("/login"); }} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-all"><LogOut className="w-4 h-4" /> خروج</button>
+          <div className="flex gap-2">
+            <button onClick={() => setLocation("/admin")} className="flex-1 flex items-center justify-center gap-1 py-2 rounded-xl text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 transition-all dark:bg-violet-400/10 dark:text-violet-200 dark:hover:bg-violet-400/15">
+              <ShieldCheck className="w-3.5 h-3.5" /> لوحة المشرف
+            </button>
+            <button onClick={() => { logout(); setLocation("/login"); }} className="flex-1 flex items-center justify-center gap-1 py-2 rounded-xl text-xs font-bold text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-all dark:hover:bg-rose-400/10 dark:hover:text-rose-200"><LogOut className="w-3.5 h-3.5" /> خروج</button>
+          </div>
         </div>
       </aside>
       <main className="flex-1 md:mr-64 p-5 md:p-8 max-w-full overflow-x-hidden">
