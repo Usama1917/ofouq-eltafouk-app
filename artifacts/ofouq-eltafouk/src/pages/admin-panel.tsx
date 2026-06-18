@@ -209,7 +209,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
 
 // Inactive/placeholder modules — hidden from the sidebar for now (NOT deleted:
 // the tabs, routes and backend stay so they can be re-enabled later).
-const HIDDEN_TABS = new Set<Tab>(["books", "posts", "banners"]);
+const HIDDEN_TABS = new Set<Tab>(["books", "posts", "banners", "reports"]);
 const VISIBLE_TABS = TABS.filter((t) => !HIDDEN_TABS.has(t.id));
 
 const TAB_TRANSITION_ORDER: Tab[] = [

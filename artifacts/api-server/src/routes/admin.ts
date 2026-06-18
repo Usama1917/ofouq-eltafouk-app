@@ -39,7 +39,7 @@ import {
   studentOnboardingResponsesTable,
   adminAuditLogTable,
 } from "@workspace/db";
-import { eq, ne, and, count, sql, desc, asc, or, gte, lt } from "drizzle-orm";
+import { eq, ne, and, count, sql, desc, asc, or, gte, lt, inArray, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 const bookCoversUploadDir = path.resolve(process.cwd(), "uploads/book-covers");
@@ -373,6 +373,81 @@ router.get("/admin/owner-dashboard/timeseries", async (req, res) => {
     res.status(400).json({ error: "مقياس غير معروف" });
   } catch (err) {
     req.log.error({ err }, "owner-dashboard timeseries error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Per-KPI metric time series (cumulative count over time) ───────────────────
+// Powers the "تقارير زمنية" flip side of each reports card: pick a KPI and watch
+// its running total evolve day by day. Every backing table has a creation
+// timestamp, so the value at day D = (rows that existed before the window) +
+// (rows created each day up to D), filtered to the metric's current subset.
+const METRIC_TS: Record<string, { table: any; ts: any; where?: any }> = {
+  totalUsers: { table: usersTable, ts: usersTable.joinedAt },
+  totalStudents: { table: usersTable, ts: usersTable.joinedAt, where: eq(usersTable.role, "student") },
+  totalTeachers: { table: usersTable, ts: usersTable.joinedAt, where: eq(usersTable.role, "teacher") },
+  totalAdmins: { table: usersTable, ts: usersTable.joinedAt, where: inArray(usersTable.role, ["admin", "owner"]) },
+  activeStudents: { table: usersTable, ts: usersTable.joinedAt, where: and(eq(usersTable.role, "student"), eq(usersTable.status, "active")) },
+  suspendedStudents: { table: usersTable, ts: usersTable.joinedAt, where: and(eq(usersTable.role, "student"), eq(usersTable.status, "suspended")) },
+  activeSubscriptions: { table: subjectSubscriptionsTable, ts: subjectSubscriptionsTable.createdAt, where: eq(subjectSubscriptionsTable.status, "active") },
+  pendingSubscriptions: { table: subjectSubscriptionRequestsTable, ts: subjectSubscriptionRequestsTable.submittedAt, where: eq(subjectSubscriptionRequestsTable.status, "pending") },
+  approvedSubscriptions: { table: subjectSubscriptionRequestsTable, ts: subjectSubscriptionRequestsTable.submittedAt, where: eq(subjectSubscriptionRequestsTable.status, "approved") },
+  rejectedSubscriptions: { table: subjectSubscriptionRequestsTable, ts: subjectSubscriptionRequestsTable.submittedAt, where: eq(subjectSubscriptionRequestsTable.status, "rejected") },
+  totalYears: { table: academicYearsTable, ts: academicYearsTable.createdAt },
+  totalSubjects: { table: subjectsTable, ts: subjectsTable.createdAt },
+  totalUnits: { table: unitsTable, ts: unitsTable.createdAt },
+  totalLessons: { table: lessonsTable, ts: lessonsTable.createdAt },
+  totalVideos: { table: videosTable, ts: videosTable.createdAt },
+  totalSegments: { table: videoSegmentsTable, ts: videoSegmentsTable.createdAt },
+  unreadSupport: { table: supportMessagesTable, ts: supportMessagesTable.createdAt, where: and(eq(supportMessagesTable.senderRole, "student"), isNull(supportMessagesTable.readAt)) },
+  openConversations: { table: supportConversationsTable, ts: supportConversationsTable.createdAt, where: eq(supportConversationsTable.status, "open") },
+  pushTokensAndroid: { table: pushNotificationTokensTable, ts: pushNotificationTokensTable.createdAt, where: eq(pushNotificationTokensTable.platform, "android") },
+  pushTokensIos: { table: pushNotificationTokensTable, ts: pushNotificationTokensTable.createdAt, where: eq(pushNotificationTokensTable.platform, "ios") },
+  pushTokensTotal: { table: pushNotificationTokensTable, ts: pushNotificationTokensTable.createdAt },
+};
+
+router.get("/admin/owner-dashboard/metric-timeseries", async (req, res) => {
+  try {
+    const num = (value: unknown) => Number(value ?? 0) || 0;
+    const metricKey = String(req.query.metric ?? "");
+    const def = METRIC_TS[metricKey];
+    if (!def) { res.status(400).json({ error: "مقياس غير معروف" }); return; }
+    const parseDay = (v: unknown) => { const s = String(v ?? ""); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null; };
+    const fromStr = parseDay(req.query.from);
+    const toStr = parseDay(req.query.to);
+    if (!fromStr || !toStr) { res.status(400).json({ error: "تاريخ غير صالح" }); return; }
+    let from = new Date(`${fromStr}T00:00:00.000Z`);
+    let to = new Date(`${toStr}T23:59:59.999Z`);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) { res.status(400).json({ error: "تاريخ غير صالح" }); return; }
+    if (from > to) { const t = from; from = to; to = t; }
+    // Cap the window at 366 days so a huge range can't hammer the DB.
+    const maxMs = 366 * 24 * 3600 * 1000;
+    if (to.getTime() - from.getTime() > maxMs) from = new Date(to.getTime() - maxMs);
+    const toExcl = new Date(to.getTime() + 1);
+
+    // Baseline = everything that already existed before the window's first day;
+    // the daily counts then accumulate on top of it for a true running total.
+    const baseWhere = def.where ? and(def.where, lt(def.ts, from)) : lt(def.ts, from);
+    const dayWhere = def.where ? and(def.where, gte(def.ts, from), lt(def.ts, toExcl)) : and(gte(def.ts, from), lt(def.ts, toExcl));
+    const [baselineRows, byDay] = await Promise.all([
+      db.select({ total: count() }).from(def.table).where(baseWhere),
+      db.select({ day: sql<string>`to_char(${def.ts}, 'YYYY-MM-DD')`, total: count() }).from(def.table).where(dayWhere).groupBy(sql`to_char(${def.ts}, 'YYYY-MM-DD')`),
+    ]);
+    let running = num(baselineRows[0]?.total);
+    const dayMap = new Map(byDay.map((r) => [r.day, num(r.total)]));
+
+    const series: { day: string; value: number }[] = [];
+    const cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
+    const end = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate()));
+    while (cur <= end) {
+      const key = cur.toISOString().slice(0, 10);
+      running += dayMap.get(key) ?? 0;
+      series.push({ day: key, value: running });
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    res.json({ metric: metricKey, from: fromStr, to: toStr, series });
+  } catch (err) {
+    req.log.error({ err }, "owner-dashboard metric-timeseries error");
     res.status(500).json({ error: "Internal server error" });
   }
 });
