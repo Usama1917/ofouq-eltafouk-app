@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useLayoutEffect } from "react";
+import { useState, useEffect, useRef, useLayoutEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import {
@@ -8,9 +8,10 @@ import {
   CheckCircle2, Clock, FolderTree, ListVideo, Sun, Moon, Info, X, History,
   Download, FileSpreadsheet, FileText, Loader2, Star, Snowflake,
   Search, SlidersHorizontal, GripVertical, Settings2, RotateCcw, Check, ChevronRight, ChevronLeft,
-  CalendarDays, KeyRound, Trash2, Eye, EyeOff,
+  CalendarDays, KeyRound, Trash2, Eye, EyeOff, UserMinus, Clock3,
 } from "lucide-react";
 import { fetchReport, exportExcel, exportPdf } from "@/lib/activity-export";
+import { exportReportExcel, exportReportPdf, type MetricColumn } from "@/lib/reports-export";
 import { numTick, numAxisWidth, catAxisWidth, AXIS_GAP } from "@/lib/chart-axis";
 import { EgyptHeatmap } from "@/components/egypt-heatmap";
 import { InternalChatWidget } from "@/components/internal-chat-widget";
@@ -283,6 +284,23 @@ async function fetchTimeseries(metric: string, from: string, to: string) {
 // Y-axis domain: cap at the user's max when set, else let Recharts auto-fit.
 const yDomain = (yMax: number | null): [number, number | "auto"] => [0, yMax && yMax > 0 ? yMax : "auto"];
 
+// Per-KPI cumulative time series (the "تقارير زمنية" flip side of the report cards).
+type MetricSeries = { metric: string; from: string; to: string; series: { day: string; value: number }[] };
+async function fetchMetricSeries(metric: string, from: string, to: string): Promise<MetricSeries> {
+  const res = await fetch(apiPath(`/api/admin/owner-dashboard/metric-timeseries?metric=${metric}&from=${from}&to=${to}`), { headers: authHeader() });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((d as any)?.error || "تعذّر تحميل التقرير الزمني");
+  return d as MetricSeries;
+}
+// Default window for the metric charts: last 30 days (inclusive).
+function lastNDaysRange(n: number) {
+  const now = new Date();
+  const to = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+  const s = new Date(now); s.setDate(s.getDate() - (n - 1));
+  const from = `${s.getFullYear()}-${pad2(s.getMonth() + 1)}-${pad2(s.getDate())}`;
+  return { from, to };
+}
+
 // Pixel span of each tier on the grid (columns × rows). Used to translate a live
 // drag size back into the nearest discrete tier.
 const TIER_SPAN: Record<CardSize, [number, number]> = { small: [1, 1], medium: [2, 1], large: [4, 1], xlarge: [4, 2] };
@@ -460,7 +478,12 @@ function ChartSettingsPanel({ id, categories, settings, onChange, onReset }: {
                         from: r?.from ? format(r.from, "yyyy-MM-dd") : null,
                         to: r?.to ? format(r.to, "yyyy-MM-dd") : null,
                       })}
-                      className="mx-auto rounded-xl border border-white/60 bg-white/50 p-2 dark:border-white/10 dark:bg-white/[0.04] [--cell-size:1.9rem]"
+                      components={{ Chevron: ({ orientation, className, ...p }: any) => (
+                        orientation === "left"
+                          ? <ChevronRight style={{ transform: "none" }} className={`size-4 ${className ?? ""}`} {...p} />
+                          : <ChevronLeft style={{ transform: "none" }} className={`size-4 ${className ?? ""}`} {...p} />
+                      ) }}
+                      className="!w-full rounded-xl border border-white/60 bg-white/50 p-1.5 dark:border-white/10 dark:bg-white/[0.04] [--cell-size:2.1rem] [&_.rdp-month]:w-full [&_.rdp-months]:w-full [&_button]:text-[0.95rem] [&_.rdp-weekday]:text-[0.8rem]"
                     />
                   </motion.div>
                 ) : null}
@@ -510,22 +533,38 @@ function ChartSettingsPanel({ id, categories, settings, onChange, onReset }: {
   );
 }
 
-// Corner grip (bottom-left): invisible until the card is hovered, glows blue when
-// approached/grabbed. It forwards raw pointer drag to the card, which resizes the
-// card live (following the cursor) and snaps to the nearest tier on release.
-function ResizeGrip({ onDown, onMove, onUp, active }: {
-  onDown: (e: React.PointerEvent) => void; onMove: (e: React.PointerEvent) => void; onUp: (e: React.PointerEvent) => void; active: boolean;
+// ── Corner resize grips ──────────────────────────────────────────────────────
+// A card can be grabbed from any of its four corners, but the corners aren't all
+// offered all the time: only the ones with room to grow toward the grid edge are
+// usable, and each stays hidden until the cursor comes *close* to it (not on a
+// plain card hover). The card decides which corner to reveal; this component just
+// draws the bracket and forwards the pointer drag.
+type Corner = "tl" | "tr" | "bl" | "br";
+// The same curved corner bracket as before, just rotated to hug each corner.
+const RESIZE_ARC = "M6 4 A14 14 0 0 1 20 18";
+const CORNER_META: Record<Corner, { pos: string; svg: string; cursor: string; rot: string }> = {
+  tl: { pos: "top-0 left-0",     svg: "top-1 left-1",     cursor: "cursor-nwse-resize", rot: "rotate-[270deg]" },
+  tr: { pos: "top-0 right-0",    svg: "top-1 right-1",    cursor: "cursor-nesw-resize", rot: "rotate-0" },
+  bl: { pos: "bottom-0 left-0",  svg: "bottom-1 left-1",  cursor: "cursor-nesw-resize", rot: "rotate-180" },
+  br: { pos: "bottom-0 right-0", svg: "bottom-1 right-1", cursor: "cursor-nwse-resize", rot: "rotate-90" },
+};
+// How close the cursor must get to the bottom-left corner before its grip appears.
+const RESIZE_PROXIMITY = 70;
+function ResizeGrip({ corner, active, onDown, onMove, onUp }: {
+  corner: Corner; active: boolean;
+  onDown: (e: React.PointerEvent) => void; onMove: (e: React.PointerEvent) => void; onUp: (e: React.PointerEvent) => void;
 }) {
+  const m = CORNER_META[corner];
   return (
     <div
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
       onClick={(e) => e.stopPropagation()}
       title="اسحب لتغيير الحجم"
-      className={`absolute bottom-0 left-0 z-30 h-8 w-8 cursor-nesw-resize transition-opacity duration-150 ${active ? "opacity-100" : "opacity-0 group-hover/card:opacity-100"}`}
+      className={`absolute ${m.pos} ${m.cursor} z-30 h-8 w-8 opacity-100 transition-opacity duration-150`}
     >
       <svg viewBox="0 0 24 24" fill="none"
-        className={`absolute bottom-1 left-1 h-5 w-5 rotate-180 transition-colors ${active ? "text-primary drop-shadow-[0_0_6px_rgba(59,130,246,0.85)]" : "text-muted-foreground/50 hover:text-primary hover:drop-shadow-[0_0_6px_rgba(59,130,246,0.85)]"}`}>
-        <path d="M6 4 A14 14 0 0 1 20 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+        className={`absolute ${m.svg} h-5 w-5 ${m.rot} transition-colors ${active ? "text-primary drop-shadow-[0_0_6px_rgba(59,130,246,0.85)]" : "text-muted-foreground/60 hover:text-primary hover:drop-shadow-[0_0_6px_rgba(59,130,246,0.85)]"}`}>
+        <path d={RESIZE_ARC} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
       </svg>
     </div>
   );
@@ -574,22 +613,31 @@ function ChartCard({ title, icon: Icon, iconClass, children, empty, size = "medi
   }, [settingsOpen]);
 
   // ── Live resize (follows the cursor; snaps to nearest tier on release) ──
+  // `near` = the corner the cursor is currently close to (revealed grip);
+  // `activeCorner` = the corner being dragged. Dragging any corner grows the card
+  // when the cursor moves outward (away from the card) and shrinks it when inward.
   const [livePx, setLivePx] = useState<{ w: number; h: number } | null>(null);
-  const resizeStart = useRef<{ x: number; y: number; w: number; h: number; colUnit: number; rowUnit: number } | null>(null);
-  const onGripDown = (e: React.PointerEvent) => {
+  const [near, setNear] = useState<Corner | null>(null);
+  const [activeCorner, setActiveCorner] = useState<Corner | null>(null);
+  const resizeStart = useRef<{ corner: Corner; x: number; y: number; w: number; h: number; colUnit: number; rowUnit: number } | null>(null);
+  const onGripDown = (corner: Corner) => (e: React.PointerEvent) => {
     e.preventDefault(); e.stopPropagation();
     const el = elRef.current; if (!el) return;
     const r = el.getBoundingClientRect();
     const [cs, rs] = TIER_SPAN[size as CardSize];
-    resizeStart.current = { x: e.clientX, y: e.clientY, w: r.width, h: r.height, colUnit: r.width / cs, rowUnit: r.height / rs };
+    resizeStart.current = { corner, x: e.clientX, y: e.clientY, w: r.width, h: r.height, colUnit: r.width / cs, rowUnit: r.height / rs };
+    setActiveCorner(corner);
     setLivePx({ w: r.width, h: r.height });
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
   };
   const onGripMove = (e: React.PointerEvent) => {
     const s = resizeStart.current; if (!s) return;
+    const dx = e.clientX - s.x, dy = e.clientY - s.y;
+    const left = s.corner === "tl" || s.corner === "bl";
+    const top = s.corner === "tl" || s.corner === "tr";
     setLivePx({
-      w: Math.max(s.colUnit * 0.6, s.w + (s.x - e.clientX)), // grow leftward
-      h: Math.max(s.rowUnit * 0.6, s.h + (e.clientY - s.y)), // grow downward
+      w: Math.max(s.colUnit * 0.6, s.w + (left ? -dx : dx)), // outward = grow
+      h: Math.max(s.rowUnit * 0.6, s.h + (top ? -dy : dy)),
     });
   };
   const onGripUp = () => {
@@ -600,9 +648,23 @@ function ChartCard({ title, icon: Icon, iconClass, children, empty, size = "medi
       const dbl = lp.h / s.rowUnit >= 1.5;
       onResize(nearestCol <= 1 ? "small" : nearestCol === 2 ? "medium" : dbl ? "xlarge" : "large");
     }
-    resizeStart.current = null; setLivePx(null);
+    resizeStart.current = null; setLivePx(null); setActiveCorner(null);
   };
   const resizing = livePx !== null;
+
+  // Reveal the single bottom-left grip only when the cursor comes close to that
+  // corner (not on a plain card hover).
+  const onCardPointerMove = (e: React.PointerEvent) => {
+    if (activeCorner || isDragging) { if (near) setNear(null); return; }
+    const el = elRef.current; if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const d = Math.hypot(e.clientX - rect.left, e.clientY - rect.bottom); // bottom-left corner
+    const next: Corner | null = d <= RESIZE_PROXIMITY ? "bl" : null;
+    setNear((prev) => (prev === next ? prev : next));
+  };
+  const onCardPointerLeave = () => { if (!activeCorner) setNear(null); };
+  const shownCorner = activeCorner ?? near;
+  const resizeStyle = resizing && livePx ? { width: livePx.w, height: livePx.h, zIndex: 50 } : undefined;
 
   return (
     <motion.div
@@ -619,7 +681,9 @@ function ChartCard({ title, icon: Icon, iconClass, children, empty, size = "medi
       onDragEnd={() => onReorderEnd?.()}
       whileDrag={{ scale: 1.03, zIndex: 50 }}
       transition={{ layout: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } }}
-      style={resizing && livePx ? { width: livePx.w, height: livePx.h, zIndex: 50 } : undefined}
+      onPointerMove={resizable ? onCardPointerMove : undefined}
+      onPointerLeave={resizable ? onCardPointerLeave : undefined}
+      style={resizeStyle}
       className={`glass-card p-5 relative flex h-full flex-col overflow-hidden ${interactive ? `group/card ${CARD_SPAN[size as CardSize]}` : ""} ${(isDragging || resizing) ? "shadow-2xl ring-2 ring-primary/40" : ""}`}
     >
       <h3 className="font-display font-bold text-base text-foreground mb-4 flex items-center gap-2 shrink-0">
@@ -659,7 +723,10 @@ function ChartCard({ title, icon: Icon, iconClass, children, empty, size = "medi
       ) : (
         <div className="min-h-0 flex-1">{children}</div>
       )}
-      {resizable ? <ResizeGrip onDown={onGripDown} onMove={onGripMove} onUp={onGripUp} active={resizing} /> : null}
+      {resizable && shownCorner ? (
+        <ResizeGrip corner={shownCorner} active={activeCorner === shownCorner}
+          onDown={onGripDown(shownCorner)} onMove={onGripMove} onUp={onGripUp} />
+      ) : null}
     </motion.div>
   );
 }
@@ -1082,7 +1149,222 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
 const UsersIcon = Users;
 
 // ── Reports Tab (real data) ────────────────────────────────────────────────
-function ReportsTab() {
+// One report card with a "تقارير زمنية" (time reports) flip side: the front shows
+// the KPI rows, the clock button flips the card on its vertical axis (right→left),
+// and the back lets you pick any of those KPIs, choose a date range, export the
+// whole report (Excel detail + PDF summary), and see the running total over time —
+// same chart style as "النشاط خلال آخر 7 أيام".
+type ReportCard = { title: string; icon: any; iconClass: string; color: string; rows: [string, number, string][] };
+function ReportFlipCard({ card, isDark }: { card: ReportCard; isDark: boolean }) {
+  const [flipped, setFlipped] = useState(false);
+  const [metric, setMetric] = useState<string>(card.rows[0]?.[2] ?? "");
+  // Custom range (both must be set to take effect); otherwise the chart/export
+  // default to the last 30 days — mirrors the dashboard's per-card calendar.
+  const [from, setFrom] = useState<string | null>(null);
+  const [to, setTo] = useState<string | null>(null);
+  const [drOpen, setDrOpen] = useState(false);
+  const [calOpen, setCalOpen] = useState(false);
+  const [exOpen, setExOpen] = useState(false);
+  const [busy, setBusy] = useState<null | "excel" | "pdf">(null);
+  const drRef = useRef<HTMLDivElement>(null);
+  const exRef = useRef<HTMLDivElement>(null);
+
+  const usingCustom = !!(from && to);
+  const eff = useMemo(() => (from && to ? { from, to } : lastNDaysRange(30)), [from, to]);
+  const label = (card.rows.find((r) => r[2] === metric) ?? card.rows[0])?.[0] ?? "";
+  const q = useQuery({
+    queryKey: ["owner-metric-ts", metric, eff.from, eff.to],
+    queryFn: () => fetchMetricSeries(metric, eff.from, eff.to),
+    enabled: flipped && !!metric,
+  });
+  const axisColor = isDark ? "#E5E7EB" : "#475569";
+  const gridColor = isDark ? "rgba(255,255,255,0.14)" : "#EEF0F2";
+  const chartData = (q.data?.series ?? []).map((s) => ({ day: dayLabel(s.day), value: s.value }));
+  const periodText = usingCustom ? formatRangeDurationAr(eff.from, eff.to) : "آخر 30 يوم";
+
+  // Close the popovers on outside-click / Escape.
+  useEffect(() => {
+    if (!drOpen && !exOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (drOpen && drRef.current && !drRef.current.contains(t)) { setDrOpen(false); setCalOpen(false); }
+      if (exOpen && exRef.current && !exRef.current.contains(t)) setExOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setDrOpen(false); setCalOpen(false); setExOpen(false); } };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [drOpen, exOpen]);
+
+  const runExport = async (kind: "excel" | "pdf") => {
+    setBusy(kind);
+    try {
+      const cols = await Promise.all(card.rows.map(async ([lbl, , key]) => {
+        const r = await fetchMetricSeries(key, eff.from, eff.to);
+        return { key, label: lbl, series: r.series } as MetricColumn;
+      }));
+      const payload = { title: card.title, from: eff.from, to: eff.to, days: cols[0]?.series.length ?? 0, color: card.color, metrics: cols };
+      if (kind === "excel") exportReportExcel(payload); else await exportReportPdf(payload);
+      toast.success(kind === "excel" ? "تم تنزيل ملف Excel ✓" : "تم تنزيل ملف PDF ✓");
+      setExOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "تعذّر التصدير، حاول مجددًا");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const calRange = { from: from ? parseISO(from) : undefined, to: to ? parseISO(to) : undefined };
+
+  return (
+    // While a popover is open, lift this whole card above the cards below it so its
+    // overflowing menu/calendar isn't covered by the next card in the grid.
+    <div className={`[perspective:1600px] relative ${drOpen || exOpen ? "z-50" : "z-0"}`}>
+
+      <motion.div
+        animate={{ rotateY: flipped ? 180 : 0 }}
+        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        style={{ transformStyle: "preserve-3d" }}
+        className="relative min-h-[360px]"
+      >
+        {/* FRONT — KPI rows + clock button (top-left) */}
+        <div className="glass-card p-5 absolute inset-0 flex flex-col [backface-visibility:hidden]">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="font-display font-bold text-base flex items-center gap-2"><card.icon className={`w-5 h-5 ${card.iconClass}`} />{card.title}</h3>
+            <button onClick={() => setFlipped(true)} title="تقارير زمنية" aria-label="تقارير زمنية"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-white/70 bg-white/70 text-muted-foreground transition-all hover:bg-white hover:text-primary dark:border-white/10 dark:bg-white/10 dark:hover:bg-white/20">
+              <Clock3 className="h-[18px] w-[18px]" />
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            {card.rows.map(([rl, rv]) => (
+              <div key={rl} className="flex items-center justify-between text-sm py-1.5 border-b border-white/30 last:border-0">
+                <span className="text-muted-foreground">{rl}</span>
+                <span className="font-bold text-foreground">{fmt(rv)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* BACK — metric dropdown + export + date range + time chart */}
+        <div className="glass-card p-5 absolute inset-0 flex flex-col [backface-visibility:hidden]" style={{ transform: "rotateY(180deg)" }}>
+          <div className="mb-2 flex items-center gap-2">
+            <select value={metric} onChange={(e) => setMetric(e.target.value)}
+              className="min-w-0 flex-1 rounded-xl border border-white/70 bg-white/70 px-3 py-2 text-sm font-semibold text-foreground outline-none focus:border-primary/50 dark:border-white/10 dark:bg-white/10">
+              {card.rows.map(([rl, , key]) => (<option key={key} value={key}>{rl}</option>))}
+            </select>
+
+            {/* Export (Excel + PDF) */}
+            <div ref={exRef} className="relative shrink-0">
+              <button onClick={() => { setExOpen((o) => !o); setDrOpen(false); }} title="تصدير" aria-label="تصدير"
+                className={`flex h-9 w-9 items-center justify-center rounded-xl border transition-all ${exOpen ? "border-primary bg-primary text-white" : "border-white/70 bg-white/70 text-primary hover:bg-white dark:border-white/10 dark:bg-white/10 dark:hover:bg-white/20"}`}>
+                <Download className="h-[18px] w-[18px]" />
+              </button>
+              <AnimatePresence>
+                {exOpen ? (
+                  <motion.div dir="rtl"
+                    initial={{ opacity: 0, scale: 0.9, y: -6 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: -6 }}
+                    transition={{ duration: 0.16 }} style={{ transformOrigin: "top left" }}
+                    className="absolute left-0 top-full z-[70] mt-2 w-56 rounded-2xl border border-white/60 bg-white/95 p-1.5 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#15181e]/95">
+                    <p className="px-2.5 pb-1.5 pt-1 text-[11px] font-bold text-muted-foreground">تصدير عن {periodText}</p>
+                    <button onClick={() => runExport("excel")} disabled={!!busy}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-right text-sm font-semibold text-foreground transition-colors hover:bg-muted/70 disabled:opacity-50">
+                      {busy === "excel" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 text-emerald-600" />}
+                      <span className="flex-1">ملف Excel (تفصيلي)</span>
+                    </button>
+                    <button onClick={() => runExport("pdf")} disabled={!!busy}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-right text-sm font-semibold text-foreground transition-colors hover:bg-muted/70 disabled:opacity-50">
+                      {busy === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-rose-600" />}
+                      <span className="flex-1">ملف PDF (ملخص صفحة)</span>
+                    </button>
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </div>
+
+            {/* Date range */}
+            <div ref={drRef} className="relative shrink-0">
+              <button onClick={() => { setDrOpen((o) => !o); setExOpen(false); }} title="الفترة الزمنية" aria-label="الفترة الزمنية"
+                className={`flex h-9 w-9 items-center justify-center rounded-xl border transition-all ${drOpen || usingCustom ? "border-primary bg-primary text-white" : "border-white/70 bg-white/70 text-primary hover:bg-white dark:border-white/10 dark:bg-white/10 dark:hover:bg-white/20"}`}>
+                <CalendarDays className="h-[18px] w-[18px]" />
+              </button>
+              <AnimatePresence>
+                {drOpen ? (
+                  <motion.div dir="rtl"
+                    initial={{ opacity: 0, scale: 0.9, y: -6 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: -6 }}
+                    transition={{ duration: 0.16 }} style={{ transformOrigin: "top left" }}
+                    className="absolute left-0 top-full z-[70] mt-2 w-[280px] space-y-2 rounded-2xl border border-white/60 bg-white/95 p-3 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#15181e]/95">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-bold text-muted-foreground">الفترة الزمنية</p>
+                      <button onClick={() => setCalOpen((o) => !o)} title="افتح التقويم"
+                        className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${calOpen ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted hover:text-primary"}`}>
+                        <CalendarDays className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <div className="space-y-1.5 rounded-xl border border-white/60 bg-white/50 p-2.5 dark:border-white/10 dark:bg-white/[0.04]">
+                      <DateMyField label="من" value={from} onChange={setFrom} />
+                      <DateMyField label="إلى" value={to} onChange={setTo} />
+                      <div className="flex items-center justify-between gap-2 border-t border-white/60 pt-1.5 dark:border-white/10">
+                        <span className="truncate text-[11px] text-muted-foreground">
+                          {usingCustom ? <>المدة: <span className="font-bold text-foreground">{formatRangeDurationAr(from, to)}</span></> : "الافتراضي (آخر 30 يوم)"}
+                        </span>
+                        {from || to ? (
+                          <button onClick={() => { setFrom(null); setTo(null); }} className="shrink-0 text-[11px] font-bold text-muted-foreground hover:text-primary">مسح</button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <AnimatePresence initial={false}>
+                      {calOpen ? (
+                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }} className="overflow-hidden">
+                          <Calendar mode="range" dir="ltr" numberOfMonths={1} selected={calRange as any}
+                            onSelect={(r: any) => { setFrom(r?.from ? format(r.from, "yyyy-MM-dd") : null); setTo(r?.to ? format(r.to, "yyyy-MM-dd") : null); }}
+                            components={{ Chevron: ({ orientation, className, ...p }: any) => (
+                              orientation === "left"
+                                ? <ChevronRight style={{ transform: "none" }} className={`size-4 ${className ?? ""}`} {...p} />
+                                : <ChevronLeft style={{ transform: "none" }} className={`size-4 ${className ?? ""}`} {...p} />
+                            ) }}
+                            className="!w-full rounded-xl border border-white/60 bg-white/50 p-1.5 dark:border-white/10 dark:bg-white/[0.04] [--cell-size:2.1rem] [&_.rdp-month]:w-full [&_.rdp-months]:w-full [&_button]:text-[0.95rem] [&_.rdp-weekday]:text-[0.8rem]" />
+                        </motion.div>
+                      ) : null}
+                    </AnimatePresence>
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </div>
+
+            <button onClick={() => setFlipped(false)} title="رجوع للأرقام" aria-label="رجوع"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary transition-all hover:bg-primary/15">
+              <Clock3 className="h-[18px] w-[18px]" />
+            </button>
+          </div>
+          <p className="mb-2 truncate text-xs font-semibold text-muted-foreground">{label} · {periodText}</p>
+          <div className="min-h-0 flex-1">
+            {q.isLoading ? (
+              <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+            ) : q.isError ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+                <AlertTriangle className="h-7 w-7 text-amber-500" />
+                <button onClick={() => q.refetch()} className="text-xs font-bold text-primary">إعادة المحاولة</button>
+              </div>
+            ) : chartData.length === 0 ? <EmptyRow /> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                  <XAxis dataKey="day" tick={{ fontSize: 11, fontFamily: "Cairo", fill: axisColor }} minTickGap={24} />
+                  <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(null)} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(chartData.map((d) => d.value))} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Area type="monotone" dataKey="value" name={label} stroke={card.color} fill={`${card.color}33`} strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function ReportsTab({ isDark }: { isDark: boolean }) {
   const { data, isLoading, isError, refetch } = useOwnerSummary();
   if (isLoading) return <div className="glass-card p-8 animate-pulse h-64" />;
   if (isError || !data) return (
@@ -1093,28 +1375,18 @@ function ReportsTab() {
   );
   const k = data.kpis;
 
-  const reportCards = [
-    { title: "تقرير المستخدمين", icon: Users, rows: [["إجمالي المستخدمين", k.totalUsers], ["الطلاب", k.totalStudents], ["المعلمون", k.totalTeachers], ["المشرفون والملاك", k.totalAdmins], ["طلاب نشطون", k.activeStudents], ["طلاب موقوفون", k.suspendedStudents]] },
-    { title: "تقرير الاشتراكات", icon: TicketPercent, rows: [["اشتراكات نشطة", k.activeSubscriptions], ["قيد المراجعة", k.pendingSubscriptions], ["مقبولة", k.approvedSubscriptions], ["مرفوضة", k.rejectedSubscriptions]] },
-    { title: "تقرير المحتوى الأكاديمي", icon: GraduationCap, rows: [["السنوات", k.totalYears], ["المواد", k.totalSubjects], ["الوحدات", k.totalUnits], ["الدروس", k.totalLessons], ["الفيديوهات", k.totalVideos], ["التقسيمات", k.totalSegments]] },
-    { title: "تقرير الدعم والإشعارات", icon: MessageSquare, rows: [["رسائل غير مقروءة", k.unreadSupport], ["محادثات مفتوحة", k.openConversations], ["أجهزة أندرويد", k.pushTokensAndroid], ["أجهزة iOS", k.pushTokensIos], ["إجمالي الأجهزة", k.pushTokensTotal]] },
+  const reportCards: ReportCard[] = [
+    { title: "تقرير المستخدمين", icon: Users, iconClass: "text-primary", color: "#3B82F6", rows: [["إجمالي المستخدمين", k.totalUsers, "totalUsers"], ["الطلاب", k.totalStudents, "totalStudents"], ["المعلمون", k.totalTeachers, "totalTeachers"], ["المشرفون والملاك", k.totalAdmins, "totalAdmins"], ["طلاب نشطون", k.activeStudents, "activeStudents"], ["طلاب موقوفون", k.suspendedStudents, "suspendedStudents"]] },
+    { title: "تقرير الاشتراكات", icon: TicketPercent, iconClass: "text-emerald-500", color: "#10B981", rows: [["اشتراكات نشطة", k.activeSubscriptions, "activeSubscriptions"], ["قيد المراجعة", k.pendingSubscriptions, "pendingSubscriptions"], ["مقبولة", k.approvedSubscriptions, "approvedSubscriptions"], ["مرفوضة", k.rejectedSubscriptions, "rejectedSubscriptions"]] },
+    { title: "تقرير المحتوى الأكاديمي", icon: GraduationCap, iconClass: "text-indigo-500", color: "#6366F1", rows: [["السنوات", k.totalYears, "totalYears"], ["المواد", k.totalSubjects, "totalSubjects"], ["الوحدات", k.totalUnits, "totalUnits"], ["الدروس", k.totalLessons, "totalLessons"], ["الفيديوهات", k.totalVideos, "totalVideos"], ["التقسيمات", k.totalSegments, "totalSegments"]] },
+    { title: "تقرير الدعم والإشعارات", icon: MessageSquare, iconClass: "text-amber-500", color: "#F59E0B", rows: [["رسائل غير مقروءة", k.unreadSupport, "unreadSupport"], ["محادثات مفتوحة", k.openConversations, "openConversations"], ["أجهزة أندرويد", k.pushTokensAndroid, "pushTokensAndroid"], ["أجهزة iOS", k.pushTokensIos, "pushTokensIos"], ["إجمالي الأجهزة", k.pushTokensTotal, "pushTokensTotal"]] },
   ];
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {reportCards.map((c) => (
-          <div key={c.title} className="glass-card p-5">
-            <h3 className="font-display font-bold text-base mb-3 flex items-center gap-2"><c.icon className="w-5 h-5 text-primary" />{c.title}</h3>
-            <div className="space-y-1.5">
-              {c.rows.map(([label, value]) => (
-                <div key={label as string} className="flex items-center justify-between text-sm py-1.5 border-b border-white/30 last:border-0">
-                  <span className="text-muted-foreground">{label}</span>
-                  <span className="font-bold text-foreground">{fmt(value as number)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ReportFlipCard key={c.title} card={c} isDark={isDark} />
         ))}
       </div>
 
@@ -1465,6 +1737,16 @@ function AdminsTab() {
   const [pwValue, setPwValue] = useState("");
   const [pwShow, setPwShow] = useState(false);
   const [pwBusy, setPwBusy] = useState(false);
+  // Right-click actions menu — actions are hidden on the card and surface here,
+  // anchored at the cursor. `u` is the row the menu was opened on.
+  const [menu, setMenu] = useState<{ x: number; y: number; u: (typeof admins)[number] } | null>(null);
+  const openMenu = (e: React.MouseEvent, u: (typeof admins)[number]) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, u }); };
+  useEffect(() => {
+    if (!menu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenu(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menu]);
   const submitPassword = async () => {
     if (!pwTarget || pwValue.length < 8) { toast.error("كلمة المرور يجب أن تكون 8 أحرف على الأقل"); return; }
     setPwBusy(true);
@@ -1488,7 +1770,10 @@ function AdminsTab() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-display font-bold">إدارة المشرفين ({admins.length})</h2>
+        <div>
+          <h2 className="text-xl font-display font-bold">إدارة المشرفين ({admins.length})</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">كليك يمين على أي بطاقة لعرض خيارات الإدارة</p>
+        </div>
         <button onClick={() => setAdding(true)} className="btn-primary text-sm py-2.5 px-5"><Plus className="w-4 h-4" /> إضافة مشرف</button>
       </div>
 
@@ -1529,29 +1814,57 @@ function AdminsTab() {
         {admins.map((u) => {
           const isOwner = (u.role as unknown as string) === "owner";
           return (
-            <div key={u.id} className="glass-card p-5 pl-16 flex items-center gap-4 relative">
+            <div key={u.id} onContextMenu={(e) => openMenu(e, u)} title="كليك يمين لعرض الخيارات"
+              className={`glass-card p-5 flex items-center gap-4 relative cursor-context-menu transition-shadow ${menu?.u.id === u.id ? "ring-2 ring-primary/40" : ""}`}>
               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-display font-black text-lg flex-shrink-0 ${isOwner ? "bg-gradient-to-br from-amber-400 to-orange-500" : "bg-gradient-to-br from-violet-500 to-purple-600"}`}>{u.name.charAt(0)}</div>
               <div className="flex-1 min-w-0">
                 <p className="flex items-center gap-1.5 font-bold text-foreground"><span className="truncate">{u.name}</span><RoleIcon role={u.role as unknown as string} /></p>
                 <p className="text-sm text-muted-foreground">{u.email}</p>
                 <span className={`inline-block mt-1 text-xs font-bold px-2.5 py-0.5 rounded-full ${isOwner ? "bg-amber-100 text-amber-700" : "bg-violet-100 text-violet-700"}`}>{isOwner ? "مالك" : "مشرف"}</span>
               </div>
-              <div className="flex flex-col gap-2 flex-shrink-0">
-                {!isOwner && (
-                  <button onClick={() => { if (confirm(`ترقية ${u.name} إلى مالك بصلاحيات كاملة؟`)) updateUser.mutate({ id: u.id, data: { role: "owner" } as any }, { onSuccess: () => refetch() }); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition-all">ترقية لمالك</button>
-                )}
-                <button onClick={() => { if (confirm(`إزالة ${u.name} من المشرفين؟`)) updateUser.mutate({ id: u.id, data: { role: "student" } as any }, { onSuccess: () => refetch() }); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-all">إزالة الصلاحيات</button>
-                {isOwnerActor && u.id !== me?.id && (
-                  <button onClick={() => { setPwTarget({ id: u.id, name: u.name }); setPwValue(""); setPwShow(false); }} className="inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-sky-100 text-sky-700 hover:bg-sky-200 transition-all"><KeyRound className="w-3.5 h-3.5" /> تغيير كلمة المرور</button>
-                )}
-              </div>
-              <button onClick={() => setDetailsId(u.id)} title="تفاصيل وسجل النشاط" className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-xl bg-white/70 dark:bg-white/10 border border-white/70 dark:border-white/10 flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-white dark:hover:bg-white/20 transition-all">
-                <Info className="w-4.5 h-4.5" />
-              </button>
             </div>
           );
         })}
       </div>
+
+      {/* Right-click actions menu — anchored at the cursor, mirrors the chat menu. */}
+      <AnimatePresence>
+        {menu ? (() => {
+          const u = menu.u;
+          const isOwner = (u.role as unknown as string) === "owner";
+          const close = () => setMenu(null);
+          return (
+            <>
+              <div className="fixed inset-0 z-[60]" onClick={close} onContextMenu={(e) => { e.preventDefault(); close(); }} />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: -6 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -6 }}
+                transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+                style={{ left: Math.min(menu.x, window.innerWidth - 248), top: Math.min(menu.y, window.innerHeight - 240) }}
+                className="fixed z-[61] w-56 origin-top overflow-hidden rounded-2xl border border-white/60 bg-white/97 p-1.5 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#11151b]/97"
+                dir="rtl"
+              >
+                <p className="truncate px-3 pb-2 pt-1.5 text-xs font-bold text-muted-foreground">{u.name}</p>
+                <button onClick={() => { setDetailsId(u.id); close(); }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-right text-sm font-semibold text-foreground transition-colors hover:bg-muted/70">
+                  <Info className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="flex-1">تفاصيل وسجل النشاط</span>
+                </button>
+                {!isOwner && (
+                  <button onClick={() => { close(); if (confirm(`ترقية ${u.name} إلى مالك بصلاحيات كاملة؟`)) updateUser.mutate({ id: u.id, data: { role: "owner" } as any }, { onSuccess: () => refetch() }); }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-right text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-500/10">
+                    <Crown className="h-4 w-4 shrink-0" /><span className="flex-1">ترقية لمالك</span>
+                  </button>
+                )}
+                {isOwnerActor && u.id !== me?.id && (
+                  <button onClick={() => { close(); setPwTarget({ id: u.id, name: u.name }); setPwValue(""); setPwShow(false); }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-right text-sm font-semibold text-sky-700 transition-colors hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-500/10">
+                    <KeyRound className="h-4 w-4 shrink-0" /><span className="flex-1">تغيير كلمة المرور</span>
+                  </button>
+                )}
+                <button onClick={() => { close(); if (confirm(`إزالة ${u.name} من المشرفين؟`)) updateUser.mutate({ id: u.id, data: { role: "student" } as any }, { onSuccess: () => refetch() }); }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-right text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10">
+                  <UserMinus className="h-4 w-4 shrink-0" /><span className="flex-1">إزالة الصلاحيات</span>
+                </button>
+              </motion.div>
+            </>
+          );
+        })() : null}
+      </AnimatePresence>
 
       {/* Owner-only password reset dialog */}
       <AnimatePresence>
@@ -1810,7 +2123,7 @@ export default function OwnerPanel() {
 
   const TAB_CONTENT: Record<Tab, React.ReactNode> = {
     dashboard: <DashboardTab go={setTab} isDark={isDarkAdmin} />,
-    reports: <ReportsTab />,
+    reports: <ReportsTab isDark={isDarkAdmin} />,
     admins: <AdminsTab />,
     users: <AllUsersTab />,
   };
