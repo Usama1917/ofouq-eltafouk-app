@@ -787,7 +787,19 @@ export default function NotificationsScreen() {
             <Text style={[styles.confirmTitle, { color: colors.text, writingDirection: direction }]}>
               {language === "ar" ? "مسح الإشعارات المقروءة" : "Clear read notifications"}
             </Text>
-            <Text style={[styles.confirmBody, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+            <Text
+              style={[
+                styles.confirmBody,
+                {
+                  color: colors.textSecondary,
+                  // Modal portals can drop the RTL context (esp. Android), so pin
+                  // the body alignment explicitly per language instead of relying
+                  // on the inherited textAlign — Arabic must read right.
+                  textAlign: language === "ar" ? "right" : "left",
+                  writingDirection: direction,
+                },
+              ]}
+            >
               {language === "ar"
                 ? "سيتم حذف جميع الإشعارات التي تمت قراءتها. لا يمكن التراجع عن هذا الإجراء."
                 : "All read notifications will be permanently removed. This action cannot be undone."}

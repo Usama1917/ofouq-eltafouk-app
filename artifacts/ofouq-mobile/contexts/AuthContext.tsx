@@ -27,11 +27,31 @@ export interface User {
   onboardingCompleted?: boolean;
 }
 
+// Result of a password login when two-factor SMS is enabled server-side. "otp"
+// → a code was sent to the user's verified phone; "phone_setup" → the user has no
+// verified phone yet and must add+verify one first; "authenticated" → 2FA was off
+// (or not required) and the session is already established.
+export type LoginResult =
+  | { status: "authenticated" }
+  | { status: "otp"; challengeId: string; maskedDestination: string; channel: string; devCode?: string }
+  | { status: "phone_setup"; setupTicket: string };
+
+export type OtpChallenge = { challengeId: string; maskedDestination: string; devCode?: string };
+
 interface AuthContextValue {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  // Verify the SMS code for a normal 2FA login and establish the session.
+  completeOtp: (challengeId: string, code: string) => Promise<void>;
+  // Submit a first-time phone number (authorised by the login setupTicket); returns
+  // the verification challenge for that number.
+  startPhoneSetup: (setupTicket: string, phone: string) => Promise<OtpChallenge>;
+  // Verify the first-time phone code, mark the phone verified, and establish the session.
+  completePhoneVerify: (challengeId: string, code: string) => Promise<void>;
+  // Re-send the code for an existing challenge (login or phone-verify).
+  resendOtp: (challengeId: string) => Promise<OtpChallenge>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   updateUser: (user: User) => void;
@@ -82,9 +102,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // server rejects it (a network failure keeps the cached session so the
           // app still works offline).
           try {
-            const fresh = await apiFetch<User>("/api/auth/me", { token: storedToken });
-            setUser(fresh);
-            await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(fresh));
+            // /auth/me may return a freshly-rolled `token` when the current one has
+            // aged past the refresh window — store it so an active session keeps
+            // sliding forward and the user is rarely forced to log in (and re-OTP).
+            const fresh = await apiFetch<User & { token?: string }>("/api/auth/me", { token: storedToken });
+            const { token: rolledToken, ...freshUser } = fresh;
+            setUser(freshUser);
+            await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(freshUser));
+            if (typeof rolledToken === "string" && rolledToken) {
+              setToken(rolledToken);
+              await setStoredToken(rolledToken);
+            }
           } catch (err) {
             if ((err as ApiError)?.status === 401) {
               setUser(null);
@@ -139,17 +167,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [token]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const data = await apiFetch<{ user: User; token: string }>("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
-    setUser(data.user);
-    setToken(data.token);
+  // Persist a freshly-authenticated session (user + token) to state and storage.
+  const establishSession = useCallback(async (nextUser: User, nextToken: string) => {
+    setUser(nextUser);
+    setToken(nextToken);
     await Promise.all([
-      AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user)),
-      setStoredToken(data.token),
+      AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(nextUser)),
+      setStoredToken(nextToken),
     ]);
+  }, []);
+
+  const login = useCallback(
+    async (email: string, password: string): Promise<LoginResult> => {
+      const data = await apiFetch<
+        { user: User; token: string } | { twoFactor: any }
+      >("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      const twoFactor = (data as { twoFactor?: any }).twoFactor;
+      if (twoFactor) {
+        if (twoFactor.stage === "phone_setup") {
+          return { status: "phone_setup", setupTicket: twoFactor.setupTicket };
+        }
+        return {
+          status: "otp",
+          challengeId: twoFactor.challengeId,
+          maskedDestination: twoFactor.maskedDestination,
+          channel: twoFactor.channel ?? "sms",
+          devCode: twoFactor.devCode,
+        };
+      }
+      const session = data as { user: User; token: string };
+      await establishSession(session.user, session.token);
+      return { status: "authenticated" };
+    },
+    [establishSession],
+  );
+
+  const completeOtp = useCallback(
+    async (challengeId: string, code: string) => {
+      const data = await apiFetch<{ user: User; token: string }>("/api/auth/login/verify-otp", {
+        method: "POST",
+        body: JSON.stringify({ challengeId, code }),
+      });
+      await establishSession(data.user, data.token);
+    },
+    [establishSession],
+  );
+
+  const startPhoneSetup = useCallback(async (setupTicket: string, phone: string): Promise<OtpChallenge> => {
+    return apiFetch<OtpChallenge>("/api/auth/2fa/phone", {
+      method: "POST",
+      body: JSON.stringify({ setupTicket, phone }),
+    });
+  }, []);
+
+  const completePhoneVerify = useCallback(
+    async (challengeId: string, code: string) => {
+      const data = await apiFetch<{ user: User; token: string }>("/api/auth/2fa/phone/verify", {
+        method: "POST",
+        body: JSON.stringify({ challengeId, code }),
+      });
+      await establishSession(data.user, data.token);
+    },
+    [establishSession],
+  );
+
+  const resendOtp = useCallback(async (challengeId: string): Promise<OtpChallenge> => {
+    return apiFetch<OtpChallenge>("/api/auth/2fa/resend", {
+      method: "POST",
+      body: JSON.stringify({ challengeId }),
+    });
   }, []);
 
   const register = useCallback(async (formData: RegisterData) => {
@@ -212,7 +301,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [logout]);
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, logout, updateUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        isLoading,
+        login,
+        completeOtp,
+        startPhoneSetup,
+        completePhoneVerify,
+        resendOtp,
+        register,
+        logout,
+        updateUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

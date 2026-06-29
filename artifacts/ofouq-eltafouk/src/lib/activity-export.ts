@@ -203,7 +203,7 @@ function buildPdfHtml(report: ReportData): string {
     : report.score.reason;
 
   return `
-  <div style="width:794px;box-sizing:border-box;padding:40px;font-family:'Cairo','Tajawal',sans-serif;direction:rtl;background:#fff;color:#0f172a;">
+  <div style="width:794px;box-sizing:border-box;padding:40px;font-family:'SF Arabic','Cairo','Tajawal',sans-serif;direction:rtl;background:#fff;color:#0f172a;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e63ff;padding-bottom:16px;margin-bottom:24px;">
       <div>
         <div style="font-size:26px;font-weight:800;">تقرير نشاط المشرف</div>

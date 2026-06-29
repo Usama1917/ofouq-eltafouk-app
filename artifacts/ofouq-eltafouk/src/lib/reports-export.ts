@@ -76,7 +76,7 @@ function buildPdfHtml(r: ReportExport): string {
   };
 
   return `
-  <div style="width:794px;box-sizing:border-box;padding:44px;font-family:'Cairo','Tajawal',sans-serif;direction:rtl;background:#fff;color:#0f172a;">
+  <div style="width:794px;box-sizing:border-box;padding:44px;font-family:'SF Arabic','Cairo','Tajawal',sans-serif;direction:rtl;background:#fff;color:#0f172a;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid ${r.color};padding-bottom:18px;margin-bottom:30px;">
       <div>
         <div style="font-size:28px;font-weight:800;">${r.title}</div>

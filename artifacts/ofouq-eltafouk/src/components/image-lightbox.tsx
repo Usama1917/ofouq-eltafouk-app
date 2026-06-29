@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { X, ImageOff } from "lucide-react";
+import { makeBackdropClose } from "@/lib/dialog-dismiss";
 
 // Generic full-screen image preview. Click the backdrop or the close button to
 // dismiss. Used by the internal chat widget (and reusable elsewhere).
@@ -11,7 +12,7 @@ export function ImageLightbox({ src, title, onClose }: { src: string; title?: st
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-md sm:p-5"
-      onClick={onClose}
+      onClick={makeBackdropClose(onClose)}
       dir="rtl"
     >
       <motion.div

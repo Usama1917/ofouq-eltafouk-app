@@ -13,6 +13,7 @@ import {
 import { fetchReport, exportExcel, exportPdf } from "@/lib/activity-export";
 import { exportReportExcel, exportReportPdf, type MetricColumn } from "@/lib/reports-export";
 import { numTick, numAxisWidth, catAxisWidth, AXIS_GAP } from "@/lib/chart-axis";
+import { makeBackdropClose } from "@/lib/dialog-dismiss";
 import { EgyptHeatmap } from "@/components/egypt-heatmap";
 import { InternalChatWidget } from "@/components/internal-chat-widget";
 import { RoleIcon } from "@/components/role-icon";
@@ -943,10 +944,10 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
               ))}
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-            <XAxis dataKey="month" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} />
+            <XAxis dataKey="month" tick={{ fontSize: 12, fontFamily: "SF Arabic, Cairo", fill: axisColor }} />
             <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(sGrowth.yMax)} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(growthShown.flatMap((g) => [g.طلاب, g.معلمون, g.أخرى]))} />
             <Tooltip content={<CustomTooltip />} />
-            <Legend wrapperStyle={{ fontFamily: "Cairo", fontSize: 12 }} />
+            <Legend wrapperStyle={{ fontFamily: "SF Arabic, Cairo", fontSize: 12 }} />
             {growthSeries.map((s) => (
               <Area key={s.key} type="monotone" dataKey={s.key} stroke={s.color} fill={`url(#${GROWTH_GRAD[s.key]})`} strokeWidth={2.5} />
             ))}
@@ -983,7 +984,7 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={subsShown}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-            <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} />
+            <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: "SF Arabic, Cairo", fill: axisColor }} />
             <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(sSubs.yMax)} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(subsShown.map((s) => s.value))} />
             <Tooltip content={<CustomTooltip />} />
             <Bar dataKey="value" name="العدد" radius={[6, 6, 0, 0]}>
@@ -999,7 +1000,7 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={academicShown}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-            <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} />
+            <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: "SF Arabic, Cairo", fill: axisColor }} />
             <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(sAcademic.yMax)} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(academicShown.map((c) => c.value))} />
             <Tooltip content={<CustomTooltip />} />
             <Bar dataKey="value" name="العدد" fill="#3B82F6" radius={[6, 6, 0, 0]} />
@@ -1015,7 +1016,7 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
             <BarChart data={topShown} layout="vertical" margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(sTop.yMax)} tickFormatter={numTick} tickMargin={AXIS_GAP} />
-              <YAxis dataKey="name" type="category" orientation="left" tick={{ fontSize: 12, fontFamily: "Cairo", fill: axisColor }} tickMargin={AXIS_GAP} width={catAxisWidth(topShown.map((s) => s.name))} interval={0} />
+              <YAxis dataKey="name" type="category" orientation="left" tick={{ fontSize: 12, fontFamily: "SF Arabic, Cairo", fill: axisColor }} tickMargin={AXIS_GAP} width={catAxisWidth(topShown.map((s) => s.name))} interval={0} />
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="value" name="مشتركون" radius={[0, 6, 6, 0]}>
                 {topShown.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
@@ -1032,10 +1033,10 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={activityShown}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-            <XAxis dataKey="day" tick={{ fontSize: 11, fontFamily: "Cairo", fill: axisColor }} />
+            <XAxis dataKey="day" tick={{ fontSize: 11, fontFamily: "SF Arabic, Cairo", fill: axisColor }} />
             <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(sActivity.yMax)} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(activityShown.flatMap((d) => [d.مشاهدات, d.اشتراكات, d.رسائل]))} />
             <Tooltip content={<CustomTooltip />} />
-            <Legend wrapperStyle={{ fontFamily: "Cairo", fontSize: 12 }} />
+            <Legend wrapperStyle={{ fontFamily: "SF Arabic, Cairo", fontSize: 12 }} />
             {activitySeries.map((s) => (
               <Area key={s.key} type="monotone" dataKey={s.key} stroke={s.color} fill={`${s.color}33`} strokeWidth={2} />
             ))}
@@ -1350,7 +1351,7 @@ function ReportFlipCard({ card, isDark }: { card: ReportCard; isDark: boolean })
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-                  <XAxis dataKey="day" tick={{ fontSize: 11, fontFamily: "Cairo", fill: axisColor }} minTickGap={24} />
+                  <XAxis dataKey="day" tick={{ fontSize: 11, fontFamily: "SF Arabic, Cairo", fill: axisColor }} minTickGap={24} />
                   <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(null)} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(chartData.map((d) => d.value))} />
                   <Tooltip content={<CustomTooltip />} />
                   <Area type="monotone" dataKey="value" name={label} stroke={card.color} fill={`${card.color}33`} strokeWidth={2} />
@@ -1872,7 +1873,7 @@ function AdminsTab() {
           <>
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => { if (!pwBusy) setPwTarget(null); }}
+              onClick={makeBackdropClose(() => { if (!pwBusy) setPwTarget(null); }, { isDirty: () => pwValue.length > 0 })}
               className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm" />
             <motion.div
               initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 12 }}
@@ -2141,13 +2142,27 @@ export default function OwnerPanel() {
         </div>
         <div className="mx-5 h-px bg-gradient-to-l from-transparent via-border to-transparent mb-3" />
         <nav className="flex-1 px-3 space-y-1 overflow-y-auto hide-scrollbar">
-          {TABS.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all ${tab === t.id ? "text-white shadow-md" : "text-muted-foreground hover:bg-white/60 hover:text-foreground"}`}
-              style={tab === t.id ? { background: "linear-gradient(135deg, #f59e0b, #d97706)", boxShadow: "0 4px 15px rgba(245,158,11,0.3)" } : {}}>
-              <t.icon className="w-4.5 h-4.5 flex-shrink-0" /> {t.label}
-            </button>
-          ))}
+          {TABS.map((t) => {
+            const isActive = tab === t.id;
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                aria-current={isActive ? "page" : undefined}
+                className={`relative w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-colors duration-200 ${isActive ? "text-white" : "text-muted-foreground hover:bg-white/60 hover:text-foreground"}`}>
+                {isActive && (
+                  // Shared-layout pill: framer slides this single element between tabs
+                  // (the "إزاحة" effect) instead of the highlight snapping on/off.
+                  <motion.span
+                    layoutId="owner-sidebar-active-pill"
+                    className="absolute inset-0 rounded-2xl shadow-md"
+                    style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)", boxShadow: "0 4px 15px rgba(245,158,11,0.3)" }}
+                    transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.78 }}
+                  />
+                )}
+                <t.icon className="relative z-10 w-4.5 h-4.5 flex-shrink-0" />
+                <span className="relative z-10">{t.label}</span>
+              </button>
+            );
+          })}
         </nav>
         <div className="p-4 border-t border-white/40">
           <div className="admin-theme-switch relative mb-4 grid h-12 grid-cols-2 overflow-hidden rounded-3xl border border-border/70 bg-muted/55 p-1 shadow-inner" dir="rtl">

@@ -1688,6 +1688,44 @@ router.put("/admin/users/:id/password", async (req, res) => {
   }
 });
 
+// Recovery for a user locked out of two-factor login (changed SIM / lost number):
+// clear their phone + its verification so the next login restarts phone setup and
+// they can register a fresh number. Admins may reset regular users; only the owner
+// may reset another privileged (admin/owner/moderator) account.
+router.post("/admin/users/:id/reset-2fa", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: "معرف غير صالح" });
+    }
+    const actor = (req as any).adminActor;
+    const [before] = await db
+      .select({ name: usersTable.name, email: usersTable.email, role: usersTable.role })
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1);
+    if (!before) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    if (PRIVILEGED_ROLES.has(before.role) && actor?.role !== "owner") {
+      return res.status(403).json({ error: "إعادة ضبط التحقق لحساب إداري متاحة للمالك فقط" });
+    }
+    await db.update(usersTable).set({ phone: null, phoneVerifiedAt: null }).where(eq(usersTable.id, id));
+    invalidateUserAuth(id);
+    await logAudit(req, {
+      actionType: "user_2fa_reset",
+      actionLabel: "أعاد ضبط التحقق بخطوتين",
+      entityType: "user",
+      entityId: id,
+      entityLabel: before.name || before.email || String(id),
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Reset 2FA error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.delete("/admin/users/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);

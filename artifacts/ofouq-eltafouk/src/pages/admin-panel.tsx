@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { makeBackdropClose } from "@/lib/dialog-dismiss";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence, useReducedMotion, type Variants } from "framer-motion";
@@ -460,7 +461,11 @@ function PreviewModal({ title, content, onConfirm, onCancel }: {
   title: string; content: React.ReactNode; onConfirm: () => void; onCancel: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md flex items-center justify-center p-4" dir="rtl">
+    <div
+      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md flex items-center justify-center p-4"
+      dir="rtl"
+      onClick={makeBackdropClose(onCancel)}
+    >
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
         className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden">
         <div className="p-5 border-b flex items-center justify-between bg-muted/20">
@@ -500,7 +505,7 @@ function ImageLightbox({ src, title, onClose }: { src: string; title?: string; o
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-3 backdrop-blur-md sm:p-5"
-      onClick={onClose}
+      onClick={makeBackdropClose(onClose)}
       dir="rtl"
     >
       <motion.div
@@ -3734,6 +3739,48 @@ function SupportMessagesTab({
   const draftTargetKey = draftTarget?.requestKey ?? "";
   const activeConversationSearchTerm = debouncedConversationSearchTerm.trim();
 
+  // The reply box grows in height with the text so long replies are fully visible
+  // (capped, then it scrolls). Re-measured whenever `reply` changes — including when
+  // it's set programmatically (drafts, quick replies, slash insert).
+  const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = replyTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [reply]);
+
+  // Inline "/" command for quick replies: typing "/" (optionally followed by text)
+  // opens a filter over ALL saved replies (both languages) right above the box, so a
+  // reply can be picked and sent without opening the saved-replies panel.
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const slashQuery = reply.startsWith("/") ? reply.slice(1) : null;
+  const allQuickReplies = useMemo(
+    () => [...(quickReplies.ar ?? []), ...(quickReplies.en ?? [])],
+    [quickReplies],
+  );
+  const slashMatches = useMemo(() => {
+    if (slashQuery === null) return [] as QuickReplyItem[];
+    const q = slashQuery.trim().toLowerCase();
+    const pool = q ? allQuickReplies.filter((item) => item.body.toLowerCase().includes(q)) : allQuickReplies;
+    return pool.slice(0, 6);
+  }, [slashQuery, allQuickReplies]);
+  const slashOpen = slashQuery !== null && !slashDismissed && slashMatches.length > 0;
+  // Reset the highlight when the matches change; clear the manual dismiss once the
+  // box no longer starts with "/".
+  useEffect(() => {
+    setSlashIndex(0);
+  }, [slashQuery]);
+  useEffect(() => {
+    if (slashQuery === null && slashDismissed) setSlashDismissed(false);
+  }, [slashQuery, slashDismissed]);
+  const selectSlashReply = (body: string) => {
+    setReply(body);
+    setSlashDismissed(true);
+    requestAnimationFrame(() => replyTextareaRef.current?.focus());
+  };
+
   const authHeaders = () => ({
     Authorization: `Bearer ${token}`,
   });
@@ -4418,6 +4465,31 @@ function SupportMessagesTab({
               </div>
 
               <div className="relative z-10 shrink-0 p-4 border-t border-slate-200/80 bg-white/70 shadow-[0_-10px_24px_rgba(15,23,42,0.06)] backdrop-blur">
+                {slashOpen ? (
+                  <div
+                    dir="rtl"
+                    className="absolute inset-x-4 bottom-full mb-2 z-30 overflow-hidden rounded-2xl border border-white/70 bg-white/95 shadow-2xl shadow-slate-900/15 backdrop-blur"
+                  >
+                    <div className="border-b border-slate-200/80 bg-gradient-to-l from-primary/10 to-white px-3 py-2 text-[11px] font-bold text-muted-foreground">
+                      ردود جاهزة — اضغط Enter للاختيار، Esc للإغلاق
+                    </div>
+                    <div className="max-h-64 space-y-1 overflow-y-auto overscroll-contain p-2">
+                      {slashMatches.map((item, index) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onMouseEnter={() => setSlashIndex(index)}
+                          onClick={() => selectSlashReply(item.body)}
+                          className={`block w-full rounded-xl px-3 py-2 text-start text-sm leading-6 transition-colors ${
+                            index === slashIndex ? "bg-primary/10 text-foreground" : "text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          {item.body}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="flex items-end gap-3">
                   <div className="relative shrink-0">
                     <button
@@ -4543,18 +4615,42 @@ function SupportMessagesTab({
                   </div>
 
                   <textarea
+                    ref={replyTextareaRef}
                     value={reply}
                     onChange={(event) => setReply(event.target.value)}
                     onKeyDown={(event) => {
+                      if (slashOpen) {
+                        if (event.key === "ArrowDown") {
+                          event.preventDefault();
+                          setSlashIndex((index) => (index + 1) % slashMatches.length);
+                          return;
+                        }
+                        if (event.key === "ArrowUp") {
+                          event.preventDefault();
+                          setSlashIndex((index) => (index - 1 + slashMatches.length) % slashMatches.length);
+                          return;
+                        }
+                        if (event.key === "Enter" && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
+                          event.preventDefault();
+                          const picked = slashMatches[Math.min(slashIndex, slashMatches.length - 1)];
+                          if (picked) selectSlashReply(picked.body);
+                          return;
+                        }
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          setSlashDismissed(true);
+                          return;
+                        }
+                      }
                       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                         event.preventDefault();
                         void handleSendReply();
                       }
                     }}
-                    placeholder="اكتب ردك هنا..."
+                    placeholder="اكتب ردك هنا... (اكتب / للردود الجاهزة)"
                     dir="rtl"
                     rows={2}
-                    className="flex-1 resize-none rounded-2xl border border-slate-300/90 bg-white/90 px-4 py-3 text-right text-sm outline-none placeholder:text-right placeholder:text-slate-400 focus:border-primary/50 focus:ring-4 focus:ring-primary/10"
+                    className="max-h-[200px] flex-1 resize-none overflow-y-auto rounded-2xl border border-slate-300/90 bg-white/90 px-4 py-3 text-right text-sm outline-none placeholder:text-right placeholder:text-slate-400 focus:border-primary/50 focus:ring-4 focus:ring-primary/10"
                   />
                   <button
                     onClick={() => void handleSendReply()}
@@ -4858,15 +4954,17 @@ export default function AdminPanel() {
               whileHover={shouldReduceMotion ? undefined : { x: -2 }}
               whileTap={shouldReduceMotion ? undefined : { scale: 0.985 }}
               transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
-              className={`admin-sidebar-tab relative isolate w-full h-12 overflow-hidden flex items-center gap-3 px-4 rounded-2xl border text-sm font-semibold transition-colors duration-200 ${isActive ? "admin-sidebar-tab-active text-white border-transparent" : "text-muted-foreground hover:bg-white/60 hover:text-foreground dark:hover:bg-white/10"}`}
+              className={`admin-sidebar-tab relative isolate w-full h-12 flex items-center gap-3 px-4 rounded-2xl border text-sm font-semibold transition-colors duration-200 ${isActive ? "admin-sidebar-tab-active text-white border-transparent" : "text-muted-foreground hover:bg-white/60 hover:text-foreground dark:hover:bg-white/10"}`}
             >
               {isActive ? (
-                <>
-                  <motion.span
-                    layoutId="admin-sidebar-active-pill"
-                    className="admin-sidebar-active-pill absolute inset-0 rounded-2xl"
-                    transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.78 }}
-                  />
+                // Shared-layout pill slides between tabs (the "إزاحة" effect). The
+                // button itself must NOT be overflow-hidden or the pill gets clipped
+                // mid-slide, so the glint's clipping lives on the pill instead.
+                <motion.span
+                  layoutId="admin-sidebar-active-pill"
+                  className="admin-sidebar-active-pill absolute inset-0 overflow-hidden rounded-2xl"
+                  transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.78 }}
+                >
                   {!shouldReduceMotion ? (
                     <motion.span
                       className="admin-sidebar-active-glint absolute inset-y-0 -right-8 w-2/3 rounded-2xl"
@@ -4875,7 +4973,7 @@ export default function AdminPanel() {
                       transition={{ duration: 0.72, ease: "easeOut" }}
                     />
                   ) : null}
-                </>
+                </motion.span>
               ) : null}
               <motion.span
                 className="relative z-10 flex h-5 w-5 items-center justify-center"

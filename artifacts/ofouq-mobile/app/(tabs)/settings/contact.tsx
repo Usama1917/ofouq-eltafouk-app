@@ -6,6 +6,7 @@ import { router, useFocusEffect } from "expo-router";
 import React from "react";
 import {
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -92,6 +93,7 @@ export default function ContactScreen() {
     colors,
     resolvedScheme,
     strings,
+    language,
     isRTL,
     textAlign,
     direction,
@@ -99,6 +101,7 @@ export default function ContactScreen() {
     alignStart,
   } = usePreferences();
   const { user, token } = useAuth();
+  const [whatsappFallbackOpen, setWhatsappFallbackOpen] = React.useState(false);
   const insets = useSafeAreaInsets();
   const headerOverlayHeight = insets.top + 130;
   const { data: supportUnreadSummary, refetch: refetchSupportUnreadCount } = useQuery<SupportUnreadCountResponse>({
@@ -129,14 +132,26 @@ export default function ContactScreen() {
   }
 
   async function openWhatsApp() {
-    // wa.me is a universal link: opens the WhatsApp app if installed, otherwise
-    // the web chat. It is far more reliable than the whatsapp:// scheme, which
-    // needs an Info.plist allow-list that Expo Go does not provide.
+    // Try the WhatsApp app directly first so an installed app opens straight to
+    // the chat (best UX). openURL — unlike canOpenURL — does not need an
+    // Info.plist allow-list, so the deep link works even inside Expo Go.
+    // wa.me is the universal-link fallback (opens the web chat / store prompt),
+    // and an alert with the raw number is the last resort.
+    const appUrl = "whatsapp://send?phone=201080080076";
     const webUrl = "https://wa.me/201080080076";
     try {
-      await Linking.openURL(webUrl);
+      await Linking.openURL(appUrl);
+      return;
     } catch {
-      void Linking.openURL("whatsapp://send?phone=201080080076").catch(() => undefined);
+      // WhatsApp app not installed / scheme not handled — fall back to the web.
+    }
+    try {
+      await Linking.openURL(webUrl);
+      return;
+    } catch {
+      // No browser handler either — surface the number in a themed dialog we
+      // control, so the Arabic copy reads right-to-left (the native Alert can't).
+      setWhatsappFallbackOpen(true);
     }
   }
 
@@ -254,6 +269,54 @@ export default function ContactScreen() {
           />
         </View>
       </ScrollView>
+
+      <Modal
+        visible={whatsappFallbackOpen}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setWhatsappFallbackOpen(false)}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setWhatsappFallbackOpen(false)} />
+          <View
+            style={[
+              styles.dialogCard,
+              {
+                backgroundColor: resolvedScheme === "dark" ? "rgba(28,28,30,0.98)" : "rgba(248,250,252,0.98)",
+                borderColor: colors.border,
+              },
+            ]}
+          >
+            {/* Per language: Arabic reads right, English reads left. */}
+            <Text
+              style={[
+                styles.dialogTitle,
+                { color: colors.text, textAlign: language === "ar" ? "right" : "left", writingDirection: direction },
+              ]}
+            >
+              {strings.settings.contactWhatsApp}
+            </Text>
+            {/* Digits stay LTR, but the block hugs the language side (right in
+                Arabic) so it lines up under the title. */}
+            <Text
+              style={[styles.dialogNumber, { color: colors.textSecondary, textAlign: language === "ar" ? "right" : "left" }]}
+            >
+              {strings.settings.contactWhatsAppSubtitle}
+            </Text>
+            <Pressable
+              onPress={() => setWhatsappFallbackOpen(false)}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.dialogButton,
+                { backgroundColor: pressed ? colors.surfaceSecondary : colors.surface, borderColor: colors.border },
+              ]}
+            >
+              <Text style={[styles.dialogButtonText, { color: colors.text }]}>{strings.common.ok}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -403,5 +466,51 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.82)",
     backgroundColor: COLORS.error,
+  },
+  modalOverlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  dialogCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingTop: 22,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
+    gap: 10,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.22,
+    shadowRadius: 30,
+  },
+  dialogTitle: {
+    ...FONT.bold,
+    fontSize: 17,
+    lineHeight: 27,
+    width: "100%",
+  },
+  dialogNumber: {
+    ...FONT.regular,
+    fontSize: 15,
+    lineHeight: 24,
+    width: "100%",
+    writingDirection: "ltr",
+  },
+  dialogButton: {
+    marginTop: 6,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dialogButtonText: {
+    ...FONT.bold,
+    fontSize: 15,
+    lineHeight: 24,
   },
 });

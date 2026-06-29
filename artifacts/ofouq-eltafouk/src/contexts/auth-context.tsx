@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from "react
 import { setAuthTokenGetter } from "@workspace/api-client-react";
 import { installUnauthorizedInterceptor, setSessionExpiredHandler } from "@/lib/session";
 
-interface AuthUser {
+export interface AuthUser {
   id: number;
   name: string;
   email: string;
@@ -20,10 +20,24 @@ interface AuthUser {
   lastActiveAt?: string | null;
 }
 
+// Two-factor login result (see mobile AuthContext for the same shape). When 2FA is
+// enabled server-side, a correct password yields an "otp"/"phone_setup" step instead
+// of an immediate session.
+export type LoginResult =
+  | { status: "authenticated"; user: AuthUser }
+  | { status: "otp"; challengeId: string; maskedDestination: string; channel: string; devCode?: string }
+  | { status: "phone_setup"; setupTicket: string };
+
+export type OtpChallenge = { challengeId: string; maskedDestination: string; devCode?: string };
+
 interface AuthContextType {
   user: AuthUser | null;
   token: string | null;
-  login: (email: string, password: string) => Promise<AuthUser>;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  completeOtp: (challengeId: string, code: string) => Promise<AuthUser>;
+  startPhoneSetup: (setupTicket: string, phone: string) => Promise<OtpChallenge>;
+  completePhoneVerify: (challengeId: string, code: string) => Promise<AuthUser>;
+  resendOtp: (challengeId: string) => Promise<OtpChallenge>;
   register: (data: Record<string, unknown>) => Promise<AuthUser>;
   logout: () => void;
   updateUser: (u: AuthUser) => void;
@@ -161,7 +175,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // response-shape drift doesn't silently sign everyone out.
         const profile = (raw?.user ?? raw) as AuthUser | null | undefined;
         if (profile && profile.id != null && isStaffRole(profile.role)) {
-          applyAuthState(profile, storedToken);
+          // /auth/me may return a freshly-rolled token when the current one aged past
+          // the refresh window — keep the active session sliding forward.
+          const rolledToken = typeof raw?.token === "string" && raw.token ? raw.token : storedToken;
+          applyAuthState(profile, rolledToken);
         } else {
           // Non-staff (e.g. a lingering student token) gets no browser session.
           clearAuthState();
@@ -179,20 +196,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = async (email: string, password: string): Promise<AuthUser> => {
-    const data = await apiCall("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
+  // Finalize a { user, token } payload into a staff session, enforcing the staff-only
+  // gate (defense-in-depth; the API is the real gate). Shared by login + OTP/phone steps.
+  const finalizeStaffSession = (data: any): AuthUser => {
     const nextUser = data.user as AuthUser;
-    // Defense-in-depth: the API already blocks non-staff web logins, but guard the
-    // client too so a non-staff account never establishes a browser session. Same
-    // generic message as a wrong password — don't reveal the staff-only gate.
     if (!isStaffRole(nextUser?.role)) {
+      // Same generic message as a wrong password — don't reveal the staff-only gate.
       throw new Error("بيانات الدخول غير صحيحة");
     }
     applyAuthState(nextUser, String(data.token));
     return nextUser;
+  };
+
+  const login = async (email: string, password: string): Promise<LoginResult> => {
+    const data = await apiCall("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    if (data?.twoFactor) {
+      const tf = data.twoFactor;
+      if (tf.stage === "phone_setup") {
+        return { status: "phone_setup", setupTicket: tf.setupTicket };
+      }
+      return {
+        status: "otp",
+        challengeId: tf.challengeId,
+        maskedDestination: tf.maskedDestination,
+        channel: tf.channel ?? "sms",
+        devCode: tf.devCode,
+      };
+    }
+    return { status: "authenticated", user: finalizeStaffSession(data) };
+  };
+
+  const completeOtp = async (challengeId: string, code: string): Promise<AuthUser> => {
+    const data = await apiCall("/api/auth/login/verify-otp", {
+      method: "POST",
+      body: JSON.stringify({ challengeId, code }),
+    });
+    return finalizeStaffSession(data);
+  };
+
+  const startPhoneSetup = async (setupTicket: string, phone: string): Promise<OtpChallenge> => {
+    return apiCall("/api/auth/2fa/phone", {
+      method: "POST",
+      body: JSON.stringify({ setupTicket, phone }),
+    });
+  };
+
+  const completePhoneVerify = async (challengeId: string, code: string): Promise<AuthUser> => {
+    const data = await apiCall("/api/auth/2fa/phone/verify", {
+      method: "POST",
+      body: JSON.stringify({ challengeId, code }),
+    });
+    return finalizeStaffSession(data);
+  };
+
+  const resendOtp = async (challengeId: string): Promise<OtpChallenge> => {
+    return apiCall("/api/auth/2fa/resend", {
+      method: "POST",
+      body: JSON.stringify({ challengeId }),
+    });
   };
 
   const register = async (formData: Record<string, unknown>): Promise<AuthUser> => {
@@ -214,7 +278,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, register, logout, updateUser, isLoading }}>
+    <AuthContext.Provider value={{ user, token, login, completeOtp, startPhoneSetup, completePhoneVerify, resendOtp, register, logout, updateUser, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
