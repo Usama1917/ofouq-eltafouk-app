@@ -792,10 +792,9 @@ export default function NotificationsScreen() {
                 styles.confirmBody,
                 {
                   color: colors.textSecondary,
-                  // Modal portals can drop the RTL context (esp. Android), so pin
-                  // the body alignment explicitly per language instead of relying
-                  // on the inherited textAlign — Arabic must read right.
-                  textAlign: language === "ar" ? "right" : "left",
+                  // Centered to match the logout dialog (and to read consistently
+                  // inside the Modal portal, which can drop the RTL context).
+                  textAlign: "center",
                   writingDirection: direction,
                 },
               ]}
