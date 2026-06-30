@@ -2132,8 +2132,7 @@ export default function OwnerPanel() {
   return (
     <div className={`admin-dashboard ${isDarkAdmin ? "dark" : ""} min-h-screen flex bg-background text-foreground`} dir="rtl">
       <div className="mesh-bg" />
-      <aside className="hidden md:flex flex-col fixed top-0 right-0 h-screen w-64 z-40 glass-panel border-l border-white/60"
-        style={{ borderImage: "linear-gradient(to bottom, rgba(245,158,11,0.3), rgba(255,255,255,0.4)) 1" }}>
+      <aside className="hidden md:flex flex-col fixed top-0 right-0 h-screen w-64 z-40 glass-panel border-l border-white/60">
         <div className="px-6 pt-7 pb-5">
           <Logo size={36} />
           <div className="mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold" style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.35)", color: "#d97706" }}>

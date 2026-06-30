@@ -114,6 +114,37 @@
 @layer base {
   * { @apply border-border; }
 
+  /* RTL app with the fixed sidebar on the RIGHT: move the viewport scrollbar to the
+     LEFT (its natural side in Arabic) so it never collides with the sidebar. On the
+     right it would push the fixed sidebar inward whenever a page is tall enough to
+     scroll — leaving a gap on the sidebar's right edge and a shift between pages. */
+  html { direction: rtl; }
+
+  /* Slim, translucent "floating-looking" scrollbar with a transparent track, so it
+     reads as an overlay rather than a solid strip that reserves obvious space. The
+     `.hide-scrollbar` utility (more specific) still fully hides bars where used. */
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(215 16% 47% / 0.35);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(215 16% 47% / 0.6);
+    background-clip: padding-box;
+  }
+  * { scrollbar-width: thin; scrollbar-color: hsl(215 16% 47% / 0.35) transparent; }
+
+  /* The PAGE (document) scrollbar is fully hidden — zero reserved space, so the
+     fixed sidebar sits flush against the screen edge. A custom floating thumb
+     (lib/floating-scrollbar.ts) is drawn instead: it appears while scrolling and
+     fades out when idle, like a mobile scrollbar. Inner scroll areas keep the slim
+     bar above. */
+  html { scrollbar-width: none; }
+  html::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
   body {
     @apply font-sans antialiased text-foreground;
     direction: rtl;
