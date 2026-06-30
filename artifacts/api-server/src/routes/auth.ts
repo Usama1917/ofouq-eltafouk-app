@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request } from "express";
 import { db, usersTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -10,10 +10,42 @@ import {
   verifyPassword,
   needsRehash,
   issueToken,
+  issueTicket,
+  verifyTicket,
+  maybeRefreshToken,
   getSessionUserId as resolveSessionUserId,
   getSessionTokenPayload,
 } from "../lib/auth";
+import { createChallenge, resendChallenge, verifyChallenge, type VerifyResult } from "../lib/otp";
 import { PRIVILEGED_ROLES } from "../lib/roles";
+
+// Two-factor SMS login is gated by an explicit env flag so it can be built and
+// shipped dark, then switched on only once a real SMS provider + sender ID are in
+// place. Off by default → login behaves exactly as before. Applies to ALL roles
+// when on (students on mobile, staff on the web portal).
+const OTP_2FA_ENABLED = (process.env.OTP_2FA_ENABLED ?? "").toLowerCase() === "true";
+
+function twoFactorRequiredFor(_user: { role: string }): boolean {
+  return OTP_2FA_ENABLED;
+}
+
+// Map an OTP verification failure to an HTTP response. Shared by every verify step.
+function sendOtpFailure(res: any, reason: Exclude<VerifyResult, { ok: true }>["reason"]) {
+  switch (reason) {
+    case "wrong_code":
+      return res.status(401).json({ error: "الكود غير صحيح", code: "otp/wrong_code" });
+    case "expired":
+      return res.status(410).json({ error: "انتهت صلاحية الكود. اطلب كودًا جديدًا.", code: "otp/expired" });
+    case "too_many_attempts":
+      return res
+        .status(429)
+        .json({ error: "حاولت كثيرًا. اطلب كودًا جديدًا بعد قليل.", code: "otp/too_many_attempts" });
+    case "already_used":
+    case "not_found":
+    default:
+      return res.status(400).json({ error: "هذا الكود لم يعد صالحًا. اطلب كودًا جديدًا.", code: "otp/invalid" });
+  }
+}
 
 // Public self-registration may only create non-privileged accounts. Admin/owner/
 // moderator accounts are created through authenticated owner-only flows.
@@ -377,6 +409,36 @@ router.post("/auth/login", async (req, res) => {
       }
     }
 
+    // ── Two-factor gate ──────────────────────────────────────────────────────
+    // Password was correct. When 2FA is on we DON'T issue a session token here;
+    // instead we hand back a pre-auth step the client must complete:
+    //   - no verified phone yet → "phone_setup" (collect + verify a number first)
+    //   - otherwise            → "otp" (we SMS a code to the verified phone)
+    // The real token is only minted by /auth/login/verify-otp or the phone-verify step.
+    if (twoFactorRequiredFor(user)) {
+      const hasVerifiedPhone = Boolean(user.phoneVerifiedAt) && Boolean(user.phone);
+      if (!hasVerifiedPhone) {
+        return res.json({
+          twoFactor: { stage: "phone_setup", setupTicket: issueTicket(user.id, "phone_setup") },
+        });
+      }
+      const challenge = await createChallenge({
+        userId: user.id,
+        purpose: "login",
+        destination: user.phone as string,
+        channel: "sms",
+      });
+      return res.json({
+        twoFactor: {
+          stage: "otp",
+          challengeId: challenge.challengeId,
+          maskedDestination: challenge.maskedDestination,
+          channel: "sms",
+          ...(challenge.devCode ? { devCode: challenge.devCode } : {}),
+        },
+      });
+    }
+
     const activeUser = await touchUserActivity(user.id);
     const { password: _pw, ...safeUser } = activeUser ?? user;
     return res.json({ user: withPermissions(safeUser), token: issueToken(user.id, user.tokenVersion ?? 0) });
@@ -392,6 +454,128 @@ router.post("/auth/login", async (req, res) => {
         details: errorDetails,
       });
     }
+    return res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// Shared tail of a successful login once identity AND second factor are proven:
+// re-check the account is usable + the web portal is staff-only, then mint the
+// real session token. Used by both the OTP-verify and phone-verify steps.
+async function finalizeLogin(req: Request, res: any, userId: number) {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!user) return res.status(404).json({ error: "المستخدم غير موجود" });
+  if (user.status === "suspended") return res.status(403).json({ error: "الحساب موقوف" });
+  if (isAdminWebClient(req) && !isStaffRole(user.role)) {
+    return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
+  }
+  const activeUser = await touchUserActivity(user.id);
+  const { password: _pw, ...safeUser } = activeUser ?? user;
+  return res.json({ user: withPermissions(safeUser), token: issueToken(user.id, user.tokenVersion ?? 0) });
+}
+
+// Step 2 of a 2FA login: verify the SMS code and mint the session token.
+router.post("/auth/login/verify-otp", async (req, res) => {
+  try {
+    const challengeId = typeof req.body?.challengeId === "string" ? req.body.challengeId : "";
+    const code = typeof req.body?.code === "string" ? req.body.code : "";
+    if (!challengeId || !code) return res.status(400).json({ error: "الكود مطلوب" });
+
+    const result = await verifyChallenge(challengeId, code);
+    if (!result.ok) return sendOtpFailure(res, result.reason);
+    if (result.purpose !== "login") return res.status(400).json({ error: "طلب غير صالح" });
+
+    return await finalizeLogin(req, res, result.userId);
+  } catch (err) {
+    req.log.error({ err: getErrorDetails(err) }, "Verify login OTP error");
+    if (isDatabaseUnavailableError(err)) return sendDatabaseError(res, err);
+    return res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// Resend the current OTP (login OR phone-verify), throttled by the OTP engine.
+router.post("/auth/2fa/resend", async (req, res) => {
+  try {
+    const challengeId = typeof req.body?.challengeId === "string" ? req.body.challengeId : "";
+    if (!challengeId) return res.status(400).json({ error: "طلب غير صالح" });
+    const r = await resendChallenge(challengeId);
+    if (!r.ok) {
+      if (r.reason === "cooldown") {
+        return res
+          .status(429)
+          .json({ error: "انتظر قليلًا قبل طلب كود جديد", code: "otp/cooldown", retryAfterSeconds: r.retryAfterSeconds });
+      }
+      if (r.reason === "too_many_resends") {
+        return res.status(429).json({ error: "تجاوزت عدد مرات الإرسال. ابدأ من جديد.", code: "otp/too_many_resends" });
+      }
+      return res.status(400).json({ error: "هذا الطلب لم يعد صالحًا. ابدأ من جديد.", code: "otp/invalid" });
+    }
+    return res.json({
+      challengeId: r.result.challengeId,
+      maskedDestination: r.result.maskedDestination,
+      ...(r.result.devCode ? { devCode: r.result.devCode } : {}),
+    });
+  } catch (err) {
+    req.log.error({ err: getErrorDetails(err) }, "Resend OTP error");
+    if (isDatabaseUnavailableError(err)) return sendDatabaseError(res, err);
+    return res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// First-time phone setup during a 2FA login: the client submits a phone number
+// (authorised by the short-lived setupTicket from /auth/login) and we send a
+// verification code to it. No session is granted yet.
+router.post("/auth/2fa/phone", async (req, res) => {
+  try {
+    const setupTicket = typeof req.body?.setupTicket === "string" ? req.body.setupTicket : "";
+    const userId = verifyTicket(setupTicket, "phone_setup");
+    if (!userId) return res.status(401).json({ error: "انتهت الجلسة. سجّل الدخول من جديد.", code: "auth/ticket_expired" });
+
+    const normalizedPhone = normalizePhone(req.body?.phone);
+    if (!normalizedPhone) return res.status(400).json({ error: "رقم الهاتف مطلوب" });
+
+    // The number must not already belong to a DIFFERENT account.
+    const [clash] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(and(eq(usersTable.phone, normalizedPhone), ne(usersTable.id, userId)))
+      .limit(1);
+    if (clash) return res.status(409).json({ error: "رقم الهاتف مستخدم بالفعل", code: "auth/phone_conflict" });
+
+    // Store the number as UNVERIFIED until the code is confirmed.
+    await db.update(usersTable).set({ phone: normalizedPhone, phoneVerifiedAt: null }).where(eq(usersTable.id, userId));
+
+    const challenge = await createChallenge({ userId, purpose: "phone_verify", destination: normalizedPhone, channel: "sms" });
+    return res.json({
+      challengeId: challenge.challengeId,
+      maskedDestination: challenge.maskedDestination,
+      ...(challenge.devCode ? { devCode: challenge.devCode } : {}),
+    });
+  } catch (err) {
+    req.log.error({ err: getErrorDetails(err) }, "2FA phone setup error");
+    if (isDatabaseUnavailableError(err)) return sendDatabaseError(res, err);
+    if (isUniqueConstraintError(err)) {
+      return res.status(409).json({ error: "رقم الهاتف مستخدم بالفعل", code: "auth/phone_conflict" });
+    }
+    return res.status(500).json({ error: "خطأ في الخادم" });
+  }
+});
+
+// Verify the first-time phone code: mark the phone verified and log the user in.
+router.post("/auth/2fa/phone/verify", async (req, res) => {
+  try {
+    const challengeId = typeof req.body?.challengeId === "string" ? req.body.challengeId : "";
+    const code = typeof req.body?.code === "string" ? req.body.code : "";
+    if (!challengeId || !code) return res.status(400).json({ error: "الكود مطلوب" });
+
+    const result = await verifyChallenge(challengeId, code);
+    if (!result.ok) return sendOtpFailure(res, result.reason);
+    if (result.purpose !== "phone_verify") return res.status(400).json({ error: "طلب غير صالح" });
+
+    await db.update(usersTable).set({ phoneVerifiedAt: new Date() }).where(eq(usersTable.id, result.userId));
+    return await finalizeLogin(req, res, result.userId);
+  } catch (err) {
+    req.log.error({ err: getErrorDetails(err) }, "2FA phone verify error");
+    if (isDatabaseUnavailableError(err)) return sendDatabaseError(res, err);
     return res.status(500).json({ error: "خطأ في الخادم" });
   }
 });
@@ -416,7 +600,11 @@ router.get("/auth/me", async (req, res) => {
     }
     const activeUser = await touchUserActivity(user.id);
     const { password: _pw, ...safeUser } = activeUser ?? user;
-    return res.json(withPermissions(safeUser));
+    // Rolling session: if this token has aged past the refresh window, hand back a
+    // fresh one so an actively-used session never expires (and never re-prompts an
+    // OTP). The client stores `token` when present; older clients ignore it.
+    const refreshed = maybeRefreshToken(payload);
+    return res.json({ ...withPermissions(safeUser), ...(refreshed ? { token: refreshed } : {}) });
   } catch (err) {
     req.log.error({ err: getErrorDetails(err) }, "Get profile error");
     if (isDatabaseUnavailableError(err)) {

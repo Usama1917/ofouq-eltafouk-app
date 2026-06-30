@@ -32,7 +32,7 @@ export const numTick = (n: number) => Number(n ?? 0).toLocaleString("en-US");
 // tick up to a "nice" number that can be one digit longer than the data max.
 export function numAxisWidth(
   values: Array<number | null | undefined>,
-  font = "11px Cairo, system-ui, sans-serif",
+  font = "11px 'SF Arabic', Cairo, system-ui, sans-serif",
 ): number {
   const max = values.reduce<number>((m, v) => Math.max(m, Number(v ?? 0)), 0);
   const label = numTick(Math.ceil(Math.max(max, 1) * 1.1)); // headroom for the top tick
@@ -43,7 +43,7 @@ export function numAxisWidth(
 // very long label can't swallow the plot; floored so short labels still breathe.
 export function catAxisWidth(
   labels: string[],
-  { font = "12px Cairo, system-ui, sans-serif", min = 56, max = 168 } = {},
+  { font = "12px 'SF Arabic', Cairo, system-ui, sans-serif", min = 56, max = 168 } = {},
 ): number {
   const longest = labels.reduce((a, b) => (b.length > a.length ? b : a), "");
   const w = Math.ceil(measureText(longest, font)) + AXIS_GAP + PAD;

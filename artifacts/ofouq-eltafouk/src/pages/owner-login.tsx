@@ -3,8 +3,11 @@ import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, Mail, Lock, Crown } from "lucide-react";
 import { Logo } from "@/components/logo";
-import { useAuth } from "@/contexts/auth-context";
+import { useAuth, type LoginResult } from "@/contexts/auth-context";
+import { TwoFactorStep } from "@/components/two-factor-step";
 import { getPostLoginRoute } from "@/lib/auth";
+
+type PendingTwoFactor = Exclude<LoginResult, { status: "authenticated" }>;
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -16,6 +19,7 @@ export default function OwnerLogin() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState<PendingTwoFactor | null>(null);
 
   useEffect(() => {
     if (user) setLocation(getPostLoginRoute(user.role));
@@ -26,8 +30,12 @@ export default function OwnerLogin() {
     setError("");
     setLoading(true);
     try {
-      const authenticatedUser = await login(email, password);
-      setLocation(getPostLoginRoute(authenticatedUser.role));
+      const result = await login(email, password);
+      if (result.status === "authenticated") {
+        setLocation(getPostLoginRoute(result.user.role));
+      } else {
+        setPending(result);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -52,6 +60,15 @@ export default function OwnerLogin() {
             <p className="text-slate-400 text-sm mt-1">هذه البوابة مخصصة لأصحاب المنصة فقط</p>
           </div>
 
+          {pending ? (
+            <TwoFactorStep
+              pending={pending}
+              theme="dark"
+              accentStyle={{ background: "linear-gradient(135deg, #f59e0b, #d97706)", color: "#fff" }}
+              onAuthenticated={(u) => setLocation(getPostLoginRoute(u.role))}
+              onCancel={() => setPending(null)}
+            />
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <div className="text-sm font-medium px-4 py-3 rounded-2xl" style={{ background: "rgba(239,68,68,0.2)", border: "1px solid rgba(239,68,68,0.3)", color: "#fca5a5" }}>
@@ -87,6 +104,7 @@ export default function OwnerLogin() {
               {loading ? "جاري التحقق..." : "دخول لوحة المالك"}
             </button>
           </form>
+          )}
 
           <div className="text-center">
             <a href={BASE + "/"} className="text-slate-400 hover:text-white text-sm transition-colors">

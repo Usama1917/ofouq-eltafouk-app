@@ -3,11 +3,33 @@
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
+/* ─── SF Arabic — primary dashboard font ───────────────────────
+   Apple's Arabic typeface. Only ships a single (Regular) weight, so we declare
+   it for the normal weight only and let the browser synthesise bolder weights;
+   Cairo/Tajawal stay as the fallback stack below so any missing glyph or heavy
+   weight still renders cleanly and layouts keep the same metrics. */
+@font-face {
+  font-family: 'SF Arabic';
+  src: url('./assets/fonts/SFArabic-Regular.woff2') format('woff2'),
+       url('./assets/fonts/SFArabic-Regular.woff') format('woff');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'SF Arabic Rounded';
+  src: url('./assets/fonts/SFArabicRounded-Regular.woff2') format('woff2'),
+       url('./assets/fonts/SFArabicRounded-Regular.woff') format('woff');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: 'Cairo', sans-serif;
-  --font-display: 'Tajawal', sans-serif;
+  --font-sans: 'SF Arabic', 'Cairo', sans-serif;
+  --font-display: 'SF Arabic', 'Tajawal', sans-serif;
 
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));

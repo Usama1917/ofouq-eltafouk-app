@@ -31,6 +31,14 @@ if (!isExplicitDev) {
 const SIGNING_KEY = AUTH_SECRET || DEV_FALLBACK_KEY;
 
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+// Rolling sessions: when a still-valid token is older than this, callers reissue a
+// fresh 30-day token so an actively-used app effectively never forces a re-login
+// (and therefore never re-triggers SMS OTP). A token left unused past its 30-day
+// life still expires normally. See /auth/me.
+const TOKEN_REFRESH_AFTER_SECONDS = 60 * 60 * 24 * 7; // refresh once a token is >7 days old
+// Pre-auth tickets prove "password was correct for user X" between the password
+// step and the OTP/phone step. They grant NO access on their own and are short-lived.
+const TICKET_TTL_SECONDS = 60 * 10; // 10 minutes
 
 // ── Passwords ───────────────────────────────────────────────────────────────
 export function hashPassword(plain: string): string {
@@ -86,7 +94,7 @@ export function issueToken(userId: number, tokenVersion = 0): string {
   return `${body}.${sign(body)}`;
 }
 
-export type TokenPayload = { userId: number; tokenVersion: number };
+export type TokenPayload = { userId: number; tokenVersion: number; expiresAt: number };
 
 /**
  * Verify a token's signature + expiry and return its payload. Accepts both the
@@ -129,7 +137,62 @@ export function verifyTokenPayload(token: string | null | undefined): TokenPaylo
   const expiresAt = Number.parseInt(expStr, 10);
   if (!Number.isFinite(userId) || userId <= 0) return null;
   if (!Number.isFinite(expiresAt) || expiresAt * 1000 < Date.now()) return null;
-  return { userId, tokenVersion: Number.isFinite(tokenVersion) ? tokenVersion : 0 };
+  return { userId, tokenVersion: Number.isFinite(tokenVersion) ? tokenVersion : 0, expiresAt };
+}
+
+// ── Rolling refresh ───────────────────────────────────────────────────────────
+/**
+ * Given a currently-valid token payload, return a freshly-issued token when the
+ * existing one has aged past TOKEN_REFRESH_AFTER_SECONDS, or null when it is still
+ * young enough to keep using. Lets an active session slide forward indefinitely so
+ * the user is rarely forced to log in again (and rarely re-prompted for an OTP).
+ */
+export function maybeRefreshToken(payload: TokenPayload): string | null {
+  const issuedAt = payload.expiresAt - TOKEN_TTL_SECONDS;
+  const ageSeconds = Math.floor(Date.now() / 1000) - issuedAt;
+  if (ageSeconds >= TOKEN_REFRESH_AFTER_SECONDS) {
+    return issueToken(payload.userId, payload.tokenVersion);
+  }
+  return null;
+}
+
+// ── Pre-auth tickets (between password and OTP/phone steps) ────────────────────
+export function issueTicket(userId: number, purpose: string, ttlSeconds = TICKET_TTL_SECONDS): string {
+  const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
+  // Leading "t" + purpose distinguishes a ticket from a 2/3-segment session token,
+  // so a ticket can never be accepted as a session and vice versa.
+  const body = Buffer.from(`t.${purpose}.${userId}.${expiresAt}`).toString("base64url");
+  return `${body}.${sign(body)}`;
+}
+
+/** Verify a pre-auth ticket's signature, expiry, and purpose. Returns the user id or null. */
+export function verifyTicket(token: string | null | undefined, expectedPurpose: string): number | null {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [body, providedSig] = parts;
+  const expectedSig = sign(body);
+  if (
+    providedSig.length !== expectedSig.length ||
+    !crypto.timingSafeEqual(Buffer.from(providedSig), Buffer.from(expectedSig))
+  ) {
+    return null;
+  }
+  let decoded: string;
+  try {
+    decoded = Buffer.from(body, "base64url").toString("utf8");
+  } catch {
+    return null;
+  }
+  const segs = decoded.split(".");
+  if (segs.length !== 4 || segs[0] !== "t") return null;
+  const [, purpose, uidStr, expStr] = segs;
+  if (purpose !== expectedPurpose) return null;
+  const userId = Number.parseInt(uidStr, 10);
+  const expiresAt = Number.parseInt(expStr, 10);
+  if (!Number.isFinite(userId) || userId <= 0) return null;
+  if (!Number.isFinite(expiresAt) || expiresAt * 1000 < Date.now()) return null;
+  return userId;
 }
 
 export function verifyToken(token: string | null | undefined): number | null {

@@ -65,8 +65,22 @@ export default function LoginScreen() {
     setIsLoading(true);
     setLastNetworkError(null);
     try {
-      await login(identifier.trim(), password);
-      router.replace("/(tabs)");
+      const result = await login(identifier.trim(), password);
+      if (result.status === "authenticated") {
+        router.replace("/(tabs)");
+      } else if (result.status === "otp") {
+        router.push({
+          pathname: "/verify-otp",
+          params: {
+            mode: "login",
+            challengeId: result.challengeId,
+            masked: result.maskedDestination,
+            ...(result.devCode ? { devCode: result.devCode } : {}),
+          },
+        });
+      } else {
+        router.push({ pathname: "/setup-phone", params: { setupTicket: result.setupTicket } });
+      }
     } catch (err) {
       const apiError = err as ApiError & ApiNetworkError;
       if (SHOULD_SHOW_PREVIEW_API_DEBUG) {

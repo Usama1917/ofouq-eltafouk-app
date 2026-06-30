@@ -787,7 +787,18 @@ export default function NotificationsScreen() {
             <Text style={[styles.confirmTitle, { color: colors.text, writingDirection: direction }]}>
               {language === "ar" ? "مسح الإشعارات المقروءة" : "Clear read notifications"}
             </Text>
-            <Text style={[styles.confirmBody, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+            <Text
+              style={[
+                styles.confirmBody,
+                {
+                  color: colors.textSecondary,
+                  // Centered to match the logout dialog (and to read consistently
+                  // inside the Modal portal, which can drop the RTL context).
+                  textAlign: "center",
+                  writingDirection: direction,
+                },
+              ]}
+            >
               {language === "ar"
                 ? "سيتم حذف جميع الإشعارات التي تمت قراءتها. لا يمكن التراجع عن هذا الإجراء."
                 : "All read notifications will be permanently removed. This action cannot be undone."}

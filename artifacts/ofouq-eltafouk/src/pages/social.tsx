@@ -5,6 +5,7 @@ import { MessageSquare, Heart, Send, MessageCircle, Users, X } from "lucide-reac
 import { formatDistanceToNow } from "date-fns";
 import { ar } from "date-fns/locale";
 import { formatNumber, toEnglishDigits } from "@/lib/format";
+import { makeBackdropClose } from "@/lib/dialog-dismiss";
 
 function PostCard({ post, onCommentClick }: { post: any; onCommentClick: (id: number) => void }) {
   const likePost = useLikePost();
@@ -64,7 +65,10 @@ function CommentsModal({ postId, onClose }: { postId: number; onClose: () => voi
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-md flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 bg-black/40 backdrop-blur-md flex items-center justify-center p-4"
+      onClick={makeBackdropClose(onClose, { isDirty: () => content.trim().length > 0 })}
+    >
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}

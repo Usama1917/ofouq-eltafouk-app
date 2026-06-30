@@ -23,6 +23,7 @@ import {
 import * as XLSX from "xlsx";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/contexts/auth-context";
+import { confirmDiscardIfDirty } from "@/lib/dialog-dismiss";
 
 type Level = "years" | "subjects" | "units" | "lessons";
 type AcademicUnitLabel = "unit" | "chapter" | "section";
@@ -650,6 +651,11 @@ export function AcademicTab() {
   const [isDurationDetecting, setIsDurationDetecting] = useState(false);
   const [durationDetectionError, setDurationDetectionError] = useState<string | null>(null);
   const durationDetectionRequestRef = useRef(0);
+  // "Click outside to close" for the inline add/edit panel. The panel ref scopes
+  // what counts as "inside"; the toggle button ref lets its own onClick handle the
+  // close so the document listener doesn't double-fire on it.
+  const addPanelRef = useRef<HTMLDivElement | null>(null);
+  const addToggleRef = useRef<HTMLButtonElement | null>(null);
 
   const current = crumbs[crumbs.length - 1];
   const currentUnitCopy = getUnitLabelCopy(current.unitLabel);
@@ -683,6 +689,78 @@ export function AcademicTab() {
   const units = useSorted(unitsQ.data ?? []);
   const lessons = useSorted(lessonsQ.data ?? []);
   const editingLesson = editingLessonId ? lessons.find((lesson) => lesson.id === editingLessonId) ?? null : null;
+
+  // Whether the open add/edit panel has unsaved input, judged per level against
+  // each form's reset/default state. Used to confirm before an outside-click close.
+  function isAddPanelDirty(): boolean {
+    if (current.level === "years") {
+      return Boolean(yearForm.name || yearForm.nameEn || yearForm.description || yearForm.descriptionEn);
+    }
+    if (current.level === "subjects") {
+      return Boolean(
+        subjectForm.name ||
+          subjectForm.nameEn ||
+          subjectForm.description ||
+          subjectForm.descriptionEn ||
+          subjectForm.icon !== "📚" ||
+          subjectForm.unitLabel !== "unit",
+      );
+    }
+    if (current.level === "units") {
+      return Boolean(unitForm.name || unitForm.nameEn || unitForm.description || unitForm.descriptionEn);
+    }
+    // lessons
+    return Boolean(
+      lessonForm.title ||
+        lessonForm.titleEn ||
+        lessonForm.description ||
+        lessonForm.descriptionEn ||
+        lessonForm.videoUrl ||
+        lessonForm.videoTitle ||
+        lessonForm.videoTitleEn ||
+        lessonForm.videoDescription ||
+        lessonForm.videoDescriptionEn ||
+        lessonForm.instructor ||
+        lessonForm.instructorEn ||
+        lessonForm.thumbnailUrl ||
+        lessonForm.posterUrl ||
+        lessonVideoFile ||
+        lessonThumbnailFile ||
+        lessonPosterFile ||
+        lessonSegments.length > 0,
+    );
+  }
+
+  // While the inline add/edit panel is open, a mousedown anywhere outside it (and
+  // outside the toggle button, which handles its own close) confirms-then-closes.
+  useEffect(() => {
+    if (!showAdd) return;
+    function onDocMouseDown(event: globalThis.MouseEvent) {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (addPanelRef.current?.contains(target)) return;
+      if (addToggleRef.current?.contains(target)) return;
+      if (confirmDiscardIfDirty(isAddPanelDirty())) {
+        setShowAdd(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+    // isAddPanelDirty reads live form state via closure; re-bind when it changes so
+    // the dirty check stays accurate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    showAdd,
+    current.level,
+    yearForm,
+    subjectForm,
+    unitForm,
+    lessonForm,
+    lessonVideoFile,
+    lessonThumbnailFile,
+    lessonPosterFile,
+    lessonSegments,
+  ]);
 
   function invalidateAcademic() {
     qc.invalidateQueries({ queryKey: ["admin", "academic"] });
@@ -1146,6 +1224,7 @@ export function AcademicTab() {
         </div>
 
         <button
+          ref={addToggleRef}
           onClick={() => {
             setShowAdd((open) => {
               const next = !open;
@@ -1174,6 +1253,7 @@ export function AcademicTab() {
       <AnimatePresence>
         {showAdd ? (
           <motion.div
+            ref={addPanelRef}
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}

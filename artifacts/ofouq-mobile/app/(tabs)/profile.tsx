@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useAuth, type User } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { apiFetch } from "@/lib/api";
 import { EGYPT_GOVERNORATES, governorateLabel } from "@/lib/egyptGovernorates";
 import { formatDate, toEnglishDigits } from "@/lib/format";
@@ -145,6 +146,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [addressInputHeight, setAddressInputHeight] = useState(52);
   const [governoratePickerOpen, setGovernoratePickerOpen] = useState(false);
@@ -272,17 +274,15 @@ export default function ProfileScreen() {
   }
 
   function handleLogout() {
-    Alert.alert(strings.profile.logoutTitle, strings.profile.logoutMessage, [
-      { text: strings.common.cancel, style: "cancel" },
-      {
-        text: strings.profile.logoutAction,
-        style: "destructive",
-        onPress: async () => {
-          await logout();
-          router.replace("/login");
-        },
-      },
-    ]);
+    // Custom themed dialog (not the native Alert) so the Arabic copy aligns right
+    // with a centered title, per RTL.
+    setLogoutConfirmOpen(true);
+  }
+
+  async function confirmLogout() {
+    setLogoutConfirmOpen(false);
+    await logout();
+    router.replace("/login");
   }
 
   function handleCloseAccount() {
@@ -725,6 +725,18 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
+
+      <ConfirmDialog
+        visible={logoutConfirmOpen}
+        title={strings.profile.logoutTitle}
+        message={strings.profile.logoutMessage}
+        confirmLabel={strings.profile.logoutAction}
+        cancelLabel={strings.common.cancel}
+        destructive
+        icon="log-out"
+        onConfirm={confirmLogout}
+        onCancel={() => setLogoutConfirmOpen(false)}
+      />
     </KeyboardAvoidingView>
   );
 }

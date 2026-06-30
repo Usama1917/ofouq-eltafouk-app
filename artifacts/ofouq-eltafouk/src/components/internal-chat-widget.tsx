@@ -40,6 +40,10 @@ export function InternalChatWidget({ isDark }: { isDark?: boolean }) {
   const mutedUntilRef = useRef(mutedUntil);
   useEffect(() => { mutedUntilRef.current = mutedUntil; }, [mutedUntil]);
   const resizing = useRef<null | { startX: number; startY: number; startW: number; startH: number }>(null);
+  // Corner arc (resize grip) proximity: it fades in as the mouse approaches the
+  // panel's top-right corner and fades out as it moves away. Starts hidden.
+  const gripRef = useRef<HTMLDivElement | null>(null);
+  const [arcOpacity, setArcOpacity] = useState(0);
   const meIdRef = useRef<number | null>(null);
   const lastSeenMsgIdRef = useRef<number | null>(null); // highest message id already handled
   const toastTimer = useRef<number | null>(null);
@@ -132,6 +136,31 @@ export function InternalChatWidget({ isDark }: { isDark?: boolean }) {
     resizing.current = { startX: e.clientX, startY: e.clientY, startW: size.w, startH: size.h };
   };
 
+  // Corner-arc proximity: fade the grip arc in within ~80px of the top-right
+  // corner, fully out beyond ~220px, linear in between. Only runs while open.
+  useEffect(() => {
+    if (!open) { setArcOpacity(0); return; }
+    const NEAR = 80, FAR = 220;
+    let raf = 0;
+    const onMove = (e: MouseEvent) => {
+      if (raf) return; // coalesce to one calc per frame
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        const el = gripRef.current;
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        // Nearest point of the grip box to the cursor (its top-right corner area).
+        const cx = Math.max(r.left, Math.min(e.clientX, r.right));
+        const cy = Math.max(r.top, Math.min(e.clientY, r.bottom));
+        const dist = Math.hypot(e.clientX - cx, e.clientY - cy);
+        const o = dist <= NEAR ? 1 : dist >= FAR ? 0 : 1 - (dist - NEAR) / (FAR - NEAR);
+        setArcOpacity(o);
+      });
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => { window.removeEventListener("mousemove", onMove); if (raf) window.cancelAnimationFrame(raf); };
+  }, [open]);
+
   const openInNewTab = () => {
     window.open(`${window.location.origin}${apiPath("/team-chat")}`, "_blank", "noopener");
   };
@@ -170,6 +199,8 @@ export function InternalChatWidget({ isDark }: { isDark?: boolean }) {
 
   if (!isStaff) return null;
   const isMuted = mutedUntil > Date.now();
+  const prefersReducedMotion =
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Morph palette: the panel literally grows out of the FAB, so it starts at the
   // button's exact blue (mirrors --primary in index.css — light 217 91% 45%,
@@ -305,8 +336,13 @@ export function InternalChatWidget({ isDark }: { isDark?: boolean }) {
               {/* Resize grip — top-right corner (the panel's free corner). A thick,
                   round-capped quarter-circle arc that traces the panel's rounded corner. */}
               <div
+                ref={gripRef}
                 onPointerDown={startResize}
                 className="group/grip absolute right-0 top-0 z-20 h-7 w-7 cursor-nesw-resize"
+                style={{
+                  opacity: arcOpacity,
+                  transition: prefersReducedMotion ? undefined : "opacity 200ms ease",
+                }}
                 title="اسحب لتغيير الحجم"
               >
                 <svg

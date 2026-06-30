@@ -12,6 +12,10 @@ export const usersTable = pgTable("users", {
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   avatarUrl: text("avatar_url"),
   phone: text("phone"),
+  // Set once the user's phone number is confirmed via an OTP code. Null = unverified
+  // (or never collected). Two-factor SMS login requires a verified phone; an admin
+  // "reset" clears this to force re-collection + re-verification on next login.
+  phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
   age: integer("age"),
   address: text("address"),
   parentPhone: text("parent_phone"),

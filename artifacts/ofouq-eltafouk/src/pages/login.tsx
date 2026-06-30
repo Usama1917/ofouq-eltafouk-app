@@ -3,8 +3,11 @@ import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, Mail, Lock } from "lucide-react";
 import { Logo } from "@/components/logo";
-import { useAuth } from "@/contexts/auth-context";
+import { useAuth, type LoginResult } from "@/contexts/auth-context";
+import { TwoFactorStep } from "@/components/two-factor-step";
 import { getPostLoginRoute } from "@/lib/auth";
+
+type PendingTwoFactor = Exclude<LoginResult, { status: "authenticated" }>;
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -16,6 +19,7 @@ export default function Login() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState<PendingTwoFactor | null>(null);
 
   useEffect(() => {
     if (user) setLocation(getPostLoginRoute(user.role));
@@ -26,8 +30,12 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      const authenticatedUser = await login(email, password);
-      setLocation(getPostLoginRoute(authenticatedUser.role));
+      const result = await login(email, password);
+      if (result.status === "authenticated") {
+        setLocation(getPostLoginRoute(result.user.role));
+      } else {
+        setPending(result);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -66,6 +74,14 @@ export default function Login() {
             <p className="text-muted-foreground mt-1 text-sm">أهلاً بعودتك! سجّل دخولك للمتابعة.</p>
           </div>
 
+          {pending ? (
+            <TwoFactorStep
+              pending={pending}
+              theme="light"
+              onAuthenticated={(u) => setLocation(getPostLoginRoute(u.role))}
+              onCancel={() => setPending(null)}
+            />
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 text-sm font-medium px-4 py-3 rounded-2xl">
@@ -101,6 +117,7 @@ export default function Login() {
               {loading ? "جاري الدخول..." : "تسجيل الدخول"}
             </button>
           </form>
+          )}
 
           <p className="text-center text-sm text-muted-foreground">
             ليس لديك حساب؟{" "}
