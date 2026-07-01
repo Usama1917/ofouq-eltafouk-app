@@ -268,6 +268,42 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
 
+        {user?.role === "student" ? (
+          <View style={[styles.subscriptionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Pressable
+              onPress={() => router.push("/(tabs)/settings/rewards")}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.subscriptionRow,
+                { backgroundColor: pressed ? colors.surfaceSecondary : colors.surface, flexDirection: rowDirection, direction },
+              ]}
+            >
+              <View style={[styles.subscriptionLeading, { flexDirection: rowDirection, direction }]}>
+                <View
+                  style={[
+                    styles.subscriptionIcon,
+                    resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border },
+                  ]}
+                >
+                  <Feather name="award" size={23} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+                </View>
+                <View style={[styles.subscriptionTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                  <Text style={[styles.subscriptionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+                    {isRTL ? "النقاط والستريك" : "Points & Streak"}
+                  </Text>
+                  <Text
+                    style={[styles.subscriptionSubtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}
+                    numberOfLines={1}
+                  >
+                    {isRTL ? "نقاطك وسلسلتك وسجل مكاسبك" : "Your points, streak & history"}
+                  </Text>
+                </View>
+              </View>
+              <Feather name={isRTL ? "chevron-left" : "chevron-right"} size={19} color={colors.textTertiary} />
+            </Pressable>
+          </View>
+        ) : null}
+
         <View style={[styles.contactCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Pressable
             onPress={() => router.push("/(tabs)/settings/contact" as any)}

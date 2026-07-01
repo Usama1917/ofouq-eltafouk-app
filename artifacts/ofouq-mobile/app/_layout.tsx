@@ -148,6 +148,7 @@ function RootLayoutNav() {
         <Stack.Screen name="register" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="verify-otp" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="setup-phone" options={{ headerShown: false }} />
+        <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
       </Stack>
     </ThemeProvider>
   );

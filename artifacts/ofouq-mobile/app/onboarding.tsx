@@ -205,14 +205,16 @@ export default function OnboardingScreen() {
 
       {/* Question + options */}
       <Animated.View style={[styles.body, { opacity: fade, transform: [{ translateX: slide }] }]}>
-        <Text style={[styles.questionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
-          {questionStrings?.title}
-        </Text>
-        {isMulti ? (
-          <Text style={[styles.multiHint, { color: colors.textTertiary, textAlign, writingDirection: direction }]}>
-            {tr.multiHint}
+        <View style={{ direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }}>
+          <Text style={[styles.questionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+            {questionStrings?.title}
           </Text>
-        ) : null}
+          {isMulti ? (
+            <Text style={[styles.multiHint, { color: colors.textTertiary, textAlign, writingDirection: direction }]}>
+              {tr.multiHint}
+            </Text>
+          ) : null}
+        </View>
 
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -226,8 +228,10 @@ export default function OnboardingScreen() {
               style={({ pressed }) => [
                 styles.optionCard,
                 {
-                  flexDirection: rowDirection,
-                  direction,
+                  // direction:"ltr" + flexDirection is the reliable RTL recipe here
+                  // (a direction:"rtl" container breaks textAlign on this RN setup).
+                  flexDirection: isRTL ? "row-reverse" : "row",
+                  direction: "ltr",
                   backgroundColor: selected ? COLORS.primary + (isDark ? "26" : "14") : colors.card,
                   borderColor: selected ? COLORS.primary : colors.border,
                   opacity: pressed ? 0.92 : 1,

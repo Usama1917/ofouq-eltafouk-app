@@ -19,3 +19,5 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Performance:** keep video/list endpoints paginated and cache-safe; DB pool tuned in `lib/db`. `replit.md` is stale on auth.
 
 **Deferred review items:** intentionally-postponed code-review findings (internal refactors / cleanups, not urgent) are listed in `magazine_details.md` — a backlog, not open bugs.
+
+**v2 roadmap & progress (two files at repo root):** `Developments.md` = the **plan** (8 prioritized phases, Arabic). `Developments_Done.md` = the **completed log** — what's actually finished from the plan, what was agreed, and what was added beyond it. All v2 work is on branch `v2-developments` (keep `main`/v1 untouched). **When the owner says "move to the next phase", append the finished phase to `Developments_Done.md` before starting the new one.** Phase 1 (gamification) is done; see `Developments_Done.md` for the full detail + decisions (point values, streak bonuses 10→20/20→50/30→100/31+→5, leaderboard rules, automated messages + delivery report, owner-map upgrades).

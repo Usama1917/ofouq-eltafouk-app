@@ -8,6 +8,9 @@ export interface AuthUser {
   email: string;
   role: string;
   permissions?: string[];
+  // Owner-controlled per-admin page access: ids of admin pages HIDDEN from this admin
+  // (empty/absent = all visible). Owners ignore this.
+  blockedTabs?: string[] | null;
   status: string;
   avatarUrl?: string | null;
   phone?: string | null;

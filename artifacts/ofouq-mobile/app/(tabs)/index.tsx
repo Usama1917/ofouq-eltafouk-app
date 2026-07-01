@@ -26,6 +26,9 @@ import { apiFetch } from "@/lib/api";
 import { formatNumber, toEnglishDigits } from "@/lib/format";
 import { resolveMediaUrl } from "@/lib/media";
 import { fetchNotificationSummary, notificationsQueryKey } from "@/lib/notifications";
+import { fetchGamification, gamificationQueryKey } from "@/lib/gamification";
+import { GamificationStrip } from "@/components/GamificationStrip";
+import { useRefetchOnFocus } from "@/hooks/useRefetchOnFocus";
 
 type AcademicYear = {
   id: number;
@@ -176,6 +179,18 @@ export default function HomeScreen() {
   const unreadNotificationsCount = user ? notificationSummary?.unreadCount ?? 0 : 0;
   const unreadNotificationsLabel =
     unreadNotificationsCount > 99 ? "99+" : toEnglishDigits(String(unreadNotificationsCount));
+
+  // Gamification snapshot for the home strip (streak / points / daily-goal ring).
+  const { data: gamification, refetch: refetchGamification } = useQuery({
+    queryKey: [...gamificationQueryKey, token],
+    queryFn: () => fetchGamification(token),
+    // Students only — teachers/admins have no points/streak in the app.
+    enabled: Boolean(user && token && user.role === "student"),
+    refetchInterval: 60000,
+  });
+  // RN window-focus refetch never fires, so refresh when the user returns to home
+  // (e.g. right after finishing a lesson) — points/streak update immediately.
+  useRefetchOnFocus(refetchGamification);
 
   const {
     data: years = [],
@@ -348,6 +363,10 @@ export default function HomeScreen() {
               </View>
             </View>
           </View>
+
+          {user?.role === "student" && gamification ? (
+            <GamificationStrip summary={gamification} onPress={() => router.push("/leaderboard")} />
+          ) : null}
 
           <View style={[styles.sectionHeader, { flexDirection: rowDirection, direction }]}>
             {/* direction:"ltr" + physical align so multi-line Arabic text isn't swapped to the left */}

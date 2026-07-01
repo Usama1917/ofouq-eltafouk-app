@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, 
   Flag, Megaphone, Plus, Edit, Trash2, Eye, Check, X, ArrowUp, ArrowDown,
   TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap, ImagePlus, TicketPercent, Truck, Send, ChevronDown,
-  Sun, Moon, Bot, Search, Info, Phone, MapPin, BookMarked, Activity, Bell, Smartphone, Mail, CalendarClock, ShieldCheck, AlertTriangle
+  Sun, Moon, Bot, Search, Info, Phone, MapPin, BookMarked, Activity, Bell, Smartphone, Mail, CalendarClock, ShieldCheck, ShieldAlert, AlertTriangle, SlidersHorizontal
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
@@ -23,9 +23,16 @@ import { Logo } from "@/components/logo";
 import { InternalChatWidget } from "@/components/internal-chat-widget";
 import { RoleIcon } from "@/components/role-icon";
 import { AcademicTab } from "./admin-academic";
+import AutomatedMessagesTab from "./admin/automated-messages-tab";
+import NotificationReportTab from "./admin/notification-report-tab";
+import MoralReviewsTab from "./admin/moral-reviews-tab";
+import { NotificationIconPicker } from "@/components/notification-icon-picker";
+import { NotificationColorPicker } from "@/components/notification-color-picker";
+import { useNotificationColors } from "@/lib/notification-colors";
 import { toEnglishDigits } from "@/lib/format";
+import { toast } from "sonner";
 
-type Tab = "dashboard" | "users" | "books" | "posts" | "reports" | "banners" | "academic" | "subscriptionRequests" | "supportMessages" | "broadcastMessages" | "materials";
+type Tab = "dashboard" | "users" | "books" | "posts" | "reports" | "banners" | "academic" | "subscriptionRequests" | "supportMessages" | "broadcastMessages" | "materials" | "moralReviews";
 type TabMotionCustom = { direction: number; reduceMotion: boolean };
 type Material = { id: number; name: string; classification?: string; sortOrder?: number; createdAt?: string };
 type SubjectInsightItem = {
@@ -202,6 +209,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "subscriptionRequests", label: "طلبات الاشتراك", icon: TicketPercent },
   { id: "supportMessages", label: "رسائل المستخدمين", icon: MessageSquare },
   { id: "broadcastMessages", label: "إرسال الإشعارات", icon: Send },
+  { id: "moralReviews", label: "مراجعات أخلاقية", icon: ShieldAlert },
   { id: "books", label: "الكتب", icon: BookOpen },
   { id: "posts", label: "المنشورات", icon: MessageSquare },
   { id: "reports", label: "التقارير", icon: Flag },
@@ -1132,6 +1140,17 @@ function MaterialsTab() {
 
 // ── Users Tab ─────────────────────────────────────────────────────────────
 // ── Student / user details drawer ─────────────────────────────────────────
+type AdminUserGamification = {
+  balance: number;
+  totalEarned: number;
+  streak: number;
+  streakBest: number;
+  dailyGoalMinutes: number;
+  todayWatchedSeconds: number;
+  todayProgressRatio: number;
+  goalMet: boolean;
+};
+
 type StudentDetailsResponse = {
   user: {
     id: number; name: string; email: string; role: string; status: string;
@@ -1139,6 +1158,7 @@ type StudentDetailsResponse = {
     age?: number | null; address?: string | null; governorate?: string | null;
     specialty?: string | null; qualifications?: string | null; howDidYouHear?: string | null;
     supportNeeded?: string | null; bio?: string | null;
+    reportCount?: number | null;
     joinedAt?: string | null; lastActiveAt?: string | null;
   };
   hasActiveAccess: boolean;
@@ -1236,6 +1256,36 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
   const role = u?.role ?? "";
   const title = role === "student" || role === "" ? "تفاصيل الطالب" : "تفاصيل المستخدم";
   const statusInfo = detailStatusBadge(u?.status);
+  const reportCount = data?.user?.reportCount ?? 0;
+  const [showAvatar, setShowAvatar] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const doReport = async () => {
+    if (!u || reporting) return;
+    if (!window.confirm(`تبلّغ عن «${u.name}»؟ عند وصول ٥ بلاغات يتعلّق الحساب تلقائيًا.`)) return;
+    setReporting(true);
+    try {
+      const r = await customFetch<{ reportCount: number; suspended: boolean }>(`/api/admin/users/${u.id}/report`, { method: "POST" });
+      toast.success(
+        r.suspended
+          ? `تم الإبلاغ — اتعلّق حساب «${u.name}» تلقائيًا (${toEnglishDigits(String(r.reportCount))} بلاغات)`
+          : `تم الإبلاغ — البلاغات بقت ${toEnglishDigits(String(r.reportCount))}/٥`,
+      );
+      refetch();
+    } catch {
+      toast.error("تعذّر الإبلاغ");
+    } finally {
+      setReporting(false);
+    }
+  };
+
+  // Gamification snapshot (points / streak / today's goal) — students only.
+  const isStudent = (user?.role ?? "") === "student" || role === "student";
+  const gam = useQuery<AdminUserGamification>({
+    queryKey: ["/api/admin/users", user?.id, "gamification"],
+    queryFn: () => customFetch<AdminUserGamification>(`/api/admin/users/${user!.id}/gamification`, { method: "GET" }),
+    enabled: open && isStudent,
+    staleTime: 30_000,
+  });
 
   return (
     <AnimatePresence>
@@ -1248,7 +1298,7 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
           <motion.div
             initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }}
             transition={{ type: "tween", duration: 0.22 }}
-            className="h-full w-full max-w-xl overflow-y-auto border-l border-white/60 bg-[#f6f8fc] text-right shadow-2xl dark:border-white/10 dark:bg-[#17181b]"
+            className="h-full w-full max-w-xl overflow-y-auto bg-[#f6f8fc] text-right shadow-2xl dark:bg-[#17181b]"
             onClick={(e) => e.stopPropagation()}
             dir="rtl"
           >
@@ -1260,10 +1310,15 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
             </div>
 
             <div className="space-y-4 p-5">
+              {showAvatar && u?.avatarUrl
+                ? createPortal(<ImageLightbox src={u.avatarUrl} title={u.name} onClose={() => setShowAvatar(false)} />, document.body)
+                : null}
               {/* Header card */}
               <div className="glass-card flex items-center gap-4 p-4">
                 {u?.avatarUrl ? (
-                  <img src={u.avatarUrl} alt={u.name} className="h-16 w-16 rounded-2xl object-cover" />
+                  <button type="button" onClick={() => setShowAvatar(true)} title="معاينة الصورة" className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl">
+                    <img src={u.avatarUrl} alt={u.name} className="h-16 w-16 rounded-2xl object-cover transition-transform hover:scale-105" />
+                  </button>
                 ) : (
                   <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-xl font-black text-primary">
                     {(u?.name || "?").trim().charAt(0)}
@@ -1283,6 +1338,41 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
                   </div>
                 </div>
               </div>
+
+              {/* Gamification snapshot — students only */}
+              {isStudent ? (
+                <div className="glass-card p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Award className="h-4 w-4 text-primary" />
+                    <h4 className="text-sm font-black text-foreground">التحفيز</h4>
+                  </div>
+                  {gam.isLoading ? (
+                    <div className="h-16 animate-pulse rounded-2xl bg-muted" />
+                  ) : gam.data ? (
+                    <>
+                      <div className="grid grid-cols-3 gap-3 text-center">
+                        <div className="rounded-2xl bg-amber-50 p-3 dark:bg-amber-500/10">
+                          <div className="text-xl font-black text-amber-600">{toEnglishDigits(String(gam.data.balance))}</div>
+                          <div className="text-[11px] font-bold text-muted-foreground">نقطة</div>
+                        </div>
+                        <div className="rounded-2xl bg-orange-50 p-3 dark:bg-orange-500/10">
+                          <div className="text-xl font-black text-orange-600">🔥 {toEnglishDigits(String(gam.data.streak))}</div>
+                          <div className="text-[11px] font-bold text-muted-foreground">سلسلة الأيام</div>
+                        </div>
+                        <div className="rounded-2xl bg-emerald-50 p-3 dark:bg-emerald-500/10">
+                          <div className="text-xl font-black text-emerald-600">{toEnglishDigits(String(Math.round((gam.data.todayProgressRatio || 0) * 100)))}%</div>
+                          <div className="text-[11px] font-bold text-muted-foreground">هدف النهارده</div>
+                        </div>
+                      </div>
+                      <p className="text-[11px] font-bold text-muted-foreground">
+                        أفضل سلسلة: {toEnglishDigits(String(gam.data.streakBest))} يوم · إجمالي مكتسب: {toEnglishDigits(String(gam.data.totalEarned))} نقطة
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">لا تتوفر بيانات تحفيز بعد.</p>
+                  )}
+                </div>
+              ) : null}
 
               {isLoading ? (
                 <div className="space-y-3">
@@ -1308,6 +1398,18 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
                     <DetailRow label="الحالة" value={<span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${statusInfo.cls}`}>{statusInfo.label}</span>} />
                     <DetailRow label="البريد الإلكتروني" icon={Mail} value={<span dir="ltr">{data.user.email}</span>} />
                     <DetailRow label="رقم الهاتف" icon={Phone} value={data.user.phone ? <span dir="ltr">{data.user.phone}</span> : null} />
+                    <DetailRow
+                      label="عدد البلاغات"
+                      icon={Flag}
+                      value={
+                        <span className="flex items-center gap-2">
+                          <span className={`font-bold ${reportCount > 0 ? "text-orange-600" : "text-muted-foreground"}`}>{toEnglishDigits(String(reportCount))}/٥</span>
+                          <button onClick={doReport} disabled={reporting} className="rounded-lg bg-orange-100 px-2.5 py-1 text-[11px] font-bold text-orange-700 transition-colors hover:bg-orange-200 disabled:opacity-50 dark:bg-orange-500/15 dark:text-orange-300">
+                            {reporting ? "..." : "إبلاغ"}
+                          </button>
+                        </span>
+                      }
+                    />
                     <DetailRow label="تاريخ الانضمام" icon={CalendarClock} value={formatAdminDateTime(data.user.joinedAt)} />
                     <DetailRow label="آخر نشاط" icon={Activity} value={data.user.lastActiveAt ? formatAdminDateTime(data.user.lastActiveAt) : null} />
                   </DetailSection>
@@ -1505,6 +1607,7 @@ function UsersTab({
   const [newUser, setNewUser] = useState({ name: "", email: "", role: "student" });
   const [roleFilter, setRoleFilter] = useState("all");
   const [actionFilter, setActionFilter] = useState("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [activityMode, setActivityMode] = useState<"all" | "active" | "inactive">("all");
   const [activityDaysPreset, setActivityDaysPreset] = useState("7");
   const [customActivityDays, setCustomActivityDays] = useState("");
@@ -1597,16 +1700,97 @@ function UsersTab({
     }
   };
 
+  const activeFilters = (roleFilter !== "all" ? 1 : 0) + (activityMode !== "all" ? 1 : 0) + (actionFilter !== "all" ? 1 : 0);
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 className="text-xl font-display font-bold">المستخدمون ({filteredUsers.length})</h2>
-          {selectedUsers.length > 0 ? (
-            <p className="mt-1 text-xs font-bold text-primary">
-              تم تحديد {formatAdminNumber(selectedUsers.length)} مستخدم
-            </p>
-          ) : null}
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className="text-xl font-display font-bold">المستخدمون ({filteredUsers.length})</h2>
+            {selectedUsers.length > 0 ? (
+              <p className="mt-1 text-xs font-bold text-primary">
+                تم تحديد {formatAdminNumber(selectedUsers.length)} مستخدم
+              </p>
+            ) : null}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => setFiltersOpen((o) => !o)}
+              className="relative inline-flex h-10 items-center gap-2 rounded-2xl border border-border bg-background px-4 text-sm font-bold text-foreground transition-colors hover:bg-muted/60"
+              title="الفلاتر"
+            >
+              <SlidersHorizontal className="h-4 w-4 text-primary" />
+              فلاتر
+              {activeFilters > 0 ? (
+                <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-black text-white">{activeFilters}</span>
+              ) : null}
+            </button>
+            {/* Popover under the button — no backdrop dim/blur, just a card. A transparent
+                full-screen catcher closes it on an outside click. */}
+            <AnimatePresence>
+              {filtersOpen ? (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setFiltersOpen(false)} />
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.97, y: -6 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97, y: -6 }}
+                    transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                    className="absolute top-full right-0 z-50 mt-2 w-[min(90vw,360px)] origin-top space-y-4 rounded-2xl border border-border bg-background p-5 text-right shadow-2xl"
+                    dir="rtl"
+                  >
+                    <div className="flex items-center justify-between">
+                      <h3 className="flex items-center gap-2 font-bold text-foreground"><SlidersHorizontal className="h-4 w-4 text-primary" /> الفلاتر</h3>
+                      <button onClick={() => setFiltersOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground hover:text-foreground" aria-label="إغلاق"><X className="h-4 w-4" /></button>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-muted-foreground">الدور</label>
+                      <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="h-11 w-full rounded-2xl border border-border bg-background px-3 text-sm font-bold outline-none">
+                        <option value="all">كل الأدوار</option>
+                        {Object.entries(ROLE_LABELS).filter(([value]) => !STAFF_ROLES.has(value)).map(([value, label]) => (<option key={value} value={value}>{label}</option>))}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-muted-foreground">النشاط</label>
+                      <div className="flex flex-wrap gap-2">
+                        <select value={activityMode} onChange={(e) => setActivityMode(e.target.value as typeof activityMode)} className="h-11 flex-1 rounded-2xl border border-border bg-background px-3 text-sm font-bold outline-none">
+                          <option value="all">الكل</option>
+                          <option value="active">نشط</option>
+                          <option value="inactive">غير نشط</option>
+                        </select>
+                        <select value={activityDaysPreset} onChange={(e) => setActivityDaysPreset(e.target.value)} className="h-11 flex-1 rounded-2xl border border-border bg-background px-3 text-sm font-bold outline-none">
+                          <option value="1">آخر يوم</option>
+                          <option value="7">آخر 7 أيام</option>
+                          <option value="30">آخر 30 يوم</option>
+                          <option value="90">آخر 90 يوم</option>
+                          <option value="custom">مخصص</option>
+                        </select>
+                        {activityDaysPreset === "custom" ? (
+                          <input value={customActivityDays} onChange={(e) => setCustomActivityDays(e.target.value.replace(/[^\d]/g, ""))} placeholder="أيام" inputMode="numeric" className="h-11 w-20 rounded-2xl border border-border bg-background px-3 text-sm font-bold outline-none" />
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-muted-foreground">إجراءات</label>
+                      <select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} className="h-11 w-full rounded-2xl border border-border bg-background px-3 text-sm font-bold outline-none">
+                        <option value="all">كل الإجراءات</option>
+                        <option value="suspendable">تعليق</option>
+                        <option value="activatable">تفعيل</option>
+                      </select>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={() => setFiltersOpen(false)} className="btn-primary flex-1 py-2 text-sm">تم</button>
+                      <button
+                        onClick={() => { setRoleFilter("all"); setActivityMode("all"); setActivityDaysPreset("7"); setCustomActivityDays(""); setActionFilter("all"); }}
+                        className="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-muted-foreground transition-all hover:bg-muted"
+                      >
+                        مسح
+                      </button>
+                    </div>
+                  </motion.div>
+                </>
+              ) : null}
+            </AnimatePresence>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground" title="عدد النتائج المعروضة">
@@ -1632,6 +1816,7 @@ function UsersTab({
           </button>
         </div>
       </div>
+
       {adding && (
         <div className="glass-card p-5 space-y-4 border-primary/20">
           <h3 className="font-bold text-foreground">إضافة مستخدم جديد</h3>
@@ -1678,6 +1863,13 @@ function UsersTab({
           <button onClick={() => refetch()} className="btn-primary text-sm py-2 px-5 mx-auto">إعادة المحاولة</button>
         </div>
       ) : (
+      <>
+      {/* Results count — above الاسم, outside the table card. Reflects the active
+          filters (equals the total when no filter is applied). */}
+      <div className="mb-2 px-1 text-right text-xs font-bold text-muted-foreground">
+        عدد النتائج: <span className="text-foreground">{formatAdminNumber(filteredUsers.length)}</span>
+        {activeFilters > 0 ? <span className="text-primary"> (بعد الفلترة)</span> : null}
+      </div>
       <div className="glass-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-right">
@@ -1693,71 +1885,9 @@ function UsersTab({
               </th>
               <th className="px-5 py-4 font-bold text-muted-foreground text-xs">الاسم</th>
               <th className="px-5 py-4 font-bold text-muted-foreground text-xs">البريد</th>
-              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">
-                <div className="space-y-2">
-                  <span>الدور</span>
-                  <select
-                    value={roleFilter}
-                    onChange={(event) => setRoleFilter(event.target.value)}
-                    className="h-9 w-32 rounded-xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
-                  >
-                    <option value="all">كل الأدوار</option>
-                    {Object.entries(ROLE_LABELS).filter(([value]) => !STAFF_ROLES.has(value)).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                </div>
-              </th>
-              <th className="min-w-56 px-5 py-4 font-bold text-muted-foreground text-xs">
-                <div className="space-y-2">
-                  <span>النشاط</span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      value={activityMode}
-                      onChange={(event) => setActivityMode(event.target.value as typeof activityMode)}
-                      className="h-9 rounded-xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
-                    >
-                      <option value="all">الكل</option>
-                      <option value="active">نشط</option>
-                      <option value="inactive">غير نشط</option>
-                    </select>
-                    <select
-                      value={activityDaysPreset}
-                      onChange={(event) => setActivityDaysPreset(event.target.value)}
-                      className="h-9 rounded-xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
-                    >
-                      <option value="1">آخر يوم</option>
-                      <option value="7">آخر 7 أيام</option>
-                      <option value="30">آخر 30 يوم</option>
-                      <option value="90">آخر 90 يوم</option>
-                      <option value="custom">مخصص</option>
-                    </select>
-                    {activityDaysPreset === "custom" ? (
-                      <input
-                        value={customActivityDays}
-                        onChange={(event) => setCustomActivityDays(event.target.value.replace(/[^\d]/g, ""))}
-                        placeholder="أيام"
-                        inputMode="numeric"
-                        className="h-9 w-16 rounded-xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
-                      />
-                    ) : null}
-                  </div>
-                </div>
-              </th>
-              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">
-                <div className="space-y-2">
-                  <span>إجراءات</span>
-                  <select
-                    value={actionFilter}
-                    onChange={(event) => setActionFilter(event.target.value)}
-                    className="h-9 w-32 rounded-xl border border-border bg-background px-2 text-xs font-bold text-foreground outline-none"
-                  >
-                    <option value="all">كل الإجراءات</option>
-                    <option value="suspendable">تعليق</option>
-                    <option value="activatable">تفعيل</option>
-                  </select>
-                </div>
-              </th>
+              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">الدور</th>
+              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">النشاط</th>
+              <th className="px-5 py-4 font-bold text-muted-foreground text-xs">إجراءات</th>
             </tr></thead>
             <tbody className="divide-y divide-white/30">
               {visibleUsers.map(u => {
@@ -1816,6 +1946,7 @@ function UsersTab({
           </div>
         ) : null}
       </div>
+      </>
       )}
 
       <AnimatePresence>
@@ -3007,6 +3138,46 @@ function SubscriptionRequestsTab({
   );
 }
 
+// "إرسال الإشعارات" page = three sub-tabs: manual broadcast (existing), the automated
+// gamification messages editor, and the delivery report. (v2 Phase 1)
+function NotificationsHubTab(props: {
+  token: string | null;
+  targetUsers?: AdminUserListItem[];
+  onClearTargetUsers?: () => void;
+  onTargetUsersChange?: (users: AdminUserListItem[]) => void;
+}) {
+  const [sub, setSub] = useState<"manual" | "automated" | "report">("manual");
+  const subTabs: { id: "manual" | "automated" | "report"; label: string; icon: React.ElementType }[] = [
+    { id: "manual", label: "إرسال يدوي", icon: Send },
+    { id: "automated", label: "الرسائل المؤتمتة", icon: Bell },
+    { id: "report", label: "تقرير الإرسال", icon: FileText },
+  ];
+  return (
+    <div className="space-y-5">
+      <div className="flex gap-2 flex-wrap">
+        {subTabs.map((t) => {
+          const Icon = t.icon;
+          const active = sub === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setSub(t.id)}
+              className={`flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
+                active ? "bg-primary text-white shadow" : "bg-muted/60 text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <Icon className="w-4 h-4" /> {t.label}
+            </button>
+          );
+        })}
+      </div>
+      {sub === "manual" ? <BroadcastMessagesTab {...props} /> : null}
+      {sub === "automated" ? <AutomatedMessagesTab /> : null}
+      {sub === "report" ? <NotificationReportTab /> : null}
+    </div>
+  );
+}
+
 function BroadcastMessagesTab({
   token,
   targetUsers = [],
@@ -3038,6 +3209,9 @@ function BroadcastMessagesTab({
   const [messageTitleEn, setMessageTitleEn] = useState("");
   const [messageBodyEn, setMessageBodyEn] = useState("");
   const [tone, setTone] = useState<"primary" | "success" | "warning" | "danger">("primary");
+  const [icon, setIcon] = useState<string | null>(null);
+  const [color, setColor] = useState<string | null>(null);
+  const { colors: customColors, addColor, deleteColor } = useNotificationColors();
   const [actionType, setActionType] = useState<BroadcastActionType>("none");
   const [externalUrl, setExternalUrl] = useState("");
   const [actionSubjectId, setActionSubjectId] = useState("");
@@ -3256,6 +3430,8 @@ function BroadcastMessagesTab({
           titleEn: messageTitleEn.trim(),
           bodyEn: messageBodyEn.trim(),
           tone,
+          icon,
+          color,
           filters: buildFilters(),
           action: buildAction(),
         }),
@@ -3282,6 +3458,8 @@ function BroadcastMessagesTab({
       setMessageBody("");
       setMessageTitleEn("");
       setMessageBodyEn("");
+      setIcon(null);
+      setColor(null);
       await loadPreview();
     } catch (err: any) {
       setError(err?.message || "تعذر إرسال الرسالة");
@@ -3387,6 +3565,16 @@ function BroadcastMessagesTab({
               </select>
             </label>
           </div>
+
+          <NotificationIconPicker value={icon} onChange={setIcon} />
+
+          <NotificationColorPicker
+            value={color}
+            onChange={setColor}
+            customColors={customColors}
+            onAdd={addColor}
+            onDelete={deleteColor}
+          />
 
           {actionType === "external_link" ? (
             <input
@@ -4889,6 +5077,13 @@ export default function AdminPanel() {
     return null;
   }
 
+  // Per-admin page access: the owner hides pages per admin (owners always see every
+  // page; the dashboard is always visible). A stale/blocked active tab falls back to
+  // the dashboard so a hidden page can never be reached.
+  const blockedTabSet = new Set(user.role === "owner" ? [] : user.blockedTabs ?? []);
+  const visibleTabs = VISIBLE_TABS.filter((t) => t.id === "dashboard" || !blockedTabSet.has(t.id));
+  const effectiveTab: Tab = visibleTabs.some((t) => t.id === tab) ? tab : "dashboard";
+
   const TAB_CONTENT: Record<Tab, React.ReactNode> = {
     dashboard: <DashboardTab onOpenMaterials={() => selectTab("materials")} />,
     users: (
@@ -4912,7 +5107,7 @@ export default function AdminPanel() {
       />
     ),
     broadcastMessages: (
-      <BroadcastMessagesTab
+      <NotificationsHubTab
         token={token}
         targetUsers={broadcastTargetUsers}
         onClearTargetUsers={() => setBroadcastTargetUsers([])}
@@ -4920,6 +5115,7 @@ export default function AdminPanel() {
       />
     ),
     materials: <MaterialsTab />,
+    moralReviews: <MoralReviewsTab />,
     books: <BooksTab />,
     posts: <PostsTab />,
     reports: <ReportsTab />,
@@ -4941,7 +5137,7 @@ export default function AdminPanel() {
         </div>
         <div className="mx-5 h-px bg-gradient-to-l from-transparent via-border to-transparent mb-3" />
         <nav className="admin-sidebar-nav flex-1 px-3 space-y-1 overflow-y-auto hide-scrollbar">
-          {VISIBLE_TABS.map(t => {
+          {visibleTabs.map(t => {
             const isActive = tab === t.id;
             const Icon = t.icon;
 
@@ -5081,7 +5277,7 @@ export default function AdminPanel() {
               exit="exit"
               className="admin-page-transition min-h-[calc(100vh-4rem)]"
             >
-              {TAB_CONTENT[tab]}
+              {TAB_CONTENT[effectiveTab]}
             </motion.div>
           </AnimatePresence>
         </div>

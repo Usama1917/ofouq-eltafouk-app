@@ -22,6 +22,15 @@ import {
 } from "@workspace/db";
 import { and, asc, count, desc, eq, gt, inArray, isNull, like, sql } from "drizzle-orm";
 import { sendPushNotificationToUser } from "../lib/push-notifications";
+import {
+  handleLessonActivity,
+  renderAutomatedMessage,
+  getMessageConfig,
+  getUserLanguage,
+  resolveText,
+  pickMessageLanguage,
+  normalizeMessageTone,
+} from "../lib/automated-messages";
 
 const router: IRouter = Router();
 const execFileAsync = promisify(execFile);
@@ -406,17 +415,26 @@ function lessonActionData(
   };
 }
 
+// The subscription / lesson notifications below are owner-editable "automated
+// messages" (text + on-off + badge icon) resolved from routes/gamification-admin →
+// lib/automated-messages. `{subject}` / `{lesson}` / `{unit}` / `{time}` / `{video}`
+// / `{reason}` placeholders are filled here; if the owner turned a message off
+// (enabled=false) we skip sending it.
 async function notifySubscriptionRequestCreated(request: { id: number; studentId: number; subjectId: number }) {
   const context = await getSubjectNavigationContext(request.subjectId);
   if (!context) return;
 
+  const language = await getUserLanguage(request.studentId);
+  const msg = await renderAutomatedMessage("subscription_pending", language, { subject: context.subjectName });
+  if (!msg.enabled) return;
+
   await createUserNotification({
     userId: request.studentId,
     type: "subscription_pending",
-    title: `طلب اشتراكك في مادة ${context.subjectName} قيد المراجعة`,
-    body: "استلمنا صورة الكود وسيتم مراجعة طلبك في أقرب وقت.",
-    tone: "warning",
-    data: subscribeActionData(context),
+    title: msg.title,
+    body: msg.body,
+    tone: msg.tone,
+    data: { ...subscribeActionData(context), icon: msg.icon ?? undefined, color: msg.color ?? undefined },
     dedupeKey: `subscription-request:${request.id}:pending`,
   });
 }
@@ -431,28 +449,40 @@ async function notifySubscriptionReviewed(request: {
   const context = await getSubjectNavigationContext(request.subjectId);
   if (!context) return;
 
+  const language = await getUserLanguage(request.studentId);
+
   if (request.status === "approved") {
+    const msg = await renderAutomatedMessage("subscription_approved", language, { subject: context.subjectName });
+    if (!msg.enabled) return;
     await createUserNotification({
       userId: request.studentId,
       type: "subscription_approved",
-      title: `تم قبول اشتراكك في مادة ${context.subjectName}`,
-      body: `يمكنك الآن فتح وحدات ${context.subjectName} ومتابعة الدروس.`,
-      tone: "success",
-      data: subjectActionData(context),
+      title: msg.title,
+      body: msg.body,
+      tone: msg.tone,
+      data: { ...subjectActionData(context), icon: msg.icon ?? undefined, color: msg.color ?? undefined },
       dedupeKey: `subscription-request:${request.id}:approved`,
     });
     return;
   }
 
   if (request.status === "rejected") {
-    const reason = request.reviewNotes ? `سبب الرفض: ${request.reviewNotes}` : "راجع الطلب وحاول مرة أخرى بصورة كود أوضح.";
+    const cfg = await getMessageConfig("subscription_rejected");
+    if (!cfg || !cfg.enabled) return;
+    // Build the reason prefix in the SAME language the body will actually render in
+    // (English only if the owner kept the English text non-empty) so they can't mix.
+    const notes = (request.reviewNotes ?? "").trim();
+    const reason = notes
+      ? (pickMessageLanguage(cfg, language) === "en" ? `\nReason: ${notes}` : `\nسبب الرفض: ${notes}`)
+      : "";
+    const { title, body } = resolveText(cfg, language, { subject: context.subjectName, reason });
     await createUserNotification({
       userId: request.studentId,
       type: "subscription_rejected",
-      title: `تم رفض طلب الاشتراك في مادة ${context.subjectName}`,
-      body: reason,
-      tone: "danger",
-      data: subscribeActionData(context, request.reviewNotes),
+      title,
+      body,
+      tone: normalizeMessageTone(cfg.tone),
+      data: { ...subscribeActionData(context, request.reviewNotes), icon: cfg.icon ?? undefined, color: cfg.color ?? undefined },
       dedupeKey: `subscription-request:${request.id}:rejected`,
     });
   }
@@ -462,8 +492,11 @@ async function notifyPublishedLesson(lessonId: number) {
   const context = await getLessonNavigationContext(lessonId);
   if (!context || !context.lessonIsPublished || context.videoPublishStatus !== "published") return;
 
+  const cfg = await getMessageConfig("new_lesson");
+  if (!cfg || !cfg.enabled) return;
+
   const subscribers = await db
-    .select({ studentId: subjectSubscriptionsTable.studentId })
+    .select({ studentId: subjectSubscriptionsTable.studentId, language: usersTable.language })
     .from(subjectSubscriptionsTable)
     .innerJoin(usersTable, eq(subjectSubscriptionsTable.studentId, usersTable.id))
     .where(
@@ -476,35 +509,44 @@ async function notifyPublishedLesson(lessonId: number) {
 
   if (subscribers.length === 0) return;
 
+  const vars = { lesson: context.lessonTitle, unit: context.unitName, subject: context.subjectName };
+  const languageByStudent = new Map(subscribers.map((s) => [s.studentId, s.language]));
+
   const createdNotifications = await db
     .insert(notificationsTable)
     .values(
-      subscribers.map((subscription) => ({
-        userId: subscription.studentId,
-        type: "new_lesson",
-        title: `درس جديد: "${context.lessonTitle}"`,
-        body: `تم إضافة الدرس في ${context.unitName} - مادة ${context.subjectName}.`,
-        tone: "primary",
-        data: notificationData(lessonActionData(context)),
-        dedupeKey: `new-lesson:${context.lessonId}:student:${subscription.studentId}`,
-      })),
+      subscribers.map((subscription) => {
+        const { title, body } = resolveText(cfg, subscription.language, vars);
+        return {
+          userId: subscription.studentId,
+          type: "new_lesson",
+          title,
+          body,
+          tone: cfg.tone,
+          data: notificationData({ ...lessonActionData(context), icon: cfg.icon ?? undefined, color: cfg.color ?? undefined }),
+          dedupeKey: `new-lesson:${context.lessonId}:student:${subscription.studentId}`,
+        };
+      }),
     )
     .onConflictDoNothing()
     .returning({ id: notificationsTable.id, userId: notificationsTable.userId });
 
   await Promise.allSettled(
-    createdNotifications.map((notification) =>
-      sendPushNotificationToUser({
+    createdNotifications.map((notification) => {
+      const { title, body } = resolveText(cfg, languageByStudent.get(notification.userId), vars);
+      return sendPushNotificationToUser({
         userId: notification.userId,
-        title: `درس جديد: "${context.lessonTitle}"`,
-        body: `تم إضافة الدرس في ${context.unitName} - مادة ${context.subjectName}.`,
+        title,
+        body,
         data: {
           ...lessonActionData(context),
           type: "new_lesson",
           notificationId: notification.id,
+          icon: cfg.icon ?? undefined,
+          color: cfg.color ?? undefined,
         },
-      }),
-    ),
+      });
+    }),
   );
 }
 
@@ -521,6 +563,8 @@ async function scheduleResumeLessonNotification(args: {
   const now = new Date();
   const lessonDedupePrefix = `resume-lesson:${args.studentId}:${args.context.lessonId}:`;
 
+  // Always clear any stale future reminder for this lesson (also respects the owner
+  // turning the message off — the pending one is removed on the next progress ping).
   await db
     .delete(notificationsTable)
     .where(
@@ -533,6 +577,9 @@ async function scheduleResumeLessonNotification(args: {
       ),
     );
 
+  const cfg = await getMessageConfig("resume_lesson");
+  if (!cfg || !cfg.enabled) return;
+
   const durationSeconds = Math.max(0, args.durationSeconds);
   const currentSeconds = Math.max(0, Math.min(args.currentSeconds, durationSeconds > 0 ? durationSeconds : args.currentSeconds));
   const progressRatio = durationSeconds > 0 ? currentSeconds / durationSeconds : 0;
@@ -542,14 +589,20 @@ async function scheduleResumeLessonNotification(args: {
   if (!shouldRemind) return;
 
   const resumeTitle = String(args.context.videoTitle || args.context.lessonTitle || "").trim();
+  const language = await getUserLanguage(args.studentId);
+  const { title, body } = resolveText(cfg, language, {
+    lesson: args.context.lessonTitle,
+    video: resumeTitle,
+    time: formatDurationLabel(currentSeconds),
+  });
 
   await upsertUserNotification({
     userId: args.studentId,
     type: "resume_lesson",
-    title: `استكمل مشاهدة "${args.context.lessonTitle}"`,
-    body: `وقفت عند ${formatDurationLabel(currentSeconds)} في "${resumeTitle}".`,
-    tone: "warning",
-    data: lessonActionData(args.context, { seekSeconds: currentSeconds }),
+    title,
+    body,
+    tone: cfg.tone,
+    data: lessonActionData(args.context, { seekSeconds: currentSeconds, icon: cfg.icon ?? undefined, color: cfg.color ?? undefined }),
     dedupeKey: `${lessonDedupePrefix}${notificationDateKey(now)}`,
     availableAt: new Date(now.getTime() + 2 * 60 * 60 * 1000),
   });
@@ -2097,6 +2150,20 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
     const completed = durationSeconds > 0 && currentSeconds / durationSeconds >= 0.9;
     const now = new Date();
 
+    // Read the prior row first (before the monotonic upsert) so the gamification
+    // engine can credit only the NEW seconds watched since the last ping and detect
+    // the not-completed → completed transition (to award the lesson bonus once).
+    const [priorProgress] = await db
+      .select({
+        currentSeconds: lessonWatchProgressTable.currentSeconds,
+        completed: lessonWatchProgressTable.completed,
+      })
+      .from(lessonWatchProgressTable)
+      .where(and(eq(lessonWatchProgressTable.studentId, student.id), eq(lessonWatchProgressTable.lessonId, lessonId)))
+      .limit(1);
+    const watchedDeltaSeconds = currentSeconds - (priorProgress?.currentSeconds ?? 0);
+    const justCompletedLesson = completed && !(priorProgress?.completed ?? false);
+
     await db
       .insert(lessonWatchProgressTable)
       .values({
@@ -2142,6 +2209,18 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
       });
     })().catch((err) => {
       req.log.warn({ err, lessonId }, "Failed to schedule resume-lesson notification");
+    });
+
+    // Gamification (v2 Phase 1): award points, advance the daily streak, tick the
+    // daily-goal ring, and fire any triggered auto-messages (goal congrats / points
+    // milestone). Fire-and-forget — must never block or fail the student's write.
+    void handleLessonActivity({
+      userId: student.id,
+      watchedDeltaSeconds,
+      justCompletedLesson,
+      lessonId,
+    }).catch((err) => {
+      req.log.warn({ err, lessonId }, "Failed to record gamification activity");
     });
   } catch (err) {
     req.log.error({ err }, "Failed to save lesson progress");

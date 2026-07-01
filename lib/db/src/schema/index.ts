@@ -18,3 +18,5 @@ export * from "./onboarding";
 export * from "./audit";
 export * from "./internal-chat";
 export * from "./auth-otp";
+export * from "./gamification";
+export * from "./moderation";

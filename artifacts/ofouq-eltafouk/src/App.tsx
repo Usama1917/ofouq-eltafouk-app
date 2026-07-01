@@ -196,7 +196,14 @@ function App() {
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
           <AuthProvider>
             <Router />
-            <Toaster position="top-center" richColors dir="rtl" />
+            {/* Match the rest of the system's font (SF Arabic / Cairo) — sonner
+                otherwise renders toasts in its own default font. */}
+            <Toaster
+              position="top-center"
+              richColors
+              dir="rtl"
+              toastOptions={{ style: { fontFamily: "var(--font-sans, 'SF Arabic', 'Cairo', sans-serif)" } }}
+            />
           </AuthProvider>
         </WouterRouter>
       </QueryClientProvider>

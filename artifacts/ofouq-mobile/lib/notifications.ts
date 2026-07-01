@@ -7,7 +7,7 @@ export type NotificationTone = "primary" | "success" | "warning" | "danger";
 
 export type NotificationActionData = {
   type?: string;
-  route?: "units" | "subscribe" | "lesson" | "supportChat" | "external";
+  route?: "units" | "subscribe" | "lesson" | "supportChat" | "external" | "rewards";
   url?: string;
   yearId?: number | string;
   yearName?: string;
@@ -25,6 +25,10 @@ export type NotificationActionData = {
   resumeFromNotification?: number | string;
   notificationId?: number | string;
   reviewNotes?: string;
+  // Owner-chosen badge glyph key (see constants/notificationIcons). Absent = auto.
+  icon?: string;
+  // Owner-chosen badge colour (hex, e.g. "#8b5cf6"). Absent = colour from the tone.
+  color?: string;
 };
 
 export type AppNotification = {
@@ -107,6 +111,12 @@ export function openNotificationTarget(notification: AppNotification) {
 
   if (data.route === "supportChat") {
     router.push("/(tabs)/settings/support-chat" as any);
+    return;
+  }
+
+  // Points-gain notifications → open the points log and pulse the newest entry.
+  if (data.route === "rewards") {
+    router.push({ pathname: "/(tabs)/settings/rewards", params: { highlight: "1" } });
     return;
   }
 

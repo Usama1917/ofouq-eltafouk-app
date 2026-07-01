@@ -17,6 +17,7 @@ import {
   getSessionTokenPayload,
 } from "../lib/auth";
 import { createChallenge, resendChallenge, verifyChallenge, type VerifyResult } from "../lib/otp";
+import { submitProfileChange } from "../lib/profile-moderation";
 import { PRIVILEGED_ROLES } from "../lib/roles";
 
 // Two-factor SMS login is gated by an explicit env flag so it can be built and
@@ -136,8 +137,19 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
 };
 
 function withPermissions<T extends { role: string }>(safeUser: T) {
+  // Hide moral-review internals from clients: the user always sees their own LIVE
+  // name/avatar (kept on `name`/`avatarUrl`), while the public/approved snapshot and
+  // the report count are admin-only and must never leak to the app.
+  const { publicName, publicAvatarUrl, reportCount, ...rest } = safeUser as T & {
+    publicName?: string | null;
+    publicAvatarUrl?: string | null;
+    reportCount?: number;
+  };
+  void publicName;
+  void publicAvatarUrl;
+  void reportCount;
   return {
-    ...safeUser,
+    ...rest,
     permissions: ROLE_PERMISSIONS[safeUser.role] ?? ["student:self"],
   };
 }
@@ -344,6 +356,14 @@ router.post("/auth/register", async (req, res) => {
         avatarUrl: avatarUrl === undefined ? undefined : String(avatarUrl),
       })
       .returning();
+
+    // New accounts: the name (and photo, if provided) are pending review before they
+    // show to OTHER users. publicName/publicAvatarUrl stay null until approved → a
+    // placeholder is shown publicly meanwhile (the user sees their own values normally).
+    await submitProfileChange({ userId: user.id, field: "name", newValue: user.name, currentPublicValue: null }).catch(() => undefined);
+    if (user.avatarUrl) {
+      await submitProfileChange({ userId: user.id, field: "avatar", newValue: user.avatarUrl, currentPublicValue: null }).catch(() => undefined);
+    }
 
     const { password: _pw, ...safeUser } = user;
     return res.status(201).json({ user: withPermissions(safeUser), token: issueToken(user.id, user.tokenVersion ?? 0) });
@@ -662,8 +682,28 @@ router.put("/auth/profile", async (req, res) => {
     if (governorate !== undefined) updateData.governorate = String(governorate);
     if (avatarUrl !== undefined) updateData.avatarUrl = String(avatarUrl);
 
+    // Moral review: the live name/avatar update applies immediately (the user sees it),
+    // but the publicly-shown value only changes after an admin approves. Read the current
+    // approved values first so we can queue a review for any real change.
+    const [current] = await db
+      .select({ publicName: usersTable.publicName, publicAvatarUrl: usersTable.publicAvatarUrl })
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1);
+
     const [user] = await db.update(usersTable).set(updateData).where(eq(usersTable.id, id)).returning();
     if (!user) return res.status(404).json({ error: "المستخدم غير موجود" });
+
+    if (name !== undefined) {
+      await submitProfileChange({ userId: id, field: "name", newValue: String(name), currentPublicValue: current?.publicName ?? null }).catch((err) =>
+        req.log.warn({ err: getErrorDetails(err) }, "queue name moderation failed"),
+      );
+    }
+    if (avatarUrl !== undefined) {
+      await submitProfileChange({ userId: id, field: "avatar", newValue: String(avatarUrl), currentPublicValue: current?.publicAvatarUrl ?? null }).catch((err) =>
+        req.log.warn({ err: getErrorDetails(err) }, "queue avatar moderation failed"),
+      );
+    }
     const { password: _pw, ...safeUser } = user;
     return res.json(withPermissions(safeUser));
   } catch (err) {

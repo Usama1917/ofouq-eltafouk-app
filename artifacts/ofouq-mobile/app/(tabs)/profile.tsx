@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -67,6 +68,14 @@ function compactDisplayName(name: string | undefined | null) {
 function resolveTextDirection(value: string, fallback: "rtl" | "ltr") {
   return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(value) ? "rtl" : fallback === "rtl" ? "ltr" : fallback;
 }
+
+// Grade is set once during onboarding and can only be changed via support, so it's
+// shown read-only here. Labels mirror the onboarding options.
+const GRADE_LABELS: Record<string, { ar: string; en: string }> = {
+  secondary_1: { ar: "الصف الأول الثانوي", en: "First secondary grade" },
+  secondary_2: { ar: "الصف الثاني الثانوي", en: "Second secondary grade" },
+  secondary_3: { ar: "الصف الثالث الثانوي", en: "Third secondary grade" },
+};
 
 function FieldDisplay({
   icon,
@@ -143,6 +152,16 @@ export default function ProfileScreen() {
     language,
   } = usePreferences();
   const { user, token, logout, updateUser, isLoading } = useAuth();
+
+  // Student's grade (read-only here) — fetched from their onboarding answers.
+  const gradeQuery = useQuery({
+    queryKey: ["student-onboarding", "grade", token],
+    queryFn: () => apiFetch<{ response?: { gradeLevel?: string | null } }>("/api/student/onboarding", { token }),
+    enabled: Boolean(token && user?.role === "student"),
+    staleTime: 5 * 60 * 1000,
+  });
+  const gradeKey = gradeQuery.data?.response?.gradeLevel ?? null;
+  const gradeLabel = gradeKey ? (language === "en" ? GRADE_LABELS[gradeKey]?.en : GRADE_LABELS[gradeKey]?.ar) ?? null : null;
   const insets = useSafeAreaInsets();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -621,6 +640,37 @@ export default function ProfileScreen() {
                 value={governorateLabel(user.governorate, language)}
               />
               {user.bio ? <FieldDisplay icon="file-text" label={strings.profile.bio} value={user.bio} /> : null}
+
+              {/* Read-only grade (students only) — changeable only via support */}
+              {user.role === "student" && gradeLabel ? (
+                <View style={[styles.infoTile, { backgroundColor: colors.surface, direction: "ltr" }]}>
+                  <View style={[styles.infoTextBlock, { direction: "ltr" }]}>
+                    <View style={styles.infoLabelRow}>
+                      <Text style={[styles.infoLabel, { color: colors.textSecondary, writingDirection: direction }]} numberOfLines={1}>
+                        {language === "en" ? "Grade" : "الصف الدراسي"}
+                      </Text>
+                      <Feather name="bookmark" size={15} color={colors.textSecondary} />
+                    </View>
+                    <View style={styles.infoValueRow}>
+                      <Text
+                        style={[styles.infoValue, { color: colors.text, textAlign: "right", writingDirection: direction }]}
+                        numberOfLines={1}
+                      >
+                        {gradeLabel}
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => router.push("/(tabs)/settings/support-chat")}
+                      style={[styles.gradeHint, { flexDirection: rowDirection }]}
+                    >
+                      <Feather name="lock" size={11} color={colors.textTertiary} />
+                      <Text style={[styles.gradeHintText, { color: colors.textTertiary, writingDirection: direction }]}>
+                        {language === "en" ? "To change your grade, contact support" : "لا يمكن تعديل الصف إلا بالتواصل مع الدعم"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
             </View>
           )}
         </View>
@@ -1027,6 +1077,16 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
     textAlign: "right",
     marginTop: 2,
+  },
+  gradeHint: {
+    alignItems: "center",
+    gap: 5,
+    marginTop: 8,
+    alignSelf: "flex-end",
+  },
+  gradeHintText: {
+    ...FONT.medium,
+    fontSize: 11,
   },
   infoRtlValueWrap: {
     width: "100%",

@@ -14,6 +14,9 @@ import {
 } from "@workspace/db";
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { isExpoPushToken, sendPushNotificationToUser } from "../lib/push-notifications";
+import { createCampaign, setCampaignCounts } from "../lib/notification-delivery";
+import { normalizeNotificationIcon } from "../lib/notification-icons";
+import { normalizeHexColor } from "../lib/notification-colors";
 
 const router: IRouter = Router();
 const ADMIN_NOTIFICATION_CHUNK_SIZE = 400;
@@ -620,6 +623,16 @@ router.post("/admin/notifications/preview", async (req, res): Promise<void> => {
   }
 });
 
+// Short Arabic audience labels for the delivery-report campaign summary.
+const ADMIN_AUDIENCE_LABELS_AR: Record<string, string> = {
+  all: "كل المستخدمين",
+  subscribed_subjects: "مشتركين في مواد محددة",
+  not_subscribed_any: "غير مشتركين في أي مادة",
+  unopened_lessons: "لديهم دروس لم تُفتح",
+  with_push_token: "مفعّلين إشعارات الجهاز",
+  without_push_token: "غير مفعّلين إشعارات الجهاز",
+};
+
 router.post("/admin/notifications/send", async (req, res): Promise<void> => {
   try {
     const admin = await requireAdmin(req, res);
@@ -630,6 +643,8 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
     const titleEn = normalizeText(req.body?.titleEn, 140);
     const bodyEn = normalizeText(req.body?.bodyEn, 2000);
     const tone = normalizeText(req.body?.tone, 24);
+    const icon = normalizeNotificationIcon(req.body?.icon);
+    const color = normalizeHexColor(req.body?.color);
     const filters = normalizeAudienceFilters(req.body?.filters ?? {});
 
     if (!title) {
@@ -661,6 +676,17 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
       return;
     }
 
+    // Anchor this send to a campaign row so it shows up in the admin delivery report
+    // (alongside the automated gamification messages).
+    const audienceSummary = `${ADMIN_AUDIENCE_LABELS_AR[filters.audience] ?? "جمهور مخصّص"} • ${summary.total}`;
+    const campaignId = await createCampaign({
+      kind: "manual",
+      title,
+      body,
+      audienceSummary,
+      sentByUserId: admin.id,
+    });
+
     const now = new Date();
     const batchKey = `admin-broadcast:${admin.id}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     const data = {
@@ -668,12 +694,16 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
       type: "admin_broadcast",
       sentByAdminId: admin.id,
       batchKey,
+      campaignId,
+      ...(icon ? { icon } : {}),
+      ...(color ? { color } : {}),
     };
     const languageByUserId = new Map(recipients.map((recipient) => [recipient.id, recipient.language]));
     const notificationRows = recipients.map((recipient) => {
       const localized = resolveText(recipient.language);
       return {
         userId: recipient.id,
+        campaignId,
         type: "admin_broadcast",
         title: localized.title,
         body: localized.body,
@@ -735,8 +765,12 @@ router.post("/admin/notifications/send", async (req, res): Promise<void> => {
       }
     }
 
+    // Persist the final recipient + push counts on the campaign for the report.
+    await setCampaignCounts(campaignId, inserted.length, pushSentCount);
+
     res.status(201).json({
       success: true,
+      campaignId,
       notificationCount: inserted.length,
       recipientCount: recipients.length,
       pushRegisteredCount,
@@ -794,52 +828,10 @@ router.get("/notifications", async (req, res): Promise<void> => {
       .orderBy(desc(notificationsTable.createdAt), desc(notificationsTable.id))
       .limit(limit);
 
-    const resumeLessonIds = Array.from(
-      new Set(
-        items
-          .filter((item) => item.type === "resume_lesson")
-          .map((item) => parsePositiveInt(String(item.data?.["lessonId"] ?? "")))
-          .filter((lessonId): lessonId is number => Boolean(lessonId)),
-      ),
-    );
-    const resumeTitlesByLessonId = new Map<number, string>();
-
-    if (resumeLessonIds.length > 0) {
-      const resumeRows = await db
-        .select({
-          lessonId: lessonsTable.id,
-          lessonTitle: lessonsTable.title,
-          videoTitle: videosTable.title,
-        })
-        .from(lessonsTable)
-        .leftJoin(videosTable, eq(lessonsTable.videoId, videosTable.id))
-        .where(inArray(lessonsTable.id, resumeLessonIds));
-
-      for (const row of resumeRows) {
-        resumeTitlesByLessonId.set(row.lessonId, String(row.videoTitle || row.lessonTitle || "").trim());
-      }
-    }
-
-    const normalizedItems = items.map((item) => {
-      if (item.type !== "resume_lesson") return item;
-
-      const lessonId = parsePositiveInt(String(item.data?.["lessonId"] ?? ""));
-      const seekSeconds = parseSeconds(item.data?.["seekSeconds"]);
-      const resumeTitle = String(item.data?.["videoTitle"] || (lessonId ? resumeTitlesByLessonId.get(lessonId) : "") || "").trim();
-      if (!resumeTitle || seekSeconds <= 0) return item;
-
-      return {
-        ...item,
-        body: `وقفت عند ${formatDurationLabel(seekSeconds)} في "${resumeTitle}".`,
-        data: {
-          ...item.data,
-          videoTitle: resumeTitle,
-        },
-      };
-    });
-
+    // resume_lesson bodies are now stored fully-rendered (localized + owner-editable
+    // via the automated-messages config), so we return them as-is — no re-write here.
     res.json({
-      items: normalizedItems,
+      items,
       unreadCount: await getUnreadCount(user.id),
     });
   } catch (err) {

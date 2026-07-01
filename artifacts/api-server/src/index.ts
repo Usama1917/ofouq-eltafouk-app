@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { assertRequiredTablesExist, databaseUrlSource, waitForDatabase } from "@workspace/db";
+import { startGamificationAutomationWorker } from "./lib/automated-messages";
 
 const rawPort = process.env["PORT"];
 
@@ -58,6 +59,10 @@ async function start() {
     }
 
     logger.info({ host: "0.0.0.0", port }, "Server listening");
+
+    // v2 Phase 1: seed the automated-message defaults and start the daily worker that
+    // sends the evening streak reminder at its configured Cairo hour.
+    startGamificationAutomationWorker();
   });
 
   // Graceful shutdown (review B-14): stop accepting new connections and let
