@@ -41,6 +41,40 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   superseded: { label: "اتعدّل بعدها", cls: "bg-slate-100 text-slate-500" },
 };
 
+// Labels (and colours) under the before/after values, worded by review status and
+// gendered for image (feminine) vs name (masculine):
+//   approve → قبل: القديمة/القديم ، بعد: الحالية/الحالي
+//   reject  → قبل: الحالية/الحالي ، بعد: المرفوضة/المرفوض
+//   pending → قبل: الحالية/الحالي ، بعد: الجديدة/الجديد
+type SideMeta = { label: string; labelClass: string; chipClass: string; strike: boolean };
+function reviewSides(status: string, isImage: boolean): { before: SideMeta; after: SideMeta } {
+  const OLD = isImage ? "القديمة" : "القديم";
+  const CUR = isImage ? "الحالية" : "الحالي";
+  const REJ = isImage ? "المرفوضة" : "المرفوض";
+  const NEW = isImage ? "الجديدة" : "الجديد";
+  const chipMuted = "bg-muted text-muted-foreground";
+  const chipCurrent = "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300";
+  const chipRejected = "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300";
+  const chipProposed = "bg-primary/10 text-primary";
+
+  if (status === "approved") {
+    return {
+      before: { label: OLD, labelClass: "text-muted-foreground", chipClass: chipMuted, strike: true },
+      after: { label: CUR, labelClass: "text-emerald-600", chipClass: chipCurrent, strike: false },
+    };
+  }
+  if (status === "rejected") {
+    return {
+      before: { label: CUR, labelClass: "text-muted-foreground", chipClass: chipMuted, strike: false },
+      after: { label: REJ, labelClass: "text-rose-600", chipClass: chipRejected, strike: true },
+    };
+  }
+  return {
+    before: { label: CUR, labelClass: "text-muted-foreground", chipClass: chipMuted, strike: false },
+    after: { label: NEW, labelClass: "text-primary", chipClass: chipProposed, strike: false },
+  };
+}
+
 function Avatar({ url, onClick }: { url: string | null; onClick?: () => void }) {
   if (!url) {
     return (
@@ -166,6 +200,7 @@ export default function MoralReviewsTab() {
           {items.map((item) => {
             const isPending = item.status === "pending";
             const st = STATUS_LABEL[item.status] ?? STATUS_LABEL.pending;
+            const sides = reviewSides(item.status, item.field === "avatar");
             return (
               <div key={item.id} className="glass-card p-4">
                 {/* user header */}
@@ -197,19 +232,25 @@ export default function MoralReviewsTab() {
                   <div className="flex items-center gap-4">
                     <div className="text-center">
                       <Avatar url={item.previousValue} onClick={item.previousValue ? () => setLightbox(item.previousValue) : undefined} />
-                      <div className="text-[11px] text-muted-foreground mt-1">الحالي</div>
+                      <div className={`text-[11px] mt-1 font-bold ${sides.before.labelClass}`}>{sides.before.label}</div>
                     </div>
                     <ArrowLeft className="w-5 h-5 text-muted-foreground" />
                     <div className="text-center">
                       <Avatar url={item.proposedValue} onClick={item.proposedValue ? () => setLightbox(item.proposedValue) : undefined} />
-                      <div className="text-[11px] text-primary mt-1 font-bold">الجديد</div>
+                      <div className={`text-[11px] mt-1 font-bold ${sides.after.labelClass}`}>{sides.after.label}</div>
                     </div>
                   </div>
                 ) : (
                   <div className="flex items-center gap-3 text-sm">
-                    <span className="px-3 py-1.5 rounded-lg bg-muted text-muted-foreground line-through max-w-[40%] truncate">{item.previousValue || "—"}</span>
+                    <div className="min-w-0 flex-1 text-center">
+                      <span className={`block truncate rounded-lg px-3 py-1.5 ${sides.before.chipClass} ${sides.before.strike ? "line-through" : ""}`}>{item.previousValue || "—"}</span>
+                      <div className={`text-[11px] mt-1 font-bold ${sides.before.labelClass}`}>{sides.before.label}</div>
+                    </div>
                     <ArrowLeft className="w-5 h-5 text-muted-foreground shrink-0" />
-                    <span className="px-3 py-1.5 rounded-lg bg-primary/10 text-primary font-bold max-w-[40%] truncate">{item.proposedValue || "—"}</span>
+                    <div className="min-w-0 flex-1 text-center">
+                      <span className={`block truncate rounded-lg px-3 py-1.5 font-bold ${sides.after.chipClass} ${sides.after.strike ? "line-through" : ""}`}>{item.proposedValue || "—"}</span>
+                      <div className={`text-[11px] mt-1 font-bold ${sides.after.labelClass}`}>{sides.after.label}</div>
+                    </div>
                   </div>
                 )}
 

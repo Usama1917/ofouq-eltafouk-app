@@ -1633,7 +1633,7 @@ router.put("/admin/users/:id", async (req, res) => {
     const name = body.name === undefined ? undefined : String(body.name).trim();
     const role = body.role === undefined ? undefined : String(body.role);
     const status = body.status === undefined ? undefined : String(body.status);
-    const [before] = await db.select({ name: usersTable.name, role: usersTable.role, status: usersTable.status }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    const [before] = await db.select({ name: usersTable.name, role: usersTable.role, status: usersTable.status, email: usersTable.email, phone: usersTable.phone }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
     const actor = (req as any).adminActor;
     // review B-43: VALID_ROLES / PRIVILEGED_ROLES now imported from ../lib/roles.
     const VALID_STATUSES = new Set(["active", "suspended", "inactive"]);
@@ -1665,8 +1665,74 @@ router.put("/admin/users/:id", async (req, res) => {
     if (name !== undefined) updateData.name = name;
     if (role !== undefined) updateData.role = role;
     if (status !== undefined) updateData.status = status;
-    const [user] = await db.update(usersTable).set(updateData).where(eq(usersTable.id, id)).returning();
+
+    // Editable account + student-profile fields from the details drawer. Changing the
+    // email/phone of a PRIVILEGED account (admin/owner/moderator) is owner-only, so a
+    // plain admin can't hijack another staff account by swapping its login identity.
+    const touchesAccountIdentity = body.email !== undefined || body.phone !== undefined;
+    if (touchesAccountIdentity && before && PRIVILEGED_ROLES.has(String(before.role)) && actor?.role !== "owner") {
+      return res.status(403).json({ error: "تعديل بيانات حساب المشرفين متاح للمالك فقط" });
+    }
+
+    // Free-text fields: undefined = leave unchanged; empty string clears to null.
+    const setStr = (key: "phone" | "parentPhone" | "governorate" | "address" | "specialty" | "qualifications" | "howDidYouHear" | "supportNeeded" | "bio") => {
+      if (body[key] === undefined) return;
+      const v = String(body[key]).trim();
+      updateData[key] = v === "" ? null : v;
+    };
+    (["phone", "parentPhone", "governorate", "address", "specialty", "qualifications", "howDidYouHear", "supportNeeded", "bio"] as const).forEach(setStr);
+
+    // Age: a non-negative integer or null.
+    if (body.age !== undefined) {
+      const s = String(body.age).trim();
+      const n = Number.parseInt(s, 10);
+      updateData.age = s !== "" && Number.isFinite(n) && n >= 0 && n <= 150 ? n : null;
+    }
+
+    // Email: required + unique. Reject an empty or malformed value, or one already taken.
+    if (body.email !== undefined) {
+      const email = String(body.email).trim();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ error: "البريد الإلكتروني غير صالح" });
+      }
+      const [dup] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email)).limit(1);
+      if (dup && dup.id !== id) return res.status(400).json({ error: "البريد الإلكتروني مستخدم بالفعل" });
+      updateData.email = email;
+    }
+
+    // A changed phone is unverified again (so 2FA re-confirms it).
+    if (updateData.phone !== undefined && before && updateData.phone !== before.phone) {
+      updateData.phoneVerifiedAt = null;
+    }
+
+    // Grade lives on the student's onboarding row (a separate table). Validate + upsert it.
+    const VALID_GRADES = new Set(["secondary_1", "secondary_2", "secondary_3"]);
+    const gradeProvided = body.gradeLevel !== undefined;
+    let gradeVal: string | null = null;
+    if (gradeProvided) {
+      const g = String(body.gradeLevel).trim();
+      if (g !== "" && !VALID_GRADES.has(g)) return res.status(400).json({ error: "الصف الدراسي غير صالح" });
+      gradeVal = g === "" ? null : g;
+    }
+
+    if (Object.keys(updateData).length === 0 && !gradeProvided) {
+      return res.status(400).json({ error: "لا توجد بيانات للتحديث" });
+    }
+
+    let user;
+    if (Object.keys(updateData).length > 0) {
+      [user] = await db.update(usersTable).set(updateData).where(eq(usersTable.id, id)).returning();
+    } else {
+      [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    }
     if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (gradeProvided) {
+      await db
+        .insert(studentOnboardingResponsesTable)
+        .values({ userId: id, gradeLevel: gradeVal })
+        .onConflictDoUpdate({ target: studentOnboardingResponsesTable.userId, set: { gradeLevel: gradeVal, updatedAt: new Date() } });
+    }
     invalidateUserAuth(id); // review B-34: a role/status change must take effect immediately
     // Classify the change so suspend/activate show as distinct actions in reports.
     let actionType = "user_update";

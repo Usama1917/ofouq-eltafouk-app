@@ -27,7 +27,7 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { type ApiError, apiFetch } from "@/lib/api";
-import { isValidEmail, isValidPhone, PASSWORD_MIN_LENGTH } from "@/lib/authValidation";
+import { isAllowedEmailDomain, isValidEmail, isValidPhone, PASSWORD_MIN_LENGTH } from "@/lib/authValidation";
 import { EGYPT_GOVERNORATES, governorateLabel } from "@/lib/egyptGovernorates";
 import { FONT } from "@/constants/typography";
 import { toEnglishDigits } from "@/lib/format";
@@ -131,6 +131,7 @@ export default function RegisterScreen() {
 
     if (!trimmedEmail) next.email = strings.register.emailRequired;
     else if (!isValidEmail(trimmedEmail)) next.email = strings.register.emailInvalid;
+    else if (!isAllowedEmailDomain(trimmedEmail)) next.email = strings.register.emailDomainNotAllowed;
 
     if (!trimmedPhone) next.phone = strings.register.phoneRequired;
     else if (!isValidPhone(trimmedPhone)) next.phone = strings.register.phoneInvalid;

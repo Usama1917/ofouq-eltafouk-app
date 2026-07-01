@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Bell, Clock, Save, Send } from "lucide-react";
+import { motion } from "framer-motion";
+import { Bell, Clock, Save, Send, Sparkles, Ticket, BookOpen } from "lucide-react";
 import { NotificationIconPicker } from "@/components/notification-icon-picker";
 import { NotificationColorPicker } from "@/components/notification-color-picker";
 import { useNotificationColors } from "@/lib/notification-colors";
@@ -85,6 +86,20 @@ const META: Record<string, { title: string; emoji: string; desc: string; hasHour
   },
 };
 
+// Automated messages grouped into owner-facing categories (tabs).
+const CATEGORIES = [
+  { id: "encourage", label: "إشعارات التشجيع", icon: Sparkles, keys: ["evening_reminder", "goal_congrats", "points_milestone"] },
+  { id: "subscription", label: "إشعارات الاشتراك", icon: Ticket, keys: ["subscription_pending", "subscription_approved", "subscription_rejected"] },
+  { id: "lessons", label: "إشعارات الدروس", icon: BookOpen, keys: ["new_lesson", "resume_lesson"] },
+] as const;
+
+type CategoryId = (typeof CATEGORIES)[number]["id"];
+
+const CATEGORY_OF: Record<string, CategoryId> = CATEGORIES.reduce((acc, c) => {
+  for (const k of c.keys) acc[k] = c.id;
+  return acc;
+}, {} as Record<string, CategoryId>);
+
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 function hourLabel(h: number) {
   const period = h < 12 ? "صباحًا" : "مساءً";
@@ -107,10 +122,15 @@ export default function AutomatedMessagesTab() {
   const [milestonesText, setMilestonesText] = useState<Record<string, string>>({});
   const [runResult, setRunResult] = useState("");
   const [running, setRunning] = useState(false);
+  const [category, setCategory] = useState<CategoryId>("encourage");
   const { colors: customColors, addColor, deleteColor } = useNotificationColors();
 
-  async function load() {
-    setLoading(true);
+  // `silent` = refresh in place without flipping the global loading flag. A non-silent
+  // load swaps the whole list for a "جاري التحميل" spinner, which collapses the page and
+  // scrolls it back to the top — so the post-save refresh passes silent=true to keep the
+  // admin exactly where they were.
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     setError("");
     try {
       const res = await fetch(apiPath("/api/admin/automated-messages"), { headers: authHeader() });
@@ -126,7 +146,7 @@ export default function AutomatedMessagesTab() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "حدث خطأ");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -169,7 +189,7 @@ export default function AutomatedMessagesTab() {
       });
       if (!res.ok) throw new Error("تعذّر الحفظ");
       setSavedKey(msg.key);
-      await load();
+      await load(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "حدث خطأ أثناء الحفظ");
     } finally {
@@ -202,12 +222,40 @@ export default function AutomatedMessagesTab() {
   return (
     <div className="space-y-5">
       <div className="rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-[12px] font-bold text-primary">
-        دي كل الرسائل اللي بتتبعت لوحدها للطلاب (التذكيرات، الأوسمة، قبول/رفض الاشتراك، الدرس الجديد، واستكمال الفيديو). تقدر تعدّل النص، تشغّلها أو تطفّيها، تحدّد ميعاد التذكير المسائي، وتختار شكل الأيقونة اللي هتظهر جنب الإشعار.
+        دي كل الرسائل اللي بتتبعت لوحدها للطلاب. مقسّمة حسب النوع في التابات تحت. تقدر تعدّل النص، تشغّلها أو تطفّيها، تحدّد ميعاد التذكير المسائي، وتختار شكل الأيقونة ولونها.
+      </div>
+
+      {/* Category tabs with a sliding highlight pill */}
+      <div className="flex flex-wrap gap-1.5 rounded-2xl bg-muted p-1.5">
+        {CATEGORIES.map((c) => {
+          const Icon = c.icon;
+          const active = category === c.id;
+          const countOf = messages.filter((m) => CATEGORY_OF[m.key] === c.id).length;
+          return (
+            <button
+              key={c.id}
+              onClick={() => setCategory(c.id)}
+              className={`relative flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-bold transition-colors ${active ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {active && (
+                <motion.span
+                  layoutId="auto-msg-category-pill"
+                  transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                  className="absolute inset-0 rounded-xl bg-white shadow dark:bg-white/10"
+                />
+              )}
+              <span className="relative z-10 flex items-center gap-1.5">
+                <Icon className="h-4 w-4" /> {c.label}
+                <span className={`rounded-full px-1.5 text-[11px] ${active ? "bg-primary/10 text-primary" : "bg-foreground/5 text-muted-foreground"}`}>{countOf}</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div> : null}
 
-      {messages.map((msg) => {
+      {messages.filter((msg) => CATEGORY_OF[msg.key] === category).map((msg) => {
         const meta = META[msg.key] ?? { title: msg.key, emoji: "🔔", desc: "", hasHour: false, hasMilestones: false };
         return (
           <div key={msg.key} className="glass-card p-5 space-y-4 border-primary/20">

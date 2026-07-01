@@ -101,6 +101,27 @@ function normalizeEmail(email: string) {
   return String(email).trim().toLowerCase();
 }
 
+// Public registration only accepts real, well-known email providers — not throwaway,
+// demo, or made-up addresses. Keep this list in sync with the mobile sign-up form's
+// client-side check (artifacts/ofouq-mobile).
+const ALLOWED_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "yahoo.com",
+  "outlook.com",
+  "icloud.com",
+  "mail.com",
+  "email.com",
+  "inbox.com",
+  "eltafouk.com",
+]);
+
+/** True when `email` is a valid address whose domain is on the allowlist. */
+function isAllowedRegistrationEmail(email: string): boolean {
+  const match = email.match(/^[^\s@]+@([^\s@]+\.[^\s@]+)$/);
+  if (!match) return false;
+  return ALLOWED_EMAIL_DOMAINS.has(match[1].toLowerCase());
+}
+
 function normalizePhone(phone: unknown) {
   const value = String(phone ?? "")
     .trim()
@@ -306,6 +327,11 @@ router.post("/auth/register", async (req, res) => {
     const normalizedPhone = normalizePhone(phone);
     if (!name || !normalizedEmail || !password) {
       return res.status(400).json({ error: "الاسم والبريد الإلكتروني وكلمة المرور مطلوبة" });
+    }
+    if (!isAllowedRegistrationEmail(normalizedEmail)) {
+      return res.status(400).json({
+        error: "من فضلك استخدم بريدًا إلكترونيًا حقيقيًا من: Gmail أو Yahoo أو Outlook أو iCloud أو Mail.com أو Email.com أو Inbox.com أو eltafouk.com",
+      });
     }
     const pwError = validatePasswordStrength(password);
     if (pwError) return res.status(400).json({ error: pwError });

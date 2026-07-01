@@ -12,7 +12,7 @@ import {
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
 import {
-  useGetAdminStats, useListAdminUsers, useDeleteAdminUser, useUpdateAdminUser, useCreateAdminUser,
+  useGetAdminStats, useListAdminUsers, useDeleteAdminUser, useUpdateAdminUser,
   useListAdminBooks, useCreateAdminBook, useUpdateAdminBook, useDeleteAdminBook,
   useListModeratorPosts, useDeleteModeratorPost,
   useListAdminReports, useResolveAdminReport,
@@ -1196,6 +1196,9 @@ function onboardingLabel(group: string, key?: string | null) {
   return ONBOARDING_LABELS[group]?.[key] ?? key;
 }
 
+// Grade choices for the editable "الصف الدراسي" dropdown (stable keys → Arabic labels).
+const GRADE_OPTIONS = Object.entries(ONBOARDING_LABELS.gradeLevel).map(([value, label]) => ({ value, label }));
+
 const DETAIL_ROLE_LABELS: Record<string, string> = { student: "طالب", teacher: "معلم", parent: "ولي أمر", admin: "مشرف", moderator: "مشرف", owner: "مالك" };
 const DETAIL_ROLE_COLORS: Record<string, string> = { student: "bg-blue-100 text-blue-700", teacher: "bg-emerald-100 text-emerald-700", parent: "bg-amber-100 text-amber-700", admin: "bg-violet-100 text-violet-700", moderator: "bg-violet-100 text-violet-700", owner: "bg-rose-100 text-rose-700" };
 
@@ -1223,6 +1226,62 @@ function DetailRow({ label, value, icon: Icon }: { label: string; value?: React.
       <span className={`text-left text-sm ${empty ? "text-muted-foreground/60" : "font-semibold text-foreground"}`} dir="auto">
         {empty ? "—" : value}
       </span>
+    </div>
+  );
+}
+
+// Editable counterpart of DetailRow, shown in the drawer's edit mode.
+function EditField({
+  label,
+  icon: Icon,
+  value,
+  onChange,
+  type = "text",
+  ltr,
+  options,
+}: {
+  label: string;
+  icon?: any;
+  value: string;
+  onChange: (v: string) => void;
+  type?: "text" | "number" | "textarea" | "select";
+  ltr?: boolean;
+  options?: { value: string; label: string }[];
+}) {
+  return (
+    <div className="border-b border-border/40 py-2 last:border-0">
+      <label className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-muted-foreground">
+        {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
+        {label}
+      </label>
+      {type === "select" ? (
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-semibold text-foreground outline-none focus:border-primary"
+        >
+          <option value="">—</option>
+          {(options ?? []).map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      ) : type === "textarea" ? (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          dir={ltr ? "ltr" : "rtl"}
+          rows={2}
+          className="w-full resize-y rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+        />
+      ) : (
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          dir={ltr ? "ltr" : "rtl"}
+          className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+        />
+      )}
     </div>
   );
 }
@@ -1261,14 +1320,14 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
   const [reporting, setReporting] = useState(false);
   const doReport = async () => {
     if (!u || reporting) return;
-    if (!window.confirm(`تبلّغ عن «${u.name}»؟ عند وصول ٥ بلاغات يتعلّق الحساب تلقائيًا.`)) return;
+    if (!window.confirm(`تبلّغ عن «${u.name}»؟ عند وصول 5 بلاغات يتعلّق الحساب تلقائيًا.`)) return;
     setReporting(true);
     try {
       const r = await customFetch<{ reportCount: number; suspended: boolean }>(`/api/admin/users/${u.id}/report`, { method: "POST" });
       toast.success(
         r.suspended
           ? `تم الإبلاغ — اتعلّق حساب «${u.name}» تلقائيًا (${toEnglishDigits(String(r.reportCount))} بلاغات)`
-          : `تم الإبلاغ — البلاغات بقت ${toEnglishDigits(String(r.reportCount))}/٥`,
+          : `تم الإبلاغ — البلاغات بقت ${toEnglishDigits(String(r.reportCount))}/5`,
       );
       refetch();
     } catch {
@@ -1287,6 +1346,76 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
     staleTime: 30_000,
   });
 
+  // ── Edit mode: account (email/phone) + student profile fields ──────────────
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<Record<string, string>>({});
+  // Reset edit mode whenever the drawer switches to a different user (or closes).
+  useEffect(() => { setEditing(false); }, [user?.id]);
+
+  // Student data section is role-aware: a student sees only their own fields; the
+  // teacher-registration questions (specialty/qualifications/support/bio/how-heard)
+  // are hidden for students — they belong to teacher accounts.
+  const profileFields: { key: string; label: string; icon?: any; type?: "text" | "number" | "textarea"; ltr?: boolean }[] =
+    role === "student"
+      ? [
+          { key: "parentPhone", label: "هاتف ولي الأمر", icon: Phone, ltr: true },
+          { key: "governorate", label: "المحافظة", icon: MapPin },
+          { key: "address", label: "العنوان", icon: MapPin, type: "textarea" },
+          { key: "age", label: "السن", type: "number" },
+        ]
+      : [
+          { key: "parentPhone", label: "هاتف ولي الأمر", icon: Phone, ltr: true },
+          { key: "governorate", label: "المحافظة", icon: MapPin },
+          { key: "address", label: "العنوان", icon: MapPin, type: "textarea" },
+          { key: "age", label: "السن", type: "number" },
+          { key: "specialty", label: "التخصص" },
+          { key: "qualifications", label: "المؤهلات", type: "textarea" },
+          { key: "howDidYouHear", label: "كيف عرف عنا" },
+          { key: "supportNeeded", label: "الدعم المطلوب", type: "textarea" },
+          { key: "bio", label: "نبذة", type: "textarea" },
+        ];
+
+  const formFromUser = (): Record<string, string> => {
+    const uu = data?.user;
+    return {
+      name: uu?.name ?? "",
+      gradeLevel: data?.onboarding?.gradeLevel ?? "",
+      email: uu?.email ?? "",
+      phone: uu?.phone ?? "",
+      parentPhone: uu?.parentPhone ?? "",
+      governorate: uu?.governorate ?? "",
+      address: uu?.address ?? "",
+      age: uu?.age != null ? String(uu.age) : "",
+      specialty: uu?.specialty ?? "",
+      qualifications: uu?.qualifications ?? "",
+      howDidYouHear: uu?.howDidYouHear ?? "",
+      supportNeeded: uu?.supportNeeded ?? "",
+      bio: uu?.bio ?? "",
+    };
+  };
+  const startEdit = () => { setForm(formFromUser()); setEditing(true); };
+  const saveEdit = async () => {
+    if (!data || saving) return;
+    const orig = formFromUser();
+    const changed: Record<string, string> = {};
+    for (const k of Object.keys(form)) {
+      if ((form[k] ?? "") !== (orig[k] ?? "")) changed[k] = form[k];
+    }
+    if (Object.keys(changed).length === 0) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      await customFetch(`/api/admin/users/${data.user.id}`, { method: "PUT", body: JSON.stringify(changed) });
+      toast.success("تم حفظ البيانات");
+      await refetch();
+      setEditing(false);
+    } catch (e) {
+      toast.error((e as Error)?.message || "تعذّر حفظ البيانات");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <AnimatePresence>
       {open ? (
@@ -1304,9 +1433,38 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
           >
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/50 bg-[#f6f8fc]/90 px-5 py-4 backdrop-blur dark:bg-[#17181b]/90">
               <h3 className="text-lg font-black text-foreground">{title}</h3>
-              <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground hover:text-foreground" aria-label="إغلاق">
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {data && !isLoading && !isError ? (
+                  editing ? (
+                    <>
+                      <button
+                        onClick={saveEdit}
+                        disabled={saving}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
+                      >
+                        <Check className="h-4 w-4" /> {saving ? "جارٍ الحفظ..." : "حفظ"}
+                      </button>
+                      <button
+                        onClick={() => setEditing(false)}
+                        disabled={saving}
+                        className="rounded-xl bg-muted px-3 py-2 text-xs font-bold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+                      >
+                        إلغاء
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={startEdit}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-primary/10 px-3 py-2 text-xs font-bold text-primary transition-colors hover:bg-primary/15"
+                    >
+                      <Edit className="h-4 w-4" /> تعديل
+                    </button>
+                  )
+                ) : null}
+                <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground hover:text-foreground" aria-label="إغلاق">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             <div className="space-y-4 p-5">
@@ -1393,17 +1551,45 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
                 <>
                   {/* Section 1: account info */}
                   <DetailSection title="بيانات الحساب" icon={ShieldCheck}>
+                    {editing ? (
+                      <EditField label="الاسم" value={form.name ?? ""} onChange={(v) => setForm((p) => ({ ...p, name: v }))} />
+                    ) : (
+                      <DetailRow label="الاسم" value={data.user.name} />
+                    )}
                     <DetailRow label="معرّف المستخدم" value={`#${data.user.id}`} />
                     <DetailRow label="الدور" value={DETAIL_ROLE_LABELS[data.user.role] || data.user.role} />
                     <DetailRow label="الحالة" value={<span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${statusInfo.cls}`}>{statusInfo.label}</span>} />
-                    <DetailRow label="البريد الإلكتروني" icon={Mail} value={<span dir="ltr">{data.user.email}</span>} />
-                    <DetailRow label="رقم الهاتف" icon={Phone} value={data.user.phone ? <span dir="ltr">{data.user.phone}</span> : null} />
+                    {isStudent ? (
+                      editing ? (
+                        <EditField
+                          label="الصف الدراسي"
+                          icon={GraduationCap}
+                          type="select"
+                          options={GRADE_OPTIONS}
+                          value={form.gradeLevel ?? ""}
+                          onChange={(v) => setForm((p) => ({ ...p, gradeLevel: v }))}
+                        />
+                      ) : (
+                        <DetailRow label="الصف الدراسي" icon={GraduationCap} value={onboardingLabel("gradeLevel", data.onboarding?.gradeLevel)} />
+                      )
+                    ) : null}
+                    {editing ? (
+                      <>
+                        <EditField label="البريد الإلكتروني" icon={Mail} value={form.email ?? ""} onChange={(v) => setForm((p) => ({ ...p, email: v }))} ltr />
+                        <EditField label="رقم الهاتف" icon={Phone} value={form.phone ?? ""} onChange={(v) => setForm((p) => ({ ...p, phone: v }))} ltr />
+                      </>
+                    ) : (
+                      <>
+                        <DetailRow label="البريد الإلكتروني" icon={Mail} value={<span dir="ltr">{data.user.email}</span>} />
+                        <DetailRow label="رقم الهاتف" icon={Phone} value={data.user.phone ? <span dir="ltr">{data.user.phone}</span> : null} />
+                      </>
+                    )}
                     <DetailRow
                       label="عدد البلاغات"
                       icon={Flag}
                       value={
                         <span className="flex items-center gap-2">
-                          <span className={`font-bold ${reportCount > 0 ? "text-orange-600" : "text-muted-foreground"}`}>{toEnglishDigits(String(reportCount))}/٥</span>
+                          <span className={`font-bold ${reportCount > 0 ? "text-orange-600" : "text-muted-foreground"}`}>{toEnglishDigits(String(reportCount))}/5</span>
                           <button onClick={doReport} disabled={reporting} className="rounded-lg bg-orange-100 px-2.5 py-1 text-[11px] font-bold text-orange-700 transition-colors hover:bg-orange-200 disabled:opacity-50 dark:bg-orange-500/15 dark:text-orange-300">
                             {reporting ? "..." : "إبلاغ"}
                           </button>
@@ -1416,20 +1602,30 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
 
                   {/* Section 2: profile data */}
                   <DetailSection title="بيانات الطالب" icon={Info}>
-                    {[data.user.parentPhone, data.user.address, data.user.governorate, data.user.age, data.user.specialty, data.user.qualifications, data.user.howDidYouHear, data.user.supportNeeded, data.user.bio].every((v) => v == null || v === "") ? (
+                    {editing ? (
+                      profileFields.map((f) => (
+                        <EditField
+                          key={f.key}
+                          label={f.label}
+                          icon={f.icon}
+                          type={f.type}
+                          ltr={f.ltr}
+                          value={form[f.key] ?? ""}
+                          onChange={(v) => setForm((p) => ({ ...p, [f.key]: v }))}
+                        />
+                      ))
+                    ) : profileFields.every((f) => {
+                        const val = (data.user as Record<string, unknown>)[f.key];
+                        return val == null || val === "";
+                      }) ? (
                       <DetailEmpty text="لا توجد بيانات إضافية" />
                     ) : (
-                      <>
-                        <DetailRow label="هاتف ولي الأمر" icon={Phone} value={data.user.parentPhone ? <span dir="ltr">{data.user.parentPhone}</span> : null} />
-                        <DetailRow label="المحافظة" icon={MapPin} value={data.user.governorate} />
-                        <DetailRow label="العنوان" icon={MapPin} value={data.user.address} />
-                        <DetailRow label="السن" value={data.user.age != null ? String(data.user.age) : null} />
-                        <DetailRow label="التخصص" value={data.user.specialty} />
-                        <DetailRow label="المؤهلات" value={data.user.qualifications} />
-                        <DetailRow label="كيف عرف عنا" value={data.user.howDidYouHear} />
-                        <DetailRow label="الدعم المطلوب" value={data.user.supportNeeded} />
-                        <DetailRow label="نبذة" value={data.user.bio} />
-                      </>
+                      profileFields.map((f) => {
+                        const raw = (data.user as Record<string, unknown>)[f.key];
+                        const val = f.key === "age" ? (raw != null ? String(raw) : null) : (raw as React.ReactNode);
+                        const display = f.ltr && val ? <span dir="ltr">{val as React.ReactNode}</span> : (val as React.ReactNode);
+                        return <DetailRow key={f.key} label={f.label} icon={f.icon} value={display} />;
+                      })
                     )}
                   </DetailSection>
 
@@ -1589,11 +1785,15 @@ function UsersTab({
   onSelectedUserIdsChange,
   onSendNotification,
   onSendSupportMessage,
+  detailsTarget,
+  onDetailsTargetHandled,
 }: {
   selectedUserIds: number[];
   onSelectedUserIdsChange: (ids: number[]) => void;
   onSendNotification: (users: AdminUserListItem[]) => void;
   onSendSupportMessage: (users: AdminUserListItem[]) => void;
+  detailsTarget?: AdminUserListItem | null;
+  onDetailsTargetHandled?: () => void;
 }) {
   const { data: rawUsers = [], isLoading, isError, error, refetch } = useListAdminUsers();
   const users = useMemo(
@@ -1602,9 +1802,6 @@ function UsersTab({
   );
   const deleteUser = useDeleteAdminUser();
   const updateUser = useUpdateAdminUser();
-  const createUser = useCreateAdminUser();
-  const [adding, setAdding] = useState(false);
-  const [newUser, setNewUser] = useState({ name: "", email: "", role: "student" });
   const [roleFilter, setRoleFilter] = useState("all");
   const [actionFilter, setActionFilter] = useState("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -1613,6 +1810,13 @@ function UsersTab({
   const [customActivityDays, setCustomActivityDays] = useState("");
   const [contactOpen, setContactOpen] = useState(false);
   const [detailUser, setDetailUser] = useState<AdminUserListItem | null>(null);
+  // Opened from another tab (e.g. a support chat's "عرض التفاصيل"): show that user's drawer.
+  useEffect(() => {
+    if (detailsTarget) {
+      setDetailUser(detailsTarget);
+      onDetailsTargetHandled?.();
+    }
+  }, [detailsTarget, onDetailsTargetHandled]);
   // Render only a capped slice so a large user directory stays light; the "عرض"
   // picker raises the cap on demand (mirrors the owner dashboard users table).
   const PAGE_SIZES = [20, 50, 100, 500];
@@ -1811,39 +2015,9 @@ function UsersTab({
             <MessageSquare className="w-4 h-4" />
             تواصل
           </button>
-          <button onClick={() => setAdding(true)} className="btn-primary h-11 text-sm px-5">
-            <Plus className="w-4 h-4" /> مستخدم جديد
-          </button>
         </div>
       </div>
 
-      {adding && (
-        <div className="glass-card p-5 space-y-4 border-primary/20">
-          <h3 className="font-bold text-foreground">إضافة مستخدم جديد</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {[["name","الاسم","نص"],["email","البريد الإلكتروني","بريد"],].map(([k,l,t]) => (
-              <div key={k} className="space-y-1">
-                <label className="text-xs font-semibold text-muted-foreground">{l}</label>
-                <input type={t === "بريد" ? "email" : "text"} value={newUser[k as "name"|"email"]} onChange={e => setNewUser(p => ({...p,[k]:e.target.value}))}
-                  className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none focus:border-primary/50" />
-              </div>
-            ))}
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground">الدور</label>
-              <select value={newUser.role} onChange={e => setNewUser(p => ({...p,role:e.target.value}))}
-                className="w-full px-3 py-2.5 rounded-xl bg-white/70 border border-white/70 text-sm outline-none">
-                {Object.entries(ROLE_LABELS).map(([v,l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => { createUser.mutate({ data: newUser as any }, { onSuccess: () => { refetch(); setAdding(false); setNewUser({name:"",email:"",role:"student"}); }}); }} className="btn-primary text-sm py-2">
-              <Check className="w-4 h-4" /> إضافة
-            </button>
-            <button onClick={() => setAdding(false)} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:bg-muted transition-all">إلغاء</button>
-          </div>
-        </div>
-      )}
       {isLoading ? (
         <div className="glass-card overflow-hidden">
           <div className="divide-y divide-white/30">
@@ -3877,6 +4051,7 @@ function SupportMessagesTab({
   onClearTargetUsers,
   draftTarget,
   onDraftTargetHandled,
+  onViewUserDetails,
 }: {
   token: string | null;
   onUnreadChatCountChange?: (count: number) => void;
@@ -3884,7 +4059,10 @@ function SupportMessagesTab({
   onClearTargetUsers?: () => void;
   draftTarget?: SupportDraftTarget | null;
   onDraftTargetHandled?: () => void;
+  onViewUserDetails?: (user: AdminUserListItem) => void;
 }) {
+  // Right-click menu on a chat → "عرض التفاصيل" opens that user in the Users tab drawer.
+  const [chatMenu, setChatMenu] = useState<{ x: number; y: number; user: AdminUserListItem } | null>(null);
   const [conversations, setConversations] = useState<SupportConversationItem[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [messages, setMessages] = useState<SupportMessageItem[]>([]);
@@ -4491,7 +4669,24 @@ function SupportMessagesTab({
                 <button
                   key={conversation.id ?? `user-${conversation.user.id}`}
                   onClick={() => void handleSelectConversation(conversation)}
-                  className={`w-full text-right rounded-2xl p-3 transition-all border ${
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setChatMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      user: {
+                        id: conversation.user.id,
+                        name: conversation.user.name,
+                        email: conversation.user.email,
+                        role: conversation.user.role,
+                        status: "active",
+                        phone: conversation.user.phone ?? null,
+                        avatarUrl: conversation.user.avatarUrl ?? null,
+                      },
+                    });
+                  }}
+                  title="كليك يمين لعرض خيارات المستخدم"
+                  className={`w-full text-right rounded-2xl p-3 transition-all border cursor-context-menu ${
                     automaticLastMessage
                       ? active
                         ? "bg-amber-100/80 border-amber-300"
@@ -4542,6 +4737,31 @@ function SupportMessagesTab({
                 </button>
               );
             })}
+
+            {/* Portaled to <body> so it isn't clipped/offset by the tab-slide transform. */}
+            {chatMenu
+              ? createPortal(
+                  <>
+                    <div className="fixed inset-0 z-[70]" onClick={() => setChatMenu(null)} onContextMenu={(e) => { e.preventDefault(); setChatMenu(null); }} />
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: -6 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+                      transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+                      style={{ left: Math.min(chatMenu.x, window.innerWidth - 248), top: Math.min(chatMenu.y, window.innerHeight - 160) }}
+                      className="fixed z-[71] w-56 origin-top overflow-hidden rounded-2xl border border-white/60 bg-white/97 p-1.5 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#11151b]/97"
+                      dir="rtl"
+                    >
+                      <p className="truncate px-3 pb-2 pt-1.5 text-xs font-bold text-muted-foreground">{chatMenu.user.name}</p>
+                      <button
+                        onClick={() => { const u = chatMenu.user; setChatMenu(null); onViewUserDetails?.(u); }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-right text-sm font-semibold text-foreground transition-colors hover:bg-muted/70"
+                      >
+                        <Info className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="flex-1">عرض التفاصيل</span>
+                      </button>
+                    </motion.div>
+                  </>,
+                  document.body,
+                )
+              : null}
 
             {!loading && conversations.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
@@ -4985,6 +5205,8 @@ export default function AdminPanel() {
   const [broadcastTargetUsers, setBroadcastTargetUsers] = useState<AdminUserListItem[]>([]);
   const [supportTargetUsers, setSupportTargetUsers] = useState<AdminUserListItem[]>([]);
   const [supportDraftTarget, setSupportDraftTarget] = useState<SupportDraftTarget | null>(null);
+  // A user whose details drawer should open on the Users tab (e.g. from a support chat).
+  const [userDetailsTarget, setUserDetailsTarget] = useState<AdminUserListItem | null>(null);
   const shouldReduceMotion = useReducedMotion();
   const isAdminUser = Boolean(user && (user.role === "admin" || user.role === "owner"));
   const isDarkAdmin = adminTheme === "dark";
@@ -5009,6 +5231,12 @@ export default function AdminPanel() {
     setBroadcastTargetUsers([]);
     setSupportDraftTarget(null);
     selectTab("supportMessages");
+  };
+
+  // Jump to the Users tab and open a specific user's details drawer (from a support chat).
+  const openUserDetails = (user: AdminUserListItem) => {
+    setUserDetailsTarget(user);
+    selectTab("users");
   };
 
   const openSupportDraftForSubscriptionRequest = (request: SubscriptionRequestItem) => {
@@ -5092,6 +5320,8 @@ export default function AdminPanel() {
         onSelectedUserIdsChange={setSelectedUserIds}
         onSendNotification={openBroadcastForUsers}
         onSendSupportMessage={openSupportForUsers}
+        detailsTarget={userDetailsTarget}
+        onDetailsTargetHandled={() => setUserDetailsTarget(null)}
       />
     ),
     academic: <AcademicTab />,
@@ -5104,6 +5334,7 @@ export default function AdminPanel() {
         onClearTargetUsers={() => setSupportTargetUsers([])}
         draftTarget={supportDraftTarget}
         onDraftTargetHandled={() => setSupportDraftTarget(null)}
+        onViewUserDetails={openUserDetails}
       />
     ),
     broadcastMessages: (
