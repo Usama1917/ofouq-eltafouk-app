@@ -59,30 +59,34 @@ export function levelFromRatio(weightedRatio: number, answered: number): Student
 
 export type SubjectLevel = {
   subjectId: number;
+  subjectName?: string | null;
   level: StudentLevel;
   percent: number; // weighted first-attempt correctness, 0–100
   answered: number;
 };
 
 // One student's level across ALL their subjects (weighted, first-attempt), in one query.
+// Includes the subject name so the admin dashboard can list it directly.
 export async function getStudentLevels(studentId: number): Promise<SubjectLevel[]> {
   const rows = await db
     .select({
       subjectId: studentQuestionStatsTable.subjectId,
+      subjectName: subjectsTable.name,
       weightSum: sql<number>`sum(${WEIGHT_SQL})`,
       correctWeight: sql<number>`sum(case when ${studentQuestionStatsTable.firstAttemptCorrect} then ${WEIGHT_SQL} else 0 end)`,
       answered: sql<number>`count(*)`,
     })
     .from(studentQuestionStatsTable)
+    .leftJoin(subjectsTable, eq(subjectsTable.id, studentQuestionStatsTable.subjectId))
     .where(eq(studentQuestionStatsTable.studentId, studentId))
-    .groupBy(studentQuestionStatsTable.subjectId);
+    .groupBy(studentQuestionStatsTable.subjectId, subjectsTable.name);
 
   return rows.map((r) => {
     const weightSum = Number(r.weightSum) || 0;
     const correctWeight = Number(r.correctWeight) || 0;
     const answered = Number(r.answered) || 0;
     const ratio = weightSum > 0 ? correctWeight / weightSum : 0;
-    return { subjectId: r.subjectId, level: levelFromRatio(ratio, answered), percent: Math.round(ratio * 100), answered };
+    return { subjectId: r.subjectId, subjectName: r.subjectName, level: levelFromRatio(ratio, answered), percent: Math.round(ratio * 100), answered };
   });
 }
 

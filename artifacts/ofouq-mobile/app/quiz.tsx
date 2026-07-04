@@ -227,6 +227,9 @@ interface QuizQuestion {
   imageUrl: string | null;
   table: QuizTable | null;
   options: OptionContent[];
+  // Revealed ONLY for the instant-feedback review exam (practice); absent otherwise.
+  correctKey?: number | null;
+  explanation?: string | null;
 }
 interface QuizPayload {
   videoId?: number;
@@ -237,6 +240,8 @@ interface QuizPayload {
   language?: string;
   // Chapter adaptive exam only: countdown minutes (0 = no timer).
   timerMinutes?: number;
+  // Review exam only: reveal correct answer + explanation after each pick.
+  instantFeedback?: boolean;
   questions: QuizQuestion[];
 }
 interface ReviewItem {
@@ -736,6 +741,7 @@ export default function QuizScreen() {
   // student's app language: Arabic exam → RTL (option letter on the right, "التالي" on the
   // right), English exam → LTR (letter on the left, buttons mirrored).
   const examRTL = quiz.language !== "en";
+  const instantMode = quiz.instantFeedback === true;
   const unansweredCount = unansweredIndices.length;
   const manyUnanswered = unansweredCount > 1;
   const arUnanswered =
@@ -779,28 +785,59 @@ export default function QuizScreen() {
 
         {q.options.map((opt, i) => {
           const selected = answers[q.id] === opt.key;
+          // Instant-feedback review: once answered, lock the card and colour it —
+          // green for the correct option, red for a wrong pick.
+          const revealed = instantMode && answers[q.id] != null;
+          const isCorrectOpt = revealed && q.correctKey != null && opt.key === q.correctKey;
+          const isWrongChosen = revealed && selected && !isCorrectOpt;
+          const borderColor = isCorrectOpt ? "#059669" : isWrongChosen ? "#DC2626" : selected ? COLORS.primary : QUIZ_COLORS.border;
           return (
             <Pressable
               key={opt.key}
-              onPress={() => setAnswers((prev) => ({ ...prev, [q.id]: opt.key }))}
-              style={[styles.answerCard, { borderColor: selected ? COLORS.primary : QUIZ_COLORS.border }]}
+              onPress={() => {
+                if (revealed) return;
+                setAnswers((prev) => ({ ...prev, [q.id]: opt.key }));
+              }}
+              style={[styles.answerCard, { borderColor }]}
             >
               {/* The image fills the card EXCEPT a strip reserved for the letter, so the letter
                   never overlaps the picture. The strip is the same white as the card (invisible). */}
               <View style={[styles.answerContentFill, examRTL ? { left: 0, right: OPTION_LETTER_SLOT } : { left: OPTION_LETTER_SLOT, right: 0 }]}>
                 <ContentBody content={opt} colors={QUIZ_COLORS} fill contentPosition={examRTL ? "right" : "left"} textStyle={[styles.answerText, { color: QUIZ_COLORS.text, textAlign: "center", writingDirection: examRTL ? "rtl" : "ltr" }]} />
               </View>
-              {/* Selection tint covers the WHOLE card (image + reserved strip) → seamless either way. */}
-              {selected ? <View pointerEvents="none" style={styles.answerSelectedOverlay} /> : null}
+              {/* Selection / correctness tint covers the WHOLE card → seamless either way. */}
+              {isCorrectOpt ? (
+                <View pointerEvents="none" style={[styles.answerSelectedOverlay, { backgroundColor: "#05966926" }]} />
+              ) : isWrongChosen ? (
+                <View pointerEvents="none" style={[styles.answerSelectedOverlay, { backgroundColor: "#DC262626" }]} />
+              ) : selected ? (
+                <View pointerEvents="none" style={styles.answerSelectedOverlay} />
+              ) : null}
               {/* Letter: vertically centred, pinned to the far right (Arabic) / far left (English). */}
               <View style={[styles.answerLetterSlot, examRTL ? { right: 0 } : { left: 0 }]}>
-                <View style={[styles.answerLetterBadge, { borderColor: selected ? COLORS.primary : QUIZ_COLORS.border, backgroundColor: selected ? COLORS.primary : QUIZ_COLORS.card }]}>
-                  <Text style={[styles.answerLetterText, { color: selected ? "#fff" : QUIZ_COLORS.textSecondary }]}>{LETTERS[i]}</Text>
+                <View style={[styles.answerLetterBadge, { borderColor, backgroundColor: isCorrectOpt ? "#059669" : isWrongChosen ? "#DC2626" : selected ? COLORS.primary : QUIZ_COLORS.card }]}>
+                  {revealed && (isCorrectOpt || isWrongChosen) ? (
+                    <Feather name={isCorrectOpt ? "check" : "x"} size={15} color="#fff" />
+                  ) : (
+                    <Text style={[styles.answerLetterText, { color: selected ? "#fff" : QUIZ_COLORS.textSecondary }]}>{LETTERS[i]}</Text>
+                  )}
                 </View>
               </View>
             </Pressable>
           );
         })}
+
+        {/* Instant-feedback explanation, shown once the review question is answered. */}
+        {instantMode && answers[q.id] != null ? (
+          <View style={[styles.explainBox, { backgroundColor: answers[q.id] === q.correctKey ? "#05966912" : "#DC262610", borderColor: answers[q.id] === q.correctKey ? "#05966955" : "#DC262655" }]}>
+            <Text style={[styles.explainVerdict, { color: answers[q.id] === q.correctKey ? "#059669" : "#DC2626", textAlign: examRTL ? "right" : "left", writingDirection: examRTL ? "rtl" : "ltr" }]}>
+              {answers[q.id] === q.correctKey ? (en ? "Correct ✓" : "إجابة صحيحة ✓") : en ? "Wrong ✗" : "إجابة خطأ ✗"}
+            </Text>
+            {q.explanation ? (
+              <RichText html={`💡 ${q.explanation}`} style={[styles.explainText, { color: QUIZ_COLORS.textSecondary, textAlign: examRTL ? "right" : "left", writingDirection: examRTL ? "rtl" : "ltr" }]} />
+            ) : null}
+          </View>
+        ) : null}
       </ScrollView>
 
       {/* direction:"ltr" makes the button SIDES deterministic (immune to forceRTL not being
@@ -914,6 +951,9 @@ const styles = StyleSheet.create({
   unanswered: { ...FONT.bold, fontSize: 12, marginTop: 8 },
   explanationBox: { marginTop: 10, borderRadius: 12, borderWidth: 1, padding: 11 },
   explanationText: { ...FONT.regular, fontSize: 13, lineHeight: 21 },
+  explainBox: { marginTop: 4, borderRadius: 14, borderWidth: 1, padding: 12, gap: 4 },
+  explainVerdict: { ...FONT.bold, fontSize: 14 },
+  explainText: { ...FONT.regular, fontSize: 13, lineHeight: 21 },
   primaryBtn: { minHeight: 50, borderRadius: 15, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   primaryBtnText: { ...FONT.bold, fontSize: 16, color: "#fff" },
   secondaryBtn: { minHeight: 48, borderRadius: 15, borderWidth: 1, alignItems: "center", justifyContent: "center" },

@@ -284,10 +284,14 @@ router.get("/units/:unitId/exam/review", async (req, res) => {
         imageUrl: videoQuestionsTable.imageUrl,
         table: videoQuestionsTable.table,
         options: videoQuestionsTable.options,
+        correctIndex: videoQuestionsTable.correctIndex,
+        explanation: videoQuestionsTable.explanation,
       })
       .from(videoQuestionsTable)
       .where(inArray(videoQuestionsTable.id, review.questionIds));
 
+    // The review is a PRACTICE exam (instant feedback), so — unlike the graded exams —
+    // it reveals the correct answer + explanation to the client for per-question feedback.
     const questions = shuffleArr(rows).map((q) => ({
       id: q.id,
       source: "lesson" as const,
@@ -295,9 +299,11 @@ router.get("/units/:unitId/exam/review", async (req, res) => {
       imageUrl: q.imageUrl,
       table: q.table,
       options: shuffleArr(toStudentOptions(q.options)),
+      correctKey: q.correctIndex,
+      explanation: q.explanation,
     }));
 
-    return res.json({ unitId, mode: "review", questions });
+    return res.json({ unitId, mode: "review", instantFeedback: true, questions });
   } catch (err) {
     req.log.error({ err }, "Failed to start review exam");
     return res.status(500).json({ error: "Internal server error" });

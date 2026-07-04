@@ -1346,6 +1346,15 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
     staleTime: 30_000,
   });
 
+  // v2 Phase 2 — the student's auto-computed level per subject (from first-attempt,
+  // difficulty-weighted correctness).
+  const levelsQ = useQuery<{ levels: Array<{ subjectId: number; subjectName?: string | null; level: string; percent: number; answered: number }> }>({
+    queryKey: ["/api/admin/students", user?.id, "levels"],
+    queryFn: () => customFetch(`/api/admin/students/${user!.id}/subject-levels`, { method: "GET" }),
+    enabled: open && isStudent,
+    staleTime: 30_000,
+  });
+
   // ── Edit mode: account (email/phone) + student profile fields ──────────────
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1656,6 +1665,27 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
                   </DetailSection>
 
                   {/* Section 3: subscriptions */}
+                  {isStudent && levelsQ.data && levelsQ.data.levels.length > 0 ? (
+                    <DetailSection title="مستوى الطالب في المواد" icon={BookMarked}
+                      badge={<span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground">{formatAdminNumber(levelsQ.data.levels.length)}</span>}>
+                      <div className="space-y-2">
+                        {levelsQ.data.levels.map((l) => {
+                          const lvlCls = l.level === "advanced" ? "bg-emerald-100 text-emerald-700" : l.level === "intermediate" ? "bg-blue-100 text-blue-700" : l.level === "beginner" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-500";
+                          const lvlLabel = l.level === "advanced" ? "متقدّم" : l.level === "intermediate" ? "متوسط" : l.level === "beginner" ? "مبتدئ" : "لسه بيتحدد";
+                          return (
+                            <div key={l.subjectId} className="flex items-center justify-between gap-2 rounded-xl bg-muted/40 px-3 py-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-bold text-foreground">{l.subjectName || `مادة #${formatAdminNumber(l.subjectId)}`}</p>
+                                <p className="text-[11px] text-muted-foreground">{toEnglishDigits(String(l.percent))}٪ صح · {toEnglishDigits(String(l.answered))} سؤال</p>
+                              </div>
+                              <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${lvlCls}`}>{lvlLabel}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </DetailSection>
+                  ) : null}
+
                   <DetailSection title="الاشتراكات" icon={BookMarked}
                     badge={<span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground">{formatAdminNumber(data.subscriptions.length)}</span>}>
                     {data.subscriptions.length === 0 ? (
