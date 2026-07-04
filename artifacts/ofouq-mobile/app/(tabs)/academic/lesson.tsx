@@ -25,6 +25,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AcademicVideoPlayer, AcademicVideoSegment } from "@/components/AcademicVideoPlayer";
 import { AutoFitTitle } from "@/components/AutoFitTitle";
 import { LessonSummaryCard } from "@/components/LessonSummaryCard";
+import { QuizLessonCard } from "@/components/QuizLessonCard";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
@@ -176,7 +177,7 @@ export default function LessonDetailScreen() {
   }, [burstAnim]);
 
   const reportLessonProgress = useCallback(
-    (progress: { currentTime: number; duration: number }) => {
+    (progress: { currentTime: number; duration: number; watchedSeconds?: number }) => {
       if (!token || !lesson?.id) return;
       void apiFetch<{ completed?: boolean }>(`/api/academic/lessons/${lesson.id}/progress`, {
         method: "POST",
@@ -184,6 +185,8 @@ export default function LessonDetailScreen() {
         body: JSON.stringify({
           currentSeconds: progress.currentTime,
           durationSeconds: progress.duration,
+          // Real watched coverage (seeks excluded) — powers the quiz watch-gate.
+          watchedSeconds: progress.watchedSeconds ?? 0,
         }),
       })
         .then((res) => {
@@ -378,19 +381,31 @@ export default function LessonDetailScreen() {
                   thumbnailUrl={lesson.video.thumbnailUrl ?? null}
                   segments={lesson.video.segments ?? []}
                   belowPlayerContent={
-                    <LessonSummaryCard
-                      thumbnailUrl={summaryThumbnailUrl}
-                      title={lesson.video.title}
-                      titleEn={lesson.video.titleEn}
-                      instructor={lesson.video.instructor}
-                      instructorEn={lesson.video.instructorEn}
-                      duration={lesson.video.duration}
-                      description={lesson.video.description}
-                      descriptionEn={lesson.video.descriptionEn}
-                      segmentsCount={lesson.video.segments?.length ?? 0}
-                      userName={user?.name ?? null}
-                      userEmail={user?.email ?? null}
-                    />
+                    <>
+                      <LessonSummaryCard
+                        thumbnailUrl={summaryThumbnailUrl}
+                        title={lesson.video.title}
+                        titleEn={lesson.video.titleEn}
+                        instructor={lesson.video.instructor}
+                        instructorEn={lesson.video.instructorEn}
+                        duration={lesson.video.duration}
+                        description={lesson.video.description}
+                        descriptionEn={lesson.video.descriptionEn}
+                        segmentsCount={lesson.video.segments?.length ?? 0}
+                        userName={user?.name ?? null}
+                        userEmail={user?.email ?? null}
+                      />
+                      {/* v2 Phase 2 — quiz entry card: below the description, above segments.
+                          Shown only in the "الدروس المرئية" (videos) tab per the owner's choice. */}
+                      {routeBase === "/(tabs)/videos" ? (
+                        <View style={{ marginTop: 12 }}>
+                          <QuizLessonCard
+                            videoId={lesson.video.id}
+                            videoTitle={localizeAcademicText(lesson.video.title, language, lesson.video.titleEn)}
+                          />
+                        </View>
+                      ) : null}
+                    </>
                   }
                   watermarkText={user
                     ? `${localizeAcademicText(user.name, language).trim().split(/\s+/)[0]} · ${toEnglishDigits(user.phone || user.email)}`

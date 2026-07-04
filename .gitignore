@@ -58,3 +58,6 @@ Thumbs.db
 *firebase-adminsdk*.json
 *fcm*.json
 !artifacts/ofouq-mobile/google-services.json
+
+# runtime-generated uploads (question images + video thumbnails) — not source
+artifacts/api-server/uploads/

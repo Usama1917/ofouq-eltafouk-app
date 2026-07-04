@@ -10,6 +10,7 @@ import {
   AuthTextField,
 } from "@/components/auth";
 import { COLORS } from "@/constants/colors";
+import { FONT } from "@/constants/typography";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { type ApiError } from "@/lib/api";
@@ -151,6 +152,6 @@ const styles = StyleSheet.create({
   hint: { fontSize: 13, lineHeight: 20, textAlign: "center" },
   devBox: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
   devText: { fontSize: 12, textAlign: "center" },
-  info: { fontSize: 13, textAlign: "center", fontWeight: "600" },
-  resend: { fontSize: 14, textAlign: "center", fontWeight: "700", paddingVertical: 6 },
+  info: { fontSize: 13, textAlign: "center", ...FONT.semiBold },
+  resend: { fontSize: 14, textAlign: "center", ...FONT.bold, paddingVertical: 6 },
 });

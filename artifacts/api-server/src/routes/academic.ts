@@ -1465,6 +1465,7 @@ router.get("/academic/watch-history/me", async (req, res) => {
         videoDurationSeconds: videosTable.duration,
         instructor: videosTable.instructor,
         currentSeconds: lessonWatchProgressTable.currentSeconds,
+        watchedRealSeconds: lessonWatchProgressTable.watchedSeconds,
         progressDurationSeconds: lessonWatchProgressTable.durationSeconds,
         completed: lessonWatchProgressTable.completed,
         lastWatchedAt: lessonWatchProgressTable.lastWatchedAt,
@@ -1566,13 +1567,16 @@ router.get("/academic/watch-history/me", async (req, res) => {
         toSeconds(row.videoDurationSeconds, 0),
         toSeconds(row.progressDurationSeconds, 0),
       );
-      const currentSeconds = Math.min(
-        toSeconds(row.currentSeconds, 0),
-        durationSeconds > 0 ? durationSeconds : Number.MAX_SAFE_INTEGER,
-      );
-      const progressRatio = durationSeconds > 0 ? Math.min(1, currentSeconds / durationSeconds) : 0;
+      const cap = durationSeconds > 0 ? durationSeconds : Number.MAX_SAFE_INTEGER;
+      // currentSeconds = furthest seek position (kept only for "resume where you left off").
+      const currentSeconds = Math.min(toSeconds(row.currentSeconds, 0), cap);
+      // realWatchedSeconds = distinct seconds actually PLAYED (seeking excluded). ALL the
+      // "how much did they watch / progress / completed" numbers use this, so scrubbing to
+      // the end never inflates the watch history.
+      const realWatchedSeconds = Math.min(toSeconds(row.watchedRealSeconds, 0), cap);
+      const progressRatio = durationSeconds > 0 ? Math.min(1, realWatchedSeconds / durationSeconds) : 0;
       const completed = Boolean(row.completed) || progressRatio >= 0.9;
-      const wasWatched = currentSeconds > 0 || Boolean(row.lastWatchedAt);
+      const wasWatched = realWatchedSeconds > 0 || Boolean(row.lastWatchedAt);
       const lesson: WatchLesson = {
         id: row.lessonId,
         title: row.lessonTitle,
@@ -1614,14 +1618,14 @@ router.get("/academic/watch-history/me", async (req, res) => {
 
       unit.lessonCount += 1;
       unit.totalSeconds += durationSeconds;
-      unit.watchedSeconds += currentSeconds;
+      unit.watchedSeconds += realWatchedSeconds;
       if (wasWatched) unit.watchedLessons += 1;
       if (completed) unit.completedLessons += 1;
       unit.lessons.push(lesson);
 
       subject.lessonCount += 1;
       subject.totalSeconds += durationSeconds;
-      subject.watchedSeconds += currentSeconds;
+      subject.watchedSeconds += realWatchedSeconds;
       if (wasWatched) {
         subject.watchedLessons += 1;
         subject.recentLessons.push(lesson);
@@ -2146,22 +2150,31 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
 
     const fallbackDuration = toSeconds(lesson.video?.duration, 0);
     const durationSeconds = toSeconds(req.body?.durationSeconds, fallbackDuration);
-    const currentSeconds = Math.min(toSeconds(req.body?.currentSeconds, 0), durationSeconds > 0 ? durationSeconds : Number.MAX_SAFE_INTEGER);
-    const completed = durationSeconds > 0 && currentSeconds / durationSeconds >= 0.9;
+    const durationCap = durationSeconds > 0 ? durationSeconds : Number.MAX_SAFE_INTEGER;
+    const currentSeconds = Math.min(toSeconds(req.body?.currentSeconds, 0), durationCap);
+    // REAL watched coverage (distinct seconds actually played, seeks excluded) —
+    // computed on the client, capped at the duration here and kept monotonic below.
+    // Drives the quiz watch-gate; scrubbing to the end can't inflate it.
+    const watchedSeconds = Math.min(Math.max(toSeconds(req.body?.watchedSeconds, 0), 0), durationCap);
+    // Completion is based on REAL watched coverage, never the seek position — a student
+    // can't skip/scrub to the end to "finish" a lesson. 90% actually played = completed.
+    const completed = durationSeconds > 0 && watchedSeconds / durationSeconds >= 0.9;
     const now = new Date();
 
-    // Read the prior row first (before the monotonic upsert) so the gamification
-    // engine can credit only the NEW seconds watched since the last ping and detect
-    // the not-completed → completed transition (to award the lesson bonus once).
+    // Read the prior row first (before the monotonic upsert) so the gamification engine
+    // can credit only the NEW *real-watched* seconds since the last ping and detect the
+    // not-completed → completed transition (to award the lesson bonus once).
     const [priorProgress] = await db
       .select({
-        currentSeconds: lessonWatchProgressTable.currentSeconds,
+        watchedSeconds: lessonWatchProgressTable.watchedSeconds,
         completed: lessonWatchProgressTable.completed,
       })
       .from(lessonWatchProgressTable)
       .where(and(eq(lessonWatchProgressTable.studentId, student.id), eq(lessonWatchProgressTable.lessonId, lessonId)))
       .limit(1);
-    const watchedDeltaSeconds = currentSeconds - (priorProgress?.currentSeconds ?? 0);
+    // Points credit only the NEW real-watched seconds since the last ping (never negative,
+    // never from seeking) — so watch-points reflect genuine viewing time.
+    const watchedDeltaSeconds = Math.max(0, watchedSeconds - (priorProgress?.watchedSeconds ?? 0));
     const justCompletedLesson = completed && !(priorProgress?.completed ?? false);
 
     await db
@@ -2171,6 +2184,7 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
         lessonId,
         currentSeconds,
         durationSeconds,
+        watchedSeconds,
         completed,
         lastWatchedAt: now,
         updatedAt: now,
@@ -2178,9 +2192,10 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
       .onConflictDoUpdate({
         target: [lessonWatchProgressTable.studentId, lessonWatchProgressTable.lessonId],
         // review B-17: keep progress monotonic — never let an out-of-order /
-        // smaller report rewind currentSeconds or un-complete a lesson.
+        // smaller report rewind currentSeconds, watchedSeconds, or un-complete a lesson.
         set: {
           currentSeconds: sql`greatest(${lessonWatchProgressTable.currentSeconds}, ${currentSeconds})`,
+          watchedSeconds: sql`greatest(${lessonWatchProgressTable.watchedSeconds}, ${watchedSeconds})`,
           durationSeconds,
           completed: sql`${lessonWatchProgressTable.completed} OR ${completed}`,
           lastWatchedAt: now,
@@ -2192,6 +2207,7 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
       success: true,
       currentSeconds,
       durationSeconds,
+      watchedSeconds,
       completed,
     });
 
@@ -2804,6 +2820,147 @@ router.get("/admin/academic/units/:unitId/lessons", async (req, res) => {
     res.json(lessonsWithSegments);
   } catch (err) {
     req.log.error({ err }, "Failed to list lessons (admin)");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Full nested tree for one year (subjects → units → lessons+video+segments) in a
+// single request. Powers the grid/tree view of the academic dashboard so it can
+// render the whole year at once without an N+1 waterfall of per-parent calls.
+// Constant number of queries (subjects, units, lessons, segments) regardless of
+// tree size; mirrors the exact shapes of the per-parent endpoints above.
+router.get("/admin/academic/years/:yearId/tree", async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const yearId = parsePositiveInt(req.params.yearId);
+    if (!yearId) return res.status(400).json({ error: "معرف السنة غير صالح" });
+
+    const subjects = await db
+      .select()
+      .from(subjectsTable)
+      .where(eq(subjectsTable.yearId, yearId))
+      .orderBy(asc(subjectsTable.orderIndex), asc(subjectsTable.id));
+
+    const subjectIds = subjects.map((subject) => subject.id);
+
+    const units = subjectIds.length
+      ? await db
+          .select()
+          .from(unitsTable)
+          .where(inArray(unitsTable.subjectId, subjectIds))
+          .orderBy(asc(unitsTable.orderIndex), asc(unitsTable.id))
+      : [];
+
+    const unitIds = units.map((unit) => unit.id);
+
+    const lessons = unitIds.length
+      ? await db
+          .select({
+            id: lessonsTable.id,
+            unitId: lessonsTable.unitId,
+            title: lessonsTable.title,
+            titleEn: lessonsTable.titleEn,
+            description: lessonsTable.description,
+            descriptionEn: lessonsTable.descriptionEn,
+            videoId: lessonsTable.videoId,
+            orderIndex: lessonsTable.orderIndex,
+            isPublished: lessonsTable.isPublished,
+            createdAt: lessonsTable.createdAt,
+            video: {
+              id: videosTable.id,
+              title: videosTable.title,
+              titleEn: videosTable.titleEn,
+              description: videosTable.description,
+              descriptionEn: videosTable.descriptionEn,
+              subject: videosTable.subject,
+              videoUrl: videosTable.videoUrl,
+              thumbnailUrl: videosTable.thumbnailUrl,
+              posterUrl: videosTable.posterUrl,
+              duration: videosTable.duration,
+              instructor: videosTable.instructor,
+              instructorEn: videosTable.instructorEn,
+              videoType: videosTable.videoType,
+              publishStatus: videosTable.publishStatus,
+            },
+          })
+          .from(lessonsTable)
+          .leftJoin(videosTable, eq(lessonsTable.videoId, videosTable.id))
+          .where(inArray(lessonsTable.unitId, unitIds))
+          .orderBy(asc(lessonsTable.orderIndex), asc(lessonsTable.id))
+      : [];
+
+    const videoIds = lessons
+      .map((lesson) => lesson.video?.id)
+      .filter((id): id is number => typeof id === "number" && Number.isFinite(id) && id > 0);
+
+    const segments = videoIds.length
+      ? await db
+          .select({
+            id: videoSegmentsTable.id,
+            videoId: videoSegmentsTable.videoId,
+            title: videoSegmentsTable.title,
+            titleEn: videoSegmentsTable.titleEn,
+            startSeconds: videoSegmentsTable.startSeconds,
+            segmentType: videoSegmentsTable.segmentType,
+            orderIndex: videoSegmentsTable.orderIndex,
+          })
+          .from(videoSegmentsTable)
+          .where(inArray(videoSegmentsTable.videoId, videoIds))
+          .orderBy(asc(videoSegmentsTable.orderIndex), asc(videoSegmentsTable.startSeconds), asc(videoSegmentsTable.id))
+      : [];
+
+    const videoUrlById = new Map<number, string>();
+    lessons.forEach((lesson) => {
+      const videoId = Number(lesson.video?.id ?? 0);
+      const videoUrl = lesson.video?.videoUrl;
+      if (Number.isFinite(videoId) && videoId > 0 && typeof videoUrl === "string" && videoUrl.trim()) {
+        videoUrlById.set(videoId, videoUrl.trim());
+      }
+    });
+
+    const segmentsByVideoId = new Map<number, Array<(typeof segments)[number] & { thumbnailUrl: string | null }>>();
+    segments.forEach((segment) => {
+      const withThumb = {
+        ...segment,
+        thumbnailUrl: buildSegmentThumbnailEndpoint(
+          segment.videoId,
+          segment.id,
+          segment.startSeconds,
+          videoUrlById.get(segment.videoId),
+        ),
+      };
+      const list = segmentsByVideoId.get(segment.videoId) ?? [];
+      list.push(withThumb);
+      segmentsByVideoId.set(segment.videoId, list);
+    });
+
+    const lessonsByUnit = new Map<number, typeof lessons>();
+    lessons.forEach((lesson) => {
+      const withSegments = lesson.video?.id
+        ? { ...lesson, video: { ...lesson.video, segments: segmentsByVideoId.get(lesson.video.id) ?? [] } }
+        : lesson;
+      const list = lessonsByUnit.get(lesson.unitId) ?? [];
+      list.push(withSegments as (typeof lessons)[number]);
+      lessonsByUnit.set(lesson.unitId, list);
+    });
+
+    const unitsBySubject = new Map<number, Array<(typeof units)[number] & { lessons: unknown[] }>>();
+    units.forEach((unit) => {
+      const withLessons = { ...unit, lessons: lessonsByUnit.get(unit.id) ?? [] };
+      const list = unitsBySubject.get(unit.subjectId) ?? [];
+      list.push(withLessons);
+      unitsBySubject.set(unit.subjectId, list);
+    });
+
+    const tree = subjects.map((subject) => ({
+      ...subject,
+      units: unitsBySubject.get(subject.id) ?? [],
+    }));
+
+    res.json({ subjects: tree });
+  } catch (err) {
+    req.log.error({ err }, "Failed to build academic year tree (admin)");
     res.status(500).json({ error: "Internal server error" });
   }
 });

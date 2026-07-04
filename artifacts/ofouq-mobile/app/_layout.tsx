@@ -149,6 +149,7 @@ function RootLayoutNav() {
         <Stack.Screen name="verify-otp" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="setup-phone" options={{ headerShown: false }} />
         <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
+        <Stack.Screen name="quiz" options={{ headerShown: false }} />
       </Stack>
     </ThemeProvider>
   );
@@ -186,12 +187,13 @@ function PushNotificationsBootstrap() {
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    NotoSansArabic_400Regular: require("../assets/fonts/Noto_Sans_Arabic/NotoSansArabic-Regular.ttf"),
-    NotoSansArabic_500Medium: require("../assets/fonts/Noto_Sans_Arabic/NotoSansArabic-Medium.ttf"),
-    NotoSansArabic_600SemiBold: require("../assets/fonts/Noto_Sans_Arabic/NotoSansArabic-SemiBold.ttf"),
-    NotoSansArabic_700Bold: require("../assets/fonts/Noto_Sans_Arabic/NotoSansArabic-Bold.ttf"),
-    NotoSansArabic_800ExtraBold: require("../assets/fonts/Noto_Sans_Arabic/NotoSansArabic-ExtraBold.ttf"),
-    NotoSansArabic_900Black: require("../assets/fonts/Noto_Sans_Arabic/NotoSansArabic-Black.ttf"),
+    // Android renders Arabic in IBM Plex Sans Arabic (open-source OFL, full weights, iOS-SF-like).
+    // Each weight is its own family so real bold works reliably. iOS uses its system font and
+    // ignores these. See constants/typography.ts.
+    IBMPlexSansArabic_400Regular: require("../assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Regular.ttf"),
+    IBMPlexSansArabic_500Medium: require("../assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Medium.ttf"),
+    IBMPlexSansArabic_600SemiBold: require("../assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-SemiBold.ttf"),
+    IBMPlexSansArabic_700Bold: require("../assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Bold.ttf"),
   });
 
   useEffect(() => {

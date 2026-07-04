@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, index, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -18,6 +18,20 @@ export const videosTable = pgTable("videos", {
   instructor: text("instructor").notNull(),
   videoType: text("video_type").notNull().default("youtube"),
   publishStatus: text("publish_status").notNull().default("published"),
+  // v2 Phase 2 (quiz): how many questions to serve per attempt from this video's
+  // question bank (random sample). Null = serve all published questions. The card
+  // only shows when the video has ≥1 published question (see schema/quiz.ts).
+  quizQuestionCount: integer("quiz_question_count"),
+  // v2 Phase 2 (quiz): the language of THIS video's quiz — set once per exam by the
+  // admin. Drives the mobile exam layout direction (option letter side + text align):
+  // "ar" → letters on the right / RTL, "en" → letters on the left / LTR. Default "ar".
+  quizLanguage: text("quiz_language").notNull().default("ar"),
+  // v2 Phase 2 (quiz watch-gate): when enabled, the quiz stays LOCKED until the
+  // student has really watched (playback coverage — seeking does NOT count) at least
+  // `quizWatchGatePercent`% of the video's duration. Per-video, admin-controlled;
+  // admin/owner bypass. Enforced server-side in routes/quiz.ts. Default: off / 75%.
+  quizWatchGateEnabled: boolean("quiz_watch_gate_enabled").notNull().default(false),
+  quizWatchGatePercent: integer("quiz_watch_gate_percent").notNull().default(75),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   // GET /videos orders by createdAt desc. See review B-33.

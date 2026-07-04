@@ -2171,7 +2171,26 @@ function FilterGroup({ label, options, value, onChange }: { label: string; optio
 export default function OwnerPanel() {
   const { user, logout, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
-  const [tab, setTab] = useState<Tab>("dashboard");
+  // Restore the active tab from the URL so a refresh keeps you where you were
+  // (instead of always bouncing back to the dashboard).
+  const [tab, setTab] = useState<Tab>(() => {
+    try {
+      const requested = new URLSearchParams(window.location.search).get("tab");
+      if (requested && TABS.some((t) => t.id === requested)) return requested as Tab;
+    } catch {
+      /* ignore */
+    }
+    return "dashboard";
+  });
+  // Keep the URL in sync with the active tab (covers every place that changes it).
+  useEffect(() => {
+    try {
+      const url = tab === "dashboard" ? window.location.pathname : `${window.location.pathname}?tab=${tab}`;
+      window.history.replaceState(null, "", url);
+    } catch {
+      /* ignore */
+    }
+  }, [tab]);
   const [adminTheme, setAdminTheme] = useState<AdminTheme>(getInitialAdminTheme);
   const isDarkAdmin = adminTheme === "dark";
 

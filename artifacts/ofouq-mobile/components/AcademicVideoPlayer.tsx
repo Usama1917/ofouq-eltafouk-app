@@ -1,4 +1,5 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
@@ -70,6 +71,9 @@ type AcademicVideoPlayerProps = {
     duration: number;
     isPlaying: boolean;
     hasStarted: boolean;
+    // REAL watched coverage: distinct seconds actually PLAYED (seeking never counts),
+    // accumulated across sessions. Drives the quiz watch-gate.
+    watchedSeconds: number;
   }) => void;
 };
 
@@ -761,6 +765,16 @@ export function AcademicVideoPlayer({
     isPlaying: false,
     hasStarted: false,
   });
+  // ── Real watch-coverage tracking (for the quiz watch-gate) ───────────────────
+  // We count DISTINCT seconds actually played, so dragging the scrubber to the end
+  // never credits watch time. `watchedBucketsRef` is the set of whole-second buckets
+  // the student really played through; only advances between consecutive playing
+  // ticks whose gap is small (a big jump = a seek, left uncounted). Persisted per
+  // video so coverage accumulates across sessions (a student can watch in chunks).
+  const watchedBucketsRef = useRef<Set<number>>(new Set());
+  const lastCoverTickRef = useRef<number | null>(null);
+  const watchedSecondsRef = useRef(0);
+  const coverageKeyRef = useRef<string | null>(null);
   const [ready, setReady] = useState(videoType === "upload" ? false : false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
@@ -1016,11 +1030,70 @@ export function AcademicVideoPlayer({
     ],
   };
 
+  // A gap between two consecutive playing ticks larger than this = a seek/jump, so
+  // the skipped range is NOT credited as watched.
+  const COVER_MAX_STEP_SECONDS = 2.5;
+
+  // Fold a new playback time into the watched-coverage set. Only fills the range
+  // since the previous tick when we were playing and the gap is small (real
+  // playback); any seek (large forward jump or backward move) leaves a gap.
+  function recordCoverage(time: number, playing: boolean) {
+    if (!playing || !Number.isFinite(time) || time < 0) {
+      lastCoverTickRef.current = null;
+      return;
+    }
+    const buckets = watchedBucketsRef.current;
+    const prev = lastCoverTickRef.current;
+    const cur = Math.floor(time);
+    if (prev == null) {
+      buckets.add(cur);
+    } else {
+      const delta = time - prev;
+      if (delta > 0 && delta <= COVER_MAX_STEP_SECONDS) {
+        for (let s = Math.floor(prev); s <= cur; s++) buckets.add(s);
+      }
+      // else: a seek — leave the skipped seconds uncounted.
+    }
+    lastCoverTickRef.current = time;
+    watchedSecondsRef.current = buckets.size;
+  }
+
+  function persistCoverage() {
+    const key = coverageKeyRef.current;
+    if (!key || watchedBucketsRef.current.size === 0) return;
+    void AsyncStorage.setItem(key, JSON.stringify([...watchedBucketsRef.current])).catch(() => {});
+  }
+
+  // Restore prior coverage for this video so a student can watch it in chunks across
+  // sessions and still cross the gate. Resets the tick tracker on a video change.
+  useEffect(() => {
+    let cancelled = false;
+    const key = `ofouq_watch_cover:${resolvedVideoUrl}`;
+    coverageKeyRef.current = key;
+    watchedBucketsRef.current = new Set();
+    lastCoverTickRef.current = null;
+    watchedSecondsRef.current = 0;
+    void AsyncStorage.getItem(key)
+      .then((raw) => {
+        if (cancelled || !raw) return;
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          watchedBucketsRef.current = new Set(arr.filter((n) => Number.isFinite(n)));
+          watchedSecondsRef.current = watchedBucketsRef.current.size;
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedVideoUrl]);
+
   function emitProgressUpdate() {
     const snapshot = progressSnapshotRef.current;
     if (!onProgressUpdateRef.current) return;
     if (!snapshot.hasStarted || snapshot.duration <= 0) return;
-    onProgressUpdateRef.current(snapshot);
+    persistCoverage();
+    onProgressUpdateRef.current({ ...snapshot, watchedSeconds: watchedSecondsRef.current });
   }
 
   useEffect(() => {
@@ -1034,6 +1107,8 @@ export function AcademicVideoPlayer({
       isPlaying,
       hasStarted,
     };
+    // Fold every playback tick into the real-watch coverage set (seeks excluded).
+    recordCoverage(currentTime, isPlaying);
   }, [currentTime, duration, hasStarted, isPlaying]);
 
   useEffect(() => {
@@ -1048,14 +1123,23 @@ export function AcademicVideoPlayer({
     commitTimelinePosition(safeInitialSeek);
   }, [initialSeekSeconds, resolvedVideoUrl]);
 
+  // Auto-resume, opened from a "continue watching" push notification: jump into
+  // fullscreen + play at the saved second. CRITICAL: only fire AFTER the inline player
+  // has loaded once (`ready`). Firing it on mount — before the player was ever ready —
+  // reset `ready` to false with nothing to re-arm it, so fullscreen sat stuck on the
+  // loading overlay forever (the bug: "tap the notification → it just keeps loading").
+  // Waiting for `ready` mirrors the proven manual path (inline loads → then fullscreen).
+  // If `ready` never comes, the initial position is still applied inline above, so a
+  // single tap on play resumes from the exact same second.
   useEffect(() => {
     const target = Math.max(0, Math.floor(Number(initialSeekSeconds) || 0));
     if (!autoPlayOnLoad || target <= 0 || autoPlayInitialSeekAppliedRef.current) return;
+    if (!ready) return;
 
     autoPlayInitialSeekAppliedRef.current = true;
     initialSeekSecondsRef.current = null;
     openFullscreen({ autoPlay: true, seekToSeconds: target });
-  }, [autoPlayOnLoad, initialSeekSeconds, resolvedVideoUrl]);
+  }, [autoPlayOnLoad, initialSeekSeconds, resolvedVideoUrl, ready]);
 
   useEffect(() => {
     const interval = setInterval(emitProgressUpdate, 15000);

@@ -4,22 +4,22 @@
 @plugin "@tailwindcss/typography";
 
 /* ─── SF Arabic — primary dashboard font ───────────────────────
-   Apple's Arabic typeface. Only ships a single (Regular) weight, so we declare
-   it for the normal weight only and let the browser synthesise bolder weights;
-   Cairo/Tajawal stay as the fallback stack below so any missing glyph or heavy
-   weight still renders cleanly and layouts keep the same metrics. */
+   Apple's Arabic typeface, shipped as a real variable font (weight axis
+   1–1000), so every weight we use (medium/semibold/bold/black) renders with a
+   true master instead of a synthesised faux-bold. Cairo/Tajawal stay as the
+   fallback stack below for any missing glyph or when the font hasn't loaded. */
 @font-face {
   font-family: 'SF Arabic';
-  src: url('./assets/fonts/SFArabic-Regular.woff2') format('woff2'),
-       url('./assets/fonts/SFArabic-Regular.woff') format('woff');
+  src: url('./assets/fonts/SFArabic-VF.woff2') format('woff2'),
+       url('./assets/fonts/SFArabic-VF.woff') format('woff');
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: 'SF Arabic Rounded';
-  src: url('./assets/fonts/SFArabicRounded-Regular.woff2') format('woff2'),
-       url('./assets/fonts/SFArabicRounded-Regular.woff') format('woff');
+  src: url('./assets/fonts/SFArabicRounded-VF.woff2') format('woff2'),
+       url('./assets/fonts/SFArabicRounded-VF.woff') format('woff');
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -343,10 +343,12 @@
 .admin-dashboard {
   position: relative;
   isolation: isolate;
+  /* Soft grey-blue page so the near-white cards/fields lift off it (fill contrast).
+     Gentle (~92% lightness) — visible separation without being heavy on the eye. */
   background: linear-gradient(160deg,
-    hsl(215 60% 96%) 0%,
-    hsl(220 30% 97%) 42%,
-    hsl(260 30% 97%) 100%
+    hsl(215 32% 92%) 0%,
+    hsl(220 22% 93%) 42%,
+    hsl(258 24% 93%) 100%
   );
   transition: background 0.25s ease, color 0.25s ease;
 }
@@ -464,6 +466,108 @@
   box-shadow:
     0 1px 0 rgb(255 255 255 / 0.95) inset,
     0 12px 26px rgb(15 23 42 / 0.06);
+}
+
+/* ── Light-mode dashboard: FILL-based contrast (no strokes) ────────────────────
+   Contrast comes from each surface's own fill, not an outline: the page sits on a soft
+   grey (see .admin-dashboard gradient), CARDS are near-solid white so they clearly lift
+   off the page, and FIELDS get a subtle grey "well" fill so they read as distinct
+   inside the white cards — all without any hard border. Kept gentle for eye comfort.
+   Excludes checkboxes/radios/etc. and intentionally-transparent cells (e.g. the quiz
+   table editor). The fields keep their existing (invisible white) border, so there's
+   no visible stroke — only the fill changes. */
+.admin-dashboard:not(.dark) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not(.bg-transparent),
+.admin-dashboard:not(.dark) textarea:not(.bg-transparent),
+.admin-dashboard:not(.dark) select:not(.bg-transparent) {
+  background-color: rgb(238 242 248);
+}
+.admin-dashboard:not(.dark) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not(.bg-transparent):focus,
+.admin-dashboard:not(.dark) textarea:not(.bg-transparent):focus,
+.admin-dashboard:not(.dark) select:not(.bg-transparent):focus {
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.14);
+  outline: none;
+}
+.admin-dashboard:not(.dark) input::placeholder,
+.admin-dashboard:not(.dark) textarea::placeholder {
+  color: rgb(100 116 139);
+}
+
+/* Rich (contentEditable) quiz fields — behave like a textarea, show a placeholder when
+   empty, and keep line height stable when a <sub>/<sup> is present. */
+.rich-field {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  cursor: text;
+  min-height: 1.6rem;
+}
+.rich-field:focus {
+  outline: none;
+}
+.rich-field p {
+  margin: 0;
+}
+.rich-field ul {
+  list-style: disc;
+  padding-inline-start: 1.4rem;
+  margin: 0.2rem 0;
+}
+.rich-field ol {
+  list-style: decimal;
+  padding-inline-start: 1.4rem;
+  margin: 0.2rem 0;
+}
+.rich-field sub,
+.rich-field sup {
+  line-height: 0;
+}
+/* Inline equation/figure images sit within the sentence, sized to the line. */
+.rich-field img,
+.rich-html img {
+  display: inline-block;
+  vertical-align: middle;
+  max-height: 2.4em;
+  max-width: 100%;
+  border-radius: 4px;
+  margin: 0 2px;
+}
+.rich-field img.ProseMirror-selectednode {
+  outline: 2px solid hsl(var(--ring));
+}
+/* TipTap placeholder (shown on the empty first paragraph). */
+.rich-field p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: rgb(148 163 184);
+  pointer-events: none;
+  height: 0;
+  float: right;
+}
+.admin-dashboard:not(.dark) .rich-field {
+  background-color: rgb(238 242 248);
+}
+.admin-dashboard:not(.dark) .rich-field:focus {
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.14);
+}
+
+/* Cards + panels lift off the soft-grey page as near-solid white (fill contrast, not
+   an outline) with a gentle shadow for depth. Scoped to the dashboard so the public
+   landing keeps its own look. */
+.admin-dashboard:not(.dark) .glass-card {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 6px 22px rgba(30, 41, 59, 0.08),
+    0 2px 6px rgba(15, 23, 42, 0.05);
+}
+
+/* Grouping SUB-panels inside a card (the low-opacity `bg-white/55`–`/60` containers,
+   e.g. the lesson editor's segments + quiz sections) read as a faintly-recessed layer
+   so nested sections don't disappear into the white card. Very light — for comfort. */
+.admin-dashboard:not(.dark) [class~="bg-white/55"],
+.admin-dashboard:not(.dark) [class~="bg-white/60"] {
+  background-color: rgb(246 248 251);
 }
 
 .admin-dashboard.dark .admin-sidebar-tab:not(.admin-sidebar-tab-active) {
@@ -650,4 +754,133 @@
 
 .admin-dashboard.dark .automatic-report-link {
   color: rgb(96 165 250);
+}
+
+/* ─── Academic grid / tree view (knockout-bracket style) ───────────────
+   Top-down org-chart: a year card expands and reveals its whole subtree
+   (subjects → units → lessons) as connected rows. Pure-CSS connectors via
+   ::before/::after on each <li>; symmetric so it works unchanged in RTL.
+   The line colour follows the theme border token (adapts to dark mode). */
+.acad-tree {
+  --acad-tree-line: hsl(var(--border));
+  overflow-x: auto;
+  padding: 6px 4px 10px;
+  scroll-behavior: smooth;
+  overscroll-behavior-x: contain;
+}
+/* grab-to-pan affordance — only when the tree is wider than its container */
+.acad-tree.is-grabbable {
+  cursor: grab;
+}
+.acad-tree.is-grabbing {
+  cursor: grabbing;
+  scroll-behavior: auto;
+  user-select: none;
+}
+.acad-tree.is-grabbing * {
+  cursor: grabbing !important;
+}
+.acad-tree ul {
+  position: relative;
+  display: flex;
+  justify-content: safe center;
+  padding-top: 26px;
+  margin: 0;
+  list-style: none;
+}
+.acad-tree li {
+  position: relative;
+  padding: 26px 10px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+/* Each node draws two half-connectors at its top: a border on the block-start
+   edge (half of the horizontal sibling bar) and, on ::after, an inline-start
+   border (the vertical drop into the card). Adjacent siblings' inner halves meet
+   to form one continuous bar. Everything uses LOGICAL properties so the whole
+   bracket mirrors correctly in RTL (the year's first child sits on the right). */
+.acad-tree li::before,
+.acad-tree li::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline-end: 50%;
+  width: 50%;
+  height: 26px;
+  border-block-start: 2px solid var(--acad-tree-line);
+}
+.acad-tree li::after {
+  inset-inline-end: auto;
+  inset-inline-start: 50%;
+  border-inline-start: 2px solid var(--acad-tree-line);
+}
+/* A lone child needs no horizontal bar; drop its padding so the parent's
+   vertical drop meets the card directly (otherwise a gap appears). */
+.acad-tree li:only-child::before,
+.acad-tree li:only-child::after {
+  display: none;
+}
+.acad-tree li:only-child {
+  padding-top: 0;
+}
+/* Trim the OUTER half-bar at each end of a sibling row (logical, so it's the
+   correct outer side in RTL) … */
+.acad-tree li:first-child::before,
+.acad-tree li:last-child::after {
+  border: 0 none;
+}
+/* … and give the two ends their vertical drop + a clean rounded corner. */
+.acad-tree li:last-child::before {
+  border-inline-end: 2px solid var(--acad-tree-line);
+  border-start-end-radius: 6px;
+}
+.acad-tree li:first-child::after {
+  border-start-start-radius: 6px;
+}
+/* The vertical line dropping from a parent down to its children's bar. */
+.acad-tree ul ul::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline-start: 50%;
+  width: 0;
+  height: 26px;
+  border-inline-start: 2px solid var(--acad-tree-line);
+}
+/* The root row (subjects, sitting directly under the year header) has no
+   incoming connector — the year card itself is their parent. */
+.acad-tree > ul {
+  padding-top: 0;
+}
+.acad-tree > ul > li {
+  padding-top: 0;
+}
+.acad-tree > ul > li::before,
+.acad-tree > ul > li::after {
+  display: none;
+}
+
+/* compact node card used inside the tree */
+.acad-tree-card {
+  position: relative;
+  width: 210px;
+  border-radius: 16px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  padding: 10px 12px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+  text-align: right;
+  overflow: hidden;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.acad-tree-card:hover {
+  box-shadow: 0 6px 18px rgb(15 23 42 / 0.08);
+  transform: translateY(-1px);
+}
+.acad-tree-accent {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 3px;
 }

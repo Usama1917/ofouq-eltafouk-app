@@ -20,6 +20,9 @@ export const POINTS = {
   lessonComplete: 10,
   dailyActive: 5,
   dailyGoal: 20,
+  // Full-marks quiz (100%). Actual award scales by the score percentage and is
+  // credited on the FIRST attempt only (see recordQuizActivity).
+  quizFull: 10,
 } as const;
 
 // Streak bonus by milestone: day 10 → 20, day 20 → 50, day 30 → 100, then +5 for
@@ -238,6 +241,187 @@ export async function recordLessonActivity(opts: {
     .limit(1);
 
   return { pointsAwarded, streakCount, goalMet, goalJustMet, balanceAfter: acct?.balance ?? 0 };
+}
+
+export interface QuizActivityResult {
+  // Quiz points actually credited to the wallet — the scaled amount on the first
+  // attempt, 0 on every later attempt (the caller passes 0 for repeats).
+  pointsAwarded: number;
+  streakCount: number;
+  balanceAfter: number;
+}
+
+/**
+ * Credit quiz points and keep the daily streak alive — solving a quiz counts as
+ * activity for the day exactly like watching a lesson (any activity keeps the streak).
+ * `quizPoints` is the already-scaled amount the caller decided to award (0 for any
+ * attempt after the first — "first attempt only"). The streak-advance block mirrors
+ * `recordLessonActivity`; its shared point values live in `POINTS`/`streakBonus`, and
+ * its idempotency keys (`daily_active:<day>`, `streak_milestone:<day>`) are the SAME
+ * as the lesson path, so a student who already studied today is never double-credited.
+ */
+export async function recordQuizActivity(opts: {
+  userId: number;
+  videoId: number;
+  quizPoints: number;
+}): Promise<QuizActivityResult> {
+  const { userId, videoId } = opts;
+  const quizPoints = Math.max(0, Math.min(Math.round(opts.quizPoints), POINTS.quizFull));
+  const today = cairoDay();
+
+  // Quiz points — idempotent per video, so a double-submit can never credit twice
+  // even though the caller already gates the amount to first-attempt-only.
+  const quizCredited = await awardPoints({
+    userId,
+    type: "earn",
+    amount: quizPoints,
+    description: "اجتياز اختبار",
+    sourceKey: `quiz_first:${videoId}`,
+  });
+
+  // --- streak: advance at most once per Cairo day (mirror of recordLessonActivity) ---
+  let streakPoints = 0;
+  let streakCount = 0;
+  const [user] = await db
+    .select({
+      lastActiveDay: usersTable.lastActiveDay,
+      streakCount: usersTable.streakCount,
+      streakBest: usersTable.streakBest,
+    })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  if (user) {
+    streakCount = user.streakCount;
+    if (user.lastActiveDay !== today) {
+      streakCount = user.lastActiveDay === previousDay(today) ? user.streakCount + 1 : 1;
+      const streakBest = Math.max(user.streakBest, streakCount);
+      await db
+        .update(usersTable)
+        .set({ streakCount, streakBest, lastActiveDay: today })
+        .where(eq(usersTable.id, userId));
+      streakPoints += await awardPoints({
+        userId,
+        type: "earn",
+        amount: POINTS.dailyActive,
+        description: "نشاط يومي",
+        sourceKey: `daily_active:${today}`,
+      });
+      const bonus = streakBonus(streakCount);
+      if (bonus > 0) {
+        streakPoints += await awardPoints({
+          userId,
+          type: "earn",
+          amount: bonus,
+          description: `مكافأة سلسلة ${streakCount} يوم`,
+          sourceKey: `streak_milestone:${today}`,
+        });
+      }
+    }
+  }
+
+  // --- daily-activity ledger: quizzes add no watched seconds, just today's points ---
+  const totalPoints = quizCredited + streakPoints;
+  await db
+    .insert(dailyActivityTable)
+    .values({
+      userId,
+      activityDate: today,
+      watchedSeconds: 0,
+      lessonsCompleted: 0,
+      pointsEarned: totalPoints,
+      goalMet: false,
+    })
+    .onConflictDoUpdate({
+      target: [dailyActivityTable.userId, dailyActivityTable.activityDate],
+      set: {
+        pointsEarned: sql`${dailyActivityTable.pointsEarned} + ${totalPoints}`,
+        updatedAt: new Date(),
+      },
+    });
+
+  const [acct] = await db
+    .select({ balance: pointsAccountTable.balance })
+    .from(pointsAccountTable)
+    .where(eq(pointsAccountTable.userId, userId))
+    .limit(1);
+
+  return { pointsAwarded: quizCredited, streakCount, balanceAfter: acct?.balance ?? 0 };
+}
+
+// v2 Phase 2 — chapter (unit) exam activity. Same shape as recordQuizActivity but with
+// a caller-supplied sourceKey (so points are idempotent per unit+exam-type and first-
+// attempt-only) and a caller-supplied max (chapter exams are worth more than a lesson
+// quiz). Advances the daily streak + logs today's points exactly like the quiz path.
+export async function recordExamActivity(opts: {
+  userId: number;
+  sourceKey: string;
+  description: string;
+  points: number;
+  maxPoints: number;
+}): Promise<QuizActivityResult> {
+  const { userId, sourceKey, description } = opts;
+  const points = Math.max(0, Math.min(Math.round(opts.points), Math.max(0, Math.round(opts.maxPoints))));
+  const today = cairoDay();
+
+  const examCredited = await awardPoints({ userId, type: "earn", amount: points, description, sourceKey });
+
+  let streakPoints = 0;
+  let streakCount = 0;
+  const [user] = await db
+    .select({
+      lastActiveDay: usersTable.lastActiveDay,
+      streakCount: usersTable.streakCount,
+      streakBest: usersTable.streakBest,
+    })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  if (user) {
+    streakCount = user.streakCount;
+    if (user.lastActiveDay !== today) {
+      streakCount = user.lastActiveDay === previousDay(today) ? user.streakCount + 1 : 1;
+      const streakBest = Math.max(user.streakBest, streakCount);
+      await db
+        .update(usersTable)
+        .set({ streakCount, streakBest, lastActiveDay: today })
+        .where(eq(usersTable.id, userId));
+      streakPoints += await awardPoints({
+        userId,
+        type: "earn",
+        amount: POINTS.dailyActive,
+        description: "نشاط يومي",
+        sourceKey: `daily_active:${today}`,
+      });
+      const bonus = streakBonus(streakCount);
+      if (bonus > 0) {
+        streakPoints += await awardPoints({
+          userId,
+          type: "earn",
+          amount: bonus,
+          description: `مكافأة سلسلة ${streakCount} يوم`,
+          sourceKey: `streak_milestone:${today}`,
+        });
+      }
+    }
+  }
+
+  const totalPoints = examCredited + streakPoints;
+  await db
+    .insert(dailyActivityTable)
+    .values({ userId, activityDate: today, watchedSeconds: 0, lessonsCompleted: 0, pointsEarned: totalPoints, goalMet: false })
+    .onConflictDoUpdate({
+      target: [dailyActivityTable.userId, dailyActivityTable.activityDate],
+      set: { pointsEarned: sql`${dailyActivityTable.pointsEarned} + ${totalPoints}`, updatedAt: new Date() },
+    });
+
+  const [acct] = await db
+    .select({ balance: pointsAccountTable.balance })
+    .from(pointsAccountTable)
+    .where(eq(pointsAccountTable.userId, userId))
+    .limit(1);
+
+  return { pointsAwarded: examCredited, streakCount, balanceAfter: acct?.balance ?? 0 };
 }
 
 export interface GamificationSummary {

@@ -73,6 +73,11 @@ export const lessonWatchProgressTable = pgTable(
     lessonId: integer("lesson_id").notNull().references(() => lessonsTable.id, { onDelete: "cascade" }),
     currentSeconds: integer("current_seconds").notNull().default(0),
     durationSeconds: integer("duration_seconds").notNull().default(0),
+    // v2 Phase 2 (quiz watch-gate): REAL watched coverage — distinct seconds of the
+    // video actually PLAYED (dragging the scrubber does NOT count), accumulated across
+    // sessions. Distinct from currentSeconds (furthest seek position). Drives the
+    // "watched ≥ N%" quiz gate; monotonic (server keeps the max), capped at duration.
+    watchedSeconds: integer("watched_seconds").notNull().default(0),
     completed: boolean("completed").notNull().default(false),
     lastWatchedAt: timestamp("last_watched_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

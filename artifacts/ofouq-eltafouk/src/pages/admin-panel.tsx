@@ -5216,6 +5216,14 @@ export default function AdminPanel() {
     setTransitionDirection(getTabTransitionIndex(nextTab) >= getTabTransitionIndex(tab) ? 1 : -1);
     setTabAnimating(true); // clip only during the slide (see wrapper below)
     setTab(nextTab);
+    // Reflect the active tab in the URL so a page refresh restores it instead of
+    // bouncing back to the dashboard (the init state reads ?tab=).
+    try {
+      const url = nextTab === "dashboard" ? window.location.pathname : `${window.location.pathname}?tab=${nextTab}`;
+      window.history.replaceState(null, "", url);
+    } catch {
+      /* ignore */
+    }
     window.scrollTo(0, 0); // start each vertical slide from the top
   };
 

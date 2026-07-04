@@ -20,3 +20,5 @@ export * from "./internal-chat";
 export * from "./auth-otp";
 export * from "./gamification";
 export * from "./moderation";
+export * from "./quiz";
+export * from "./unit-exams";
