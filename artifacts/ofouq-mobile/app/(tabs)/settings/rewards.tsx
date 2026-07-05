@@ -154,10 +154,10 @@ export default function RewardsScreen() {
       {/* Header */}
       <View style={{ paddingTop: insets.top + 12, paddingBottom: 8, paddingHorizontal: 16 }}>
         <View style={styles.headerRow}>
-          {/* Physical LTR row so the medal always sits on the LEFT of the title. */}
-          <View style={styles.headerTitleRow}>
-            <Text style={styles.headerTitle}>🏅</Text>
+          {/* Emoji trails the title per language: left in Arabic, right in English. */}
+          <View style={[styles.headerTitleRow, { flexDirection: isEn ? "row" : "row-reverse" }]}>
             <Text style={[styles.headerTitle, { color: colors.text }]}>{isEn ? "Points & Streak" : "النقاط والستريك"}</Text>
+            <Text style={styles.headerTitle}>🏅</Text>
           </View>
           <Pressable
             onPress={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)/settings"))}
@@ -337,7 +337,7 @@ export default function RewardsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   headerRow: { height: 40, alignItems: "center", justifyContent: "center" },
-  headerTitleRow: { flexDirection: "row", alignItems: "center", gap: 6, direction: "ltr" },
+  headerTitleRow: { alignItems: "center", gap: 6, direction: "ltr" },
   headerTitle: { ...FONT.bold, fontSize: 18 },
   infoBtn: {
     position: "absolute",
