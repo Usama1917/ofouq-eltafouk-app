@@ -12,6 +12,7 @@ import {
   AuthTextField,
 } from "@/components/auth";
 import { COLORS } from "@/constants/colors";
+import { FONT } from "@/constants/typography";
 import { SHOULD_SHOW_PREVIEW_API_DEBUG, getBaseUrl } from "@/constants/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
@@ -256,6 +257,6 @@ const styles = StyleSheet.create({
   debugInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }), fontSize: 11 },
   debugActions: { flexDirection: "row", gap: 8 },
   debugButton: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
-  debugButtonText: { fontSize: 12, fontWeight: "700" },
+  debugButtonText: { fontSize: 12, ...FONT.bold },
   debugMessage: { fontSize: 11, textAlign: "left" },
 });

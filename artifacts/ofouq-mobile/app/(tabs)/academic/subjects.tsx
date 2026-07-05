@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { FONT } from "@/constants/typography";
+import { toEnglishDigits } from "@/lib/format";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AutoFitTitle } from "@/components/AutoFitTitle";
@@ -57,6 +58,15 @@ function encode(value: string | undefined) {
   return encodeURIComponent(value ?? "");
 }
 
+// v2 Phase 2 — the student's auto-computed level in a subject (from first-attempt,
+// difficulty-weighted correctness). "unrated" → no badge yet.
+function levelBadge(level: string, en: boolean): { label: string; bg: string } | null {
+  if (level === "advanced") return { label: en ? "Advanced" : "متقدّم", bg: "#059669" };
+  if (level === "intermediate") return { label: en ? "Intermediate" : "متوسط", bg: "#2563EB" };
+  if (level === "beginner") return { label: en ? "Beginner" : "مبتدئ", bg: "#D97706" };
+  return null;
+}
+
 function SubjectCard({
   item,
   yearId,
@@ -74,6 +84,15 @@ function SubjectCard({
 }) {
   const { colors, resolvedScheme, strings, language, isRTL, textAlign, direction, rowDirection } = usePreferences();
   const { token } = useAuth();
+  // Shared across all subject cards (same queryKey → one request via React Query dedup).
+  const { data: levelData } = useQuery<{ levels: Array<{ subjectId: number; level: string; percent: number }> }>({
+    queryKey: ["subject-levels"],
+    queryFn: () => apiFetch(`/api/me/subject-levels`, { token }),
+    enabled: !!token,
+    staleTime: 60_000,
+  });
+  const myLevel = levelData?.levels?.find((l) => l.subjectId === item.id) ?? null;
+  const lvlBadge = myLevel ? levelBadge(myLevel.level, language === "en") : null;
   const scale = useRef(new Animated.Value(1)).current;
   const subjectIcon = item.icon || "📚";
   const status: AccessStatus = !token
@@ -166,6 +185,16 @@ function SubjectCard({
               >
                 {localizeAcademicText(item.description, language, item.descriptionEn)}
               </Text>
+            ) : null}
+            {!isLocked && lvlBadge && myLevel ? (
+              <View style={{ flexDirection: rowDirection, marginTop: 5 }}>
+                <View style={{ backgroundColor: lvlBadge.bg, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
+                  <Text style={{ ...FONT.bold, fontSize: 10.5, color: "#fff" }}>
+                    {language === "en" ? "Level: " : "مستواك: "}
+                    {lvlBadge.label} · {toEnglishDigits(String(myLevel.percent))}٪
+                  </Text>
+                </View>
+              </View>
             ) : null}
             {status === "rejected" && item.latestRequest?.reviewNotes ? (
               <Text style={[styles.reviewNote, { textAlign, writingDirection: direction }]} numberOfLines={1}>

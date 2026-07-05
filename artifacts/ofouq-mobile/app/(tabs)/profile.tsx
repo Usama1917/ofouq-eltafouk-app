@@ -1,11 +1,15 @@
 import { Feather } from "@expo/vector-icons";
+import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Dimensions,
+  Easing,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -67,6 +71,14 @@ function compactDisplayName(name: string | undefined | null) {
 function resolveTextDirection(value: string, fallback: "rtl" | "ltr") {
   return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(value) ? "rtl" : fallback === "rtl" ? "ltr" : fallback;
 }
+
+// Grade is set once during onboarding and can only be changed via support, so it's
+// shown read-only here. Labels mirror the onboarding options.
+const GRADE_LABELS: Record<string, { ar: string; en: string }> = {
+  secondary_1: { ar: "الصف الأول الثانوي", en: "First secondary grade" },
+  secondary_2: { ar: "الصف الثاني الثانوي", en: "Second secondary grade" },
+  secondary_3: { ar: "الصف الثالث الثانوي", en: "Third secondary grade" },
+};
 
 function FieldDisplay({
   icon,
@@ -143,6 +155,16 @@ export default function ProfileScreen() {
     language,
   } = usePreferences();
   const { user, token, logout, updateUser, isLoading } = useAuth();
+
+  // Student's grade (read-only here) — fetched from their onboarding answers.
+  const gradeQuery = useQuery({
+    queryKey: ["student-onboarding", "grade", token],
+    queryFn: () => apiFetch<{ response?: { gradeLevel?: string | null } }>("/api/student/onboarding", { token }),
+    enabled: Boolean(token && user?.role === "student"),
+    staleTime: 5 * 60 * 1000,
+  });
+  const gradeKey = gradeQuery.data?.response?.gradeLevel ?? null;
+  const gradeLabel = gradeKey ? (language === "en" ? GRADE_LABELS[gradeKey]?.en : GRADE_LABELS[gradeKey]?.ar) ?? null : null;
   const insets = useSafeAreaInsets();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -150,6 +172,34 @@ export default function ProfileScreen() {
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [addressInputHeight, setAddressInputHeight] = useState(52);
   const [governoratePickerOpen, setGovernoratePickerOpen] = useState(false);
+  // Bottom-sheet slide: the sheet translates up from the phone's bottom edge on open
+  // and back down on close (backdrop fades in step). We keep the Modal mounted through
+  // the close animation via `sheetMounted`. 0 = closed (down), 1 = open (up).
+  const sheetAnim = useRef(new Animated.Value(0)).current;
+  const [sheetMounted, setSheetMounted] = useState(false);
+  const [sheetHeight, setSheetHeight] = useState(Math.round(Dimensions.get("window").height * 0.6));
+  useEffect(() => {
+    if (governoratePickerOpen) {
+      setSheetMounted(true);
+      Animated.timing(sheetAnim, {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    } else if (sheetMounted) {
+      Animated.timing(sheetAnim, {
+        toValue: 0,
+        duration: 230,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setSheetMounted(false);
+      });
+    }
+    // sheetMounted intentionally omitted — we only react to the open/close intent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [governoratePickerOpen]);
   const [form, setForm] = useState<ProfileForm>({
     name: "",
     phone: "",
@@ -523,7 +573,6 @@ export default function ProfileScreen() {
             <View style={styles.formGrid}>
               {[
                 { key: "name", label: strings.profile.fullName, icon: "user" },
-                { key: "phone", label: strings.profile.phone, icon: "phone" },
                 { key: "governorate", label: strings.profile.governorate, icon: "map-pin" },
                 { key: "address", label: strings.profile.address, icon: "map-pin" },
               ].map((field) => (
@@ -602,6 +651,49 @@ export default function ProfileScreen() {
                   )}
                 </View>
               ))}
+
+              {/* Phone is changeable only via support (like the grade) — locked here */}
+              <View style={[styles.inputGroup, { direction }]}>
+                <Text
+                  style={[
+                    styles.inputLabel,
+                    {
+                      color: colors.textSecondary,
+                      textAlign: isRTL ? "right" : "left",
+                      writingDirection: direction,
+                      alignSelf: "flex-start",
+                    },
+                  ]}
+                >
+                  {strings.profile.phone}
+                </Text>
+                <View
+                  style={[
+                    styles.input,
+                    styles.selectInput,
+                    { backgroundColor: colors.surface, borderColor: colors.border, direction: "ltr", opacity: 0.7 },
+                  ]}
+                >
+                  <Feather name="lock" size={15} color={colors.textTertiary} style={styles.selectIcon} />
+                  <Text
+                    style={[styles.selectValue, { color: colors.textSecondary, textAlign: "right", writingDirection: direction }]}
+                    numberOfLines={1}
+                  >
+                    {toEnglishDigits(user.phone || "")}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => router.push("/(tabs)/settings/support-chat")}
+                  style={[styles.gradeHint, { flexDirection: rowDirection, direction: "ltr", alignSelf: "flex-start" }]}
+                >
+                  <Feather name="lock" size={11} color={colors.textTertiary} />
+                  <Text style={[styles.gradeHintText, { color: colors.textTertiary, writingDirection: direction }]}>
+                    {language === "en"
+                      ? "To change your phone, contact support"
+                      : "لا يمكن تعديل رقم الهاتف إلا بالتواصل مع الدعم"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           ) : (
             <View style={styles.infoGrid}>
@@ -621,6 +713,37 @@ export default function ProfileScreen() {
                 value={governorateLabel(user.governorate, language)}
               />
               {user.bio ? <FieldDisplay icon="file-text" label={strings.profile.bio} value={user.bio} /> : null}
+
+              {/* Read-only grade (students only) — changeable only via support */}
+              {user.role === "student" && gradeLabel ? (
+                <View style={[styles.infoTile, { backgroundColor: colors.surface, direction: "ltr" }]}>
+                  <View style={[styles.infoTextBlock, { direction: "ltr" }]}>
+                    <View style={styles.infoLabelRow}>
+                      <Text style={[styles.infoLabel, { color: colors.textSecondary, writingDirection: direction }]} numberOfLines={1}>
+                        {language === "en" ? "Grade" : "الصف الدراسي"}
+                      </Text>
+                      <Feather name="bookmark" size={15} color={colors.textSecondary} />
+                    </View>
+                    <View style={styles.infoValueRow}>
+                      <Text
+                        style={[styles.infoValue, { color: colors.text, textAlign: "right", writingDirection: direction }]}
+                        numberOfLines={1}
+                      >
+                        {gradeLabel}
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => router.push("/(tabs)/settings/support-chat")}
+                      style={[styles.gradeHint, { flexDirection: rowDirection }]}
+                    >
+                      <Feather name="lock" size={11} color={colors.textTertiary} />
+                      <Text style={[styles.gradeHintText, { color: colors.textTertiary, writingDirection: direction }]}>
+                        {language === "en" ? "To change your grade, contact support" : "لا يمكن تعديل الصف إلا بالتواصل مع الدعم"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
             </View>
           )}
         </View>
@@ -628,20 +751,32 @@ export default function ProfileScreen() {
       </ScrollView>
 
       <Modal
-        visible={governoratePickerOpen}
+        visible={sheetMounted}
         transparent
-        animationType="fade"
+        animationType="none"
+        statusBarTranslucent
         onRequestClose={() => setGovernoratePickerOpen(false)}
       >
-        <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+        <View style={styles.modalOverlay}>
+          {/* Backdrop fades in/out in step with the sheet's slide. */}
+          <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: colors.overlay, opacity: sheetAnim }]} />
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setGovernoratePickerOpen(false)} />
-          <View
+          <Animated.View
+            onLayout={(e) => setSheetHeight(e.nativeEvent.layout.height)}
             style={[
               styles.governorateSheet,
               {
                 backgroundColor: resolvedScheme === "dark" ? "rgba(28,28,30,0.98)" : "rgba(248,250,252,0.96)",
                 borderColor: colors.border,
                 paddingBottom: insets.bottom + 16,
+                transform: [
+                  {
+                    translateY: sheetAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [sheetHeight, 0],
+                    }),
+                  },
+                ],
               },
             ]}
           >
@@ -722,7 +857,7 @@ export default function ProfileScreen() {
                 );
               })}
             </ScrollView>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
 
@@ -1027,6 +1162,16 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
     textAlign: "right",
     marginTop: 2,
+  },
+  gradeHint: {
+    alignItems: "center",
+    gap: 5,
+    marginTop: 8,
+    alignSelf: "flex-end",
+  },
+  gradeHintText: {
+    ...FONT.medium,
+    fontSize: 11,
   },
   infoRtlValueWrap: {
     width: "100%",

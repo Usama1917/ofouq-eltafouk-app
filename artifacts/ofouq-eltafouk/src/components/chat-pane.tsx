@@ -8,6 +8,7 @@ import { resolveMediaUrl } from "@/lib/media";
 import { dirOf } from "@/lib/text-direction";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { RoleIcon } from "@/components/role-icon";
+import { CONTROLLABLE_PAGES } from "@/lib/admin-pages";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 export const apiPath = (p: string) => `${BASE}${p}`;
@@ -18,7 +19,7 @@ export const authHeader = (): Record<string, string> => {
 
 export type ConversationItem = {
   key: string; id: number | null; type: "owners" | "all" | "direct"; title: string;
-  counterpart: { id: number; name: string; avatarUrl: string | null; role: string } | null;
+  counterpart: { id: number; name: string; avatarUrl: string | null; role: string; blockedTabs?: string[] | null } | null;
   lastMessage: { id: number; preview: string; senderId: number | null; senderName?: string | null; createdAt: string } | null;
   lastMessageAt: string | null; unreadCount: number;
 };
@@ -165,6 +166,21 @@ export function ChatPane({ onClose, headerActions }: { onClose?: () => void; hea
           {active ? (
             <p className="truncate text-[11px] text-muted-foreground">{active.type === "owners" ? "مجموعة الملّاك" : active.type === "all" ? "كل المشرفين والملّاك" : (active.counterpart?.role === "owner" ? "مالك" : "مشرف")}</p>
           ) : <p className="text-[11px] text-muted-foreground">تواصل الملّاك والمشرفين</p>}
+          {/* Owner view: the pages currently open for this admin (under their name). */}
+          {active?.type === "direct" && active.counterpart?.role === "admin" ? (
+            <p className="truncate text-[10px] text-muted-foreground/80">
+              <span className="font-bold">الصفحات: </span>
+              {(() => {
+                const blocked = new Set(active.counterpart.blockedTabs ?? []);
+                const enabled = CONTROLLABLE_PAGES.filter((p) => !blocked.has(p.id));
+                return enabled.length === CONTROLLABLE_PAGES.length
+                  ? "كل الصفحات"
+                  : enabled.length === 0
+                    ? "مفيش صفحات مفتوحة"
+                    : enabled.map((p) => p.label).join("، ");
+              })()}
+            </p>
+          ) : null}
         </div>
         {headerActions}
         {onClose ? <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="إغلاق"><X className="h-4 w-4" /></button> : null}

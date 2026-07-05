@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { COLORS } from "@/constants/colors";
 import { FONT } from "@/constants/typography";
@@ -37,23 +37,27 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const { colors, direction, resolvedScheme } = usePreferences();
   const isDark = resolvedScheme === "dark";
+  const isAndroid = Platform.OS === "android";
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onCancel}>
-      <View style={[styles.overlay, { backgroundColor: colors.overlay }]}>
+      <View style={[styles.overlay, { backgroundColor: isDark ? "rgba(0,0,0,0.5)" : "rgba(15,23,42,0.28)" }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} />
 
         {/* Outer view carries the shadow (can't clip), inner clips the blur to the radius. */}
         <View style={styles.cardShadow}>
-          <View style={[styles.card, { borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.6)" }]}>
-            <BlurView intensity={70} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
-            {/* Translucent wash over the blur for the frosted "liquid glass" body. */}
-            <View
-              style={[
-                StyleSheet.absoluteFill,
-                { backgroundColor: isDark ? "rgba(28,28,30,0.55)" : "rgba(250,250,252,0.55)" },
-              ]}
-            />
+          <View style={[styles.card, { borderColor: isAndroid ? (isDark ? "rgba(255,255,255,0.10)" : "rgba(15,23,42,0.08)") : isDark ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.6)" }]}>
+            {isAndroid ? (
+              // Android's BlurView is unreliable and shows the content through — use a fully
+              // SOLID card instead (no transparency); the dimmed backdrop provides the depth.
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" }]} />
+            ) : (
+              <>
+                <BlurView intensity={70} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+                {/* Translucent wash over the blur for the frosted "liquid glass" body (iOS). */}
+                <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "rgba(28,28,30,0.55)" : "rgba(250,250,252,0.55)" }]} />
+              </>
+            )}
 
             <View style={styles.content}>
               {icon ? (
@@ -135,8 +139,9 @@ const styles = StyleSheet.create({
   icon: { width: 56, height: 56, borderRadius: 20, alignSelf: "center", alignItems: "center", justifyContent: "center" },
   title: { ...FONT.bold, fontSize: 18, lineHeight: 28, textAlign: "center" },
   body: { ...FONT.regular, fontSize: 14, lineHeight: 23 },
-  actions: { width: "100%", flexDirection: "row", gap: 12, marginTop: 8 },
-  button: { flex: 1, minHeight: 50, borderRadius: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
+  // Each action on its own full-width row (stacked), not side by side.
+  actions: { width: "100%", flexDirection: "column", gap: 10, marginTop: 8 },
+  button: { width: "100%", minHeight: 50, borderRadius: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
   cancelButton: { borderWidth: 1 },
   buttonText: { ...FONT.bold, fontSize: 15, lineHeight: 22 },
 });

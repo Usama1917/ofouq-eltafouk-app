@@ -17,6 +17,7 @@ import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AutoFitTitle } from "@/components/AutoFitTitle";
+import { ChapterExamCard } from "@/components/ChapterExamCard";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
@@ -325,6 +326,13 @@ export default function LessonsScreen() {
               </>
             )}
           </View>
+        }
+        ListFooterComponent={
+          lessons.length > 0 && Number.isFinite(Number(unitId)) ? (
+            <View style={{ marginTop: 4 }}>
+              <ChapterExamCard unitId={Number(unitId)} unitName={displayTitle} />
+            </View>
+          ) : null
         }
       />
     </View>

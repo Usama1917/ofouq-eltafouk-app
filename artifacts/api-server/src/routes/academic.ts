@@ -19,9 +19,19 @@ import {
   notificationsTable,
   lessonWatchProgressTable,
   adminAuditLogTable,
+  unitExamsTable,
 } from "@workspace/db";
 import { and, asc, count, desc, eq, gt, inArray, isNull, like, sql } from "drizzle-orm";
 import { sendPushNotificationToUser } from "../lib/push-notifications";
+import {
+  handleLessonActivity,
+  renderAutomatedMessage,
+  getMessageConfig,
+  getUserLanguage,
+  resolveText,
+  pickMessageLanguage,
+  normalizeMessageTone,
+} from "../lib/automated-messages";
 
 const router: IRouter = Router();
 const execFileAsync = promisify(execFile);
@@ -406,17 +416,26 @@ function lessonActionData(
   };
 }
 
+// The subscription / lesson notifications below are owner-editable "automated
+// messages" (text + on-off + badge icon) resolved from routes/gamification-admin →
+// lib/automated-messages. `{subject}` / `{lesson}` / `{unit}` / `{time}` / `{video}`
+// / `{reason}` placeholders are filled here; if the owner turned a message off
+// (enabled=false) we skip sending it.
 async function notifySubscriptionRequestCreated(request: { id: number; studentId: number; subjectId: number }) {
   const context = await getSubjectNavigationContext(request.subjectId);
   if (!context) return;
 
+  const language = await getUserLanguage(request.studentId);
+  const msg = await renderAutomatedMessage("subscription_pending", language, { subject: context.subjectName });
+  if (!msg.enabled) return;
+
   await createUserNotification({
     userId: request.studentId,
     type: "subscription_pending",
-    title: `طلب اشتراكك في مادة ${context.subjectName} قيد المراجعة`,
-    body: "استلمنا صورة الكود وسيتم مراجعة طلبك في أقرب وقت.",
-    tone: "warning",
-    data: subscribeActionData(context),
+    title: msg.title,
+    body: msg.body,
+    tone: msg.tone,
+    data: { ...subscribeActionData(context), icon: msg.icon ?? undefined, color: msg.color ?? undefined },
     dedupeKey: `subscription-request:${request.id}:pending`,
   });
 }
@@ -431,28 +450,40 @@ async function notifySubscriptionReviewed(request: {
   const context = await getSubjectNavigationContext(request.subjectId);
   if (!context) return;
 
+  const language = await getUserLanguage(request.studentId);
+
   if (request.status === "approved") {
+    const msg = await renderAutomatedMessage("subscription_approved", language, { subject: context.subjectName });
+    if (!msg.enabled) return;
     await createUserNotification({
       userId: request.studentId,
       type: "subscription_approved",
-      title: `تم قبول اشتراكك في مادة ${context.subjectName}`,
-      body: `يمكنك الآن فتح وحدات ${context.subjectName} ومتابعة الدروس.`,
-      tone: "success",
-      data: subjectActionData(context),
+      title: msg.title,
+      body: msg.body,
+      tone: msg.tone,
+      data: { ...subjectActionData(context), icon: msg.icon ?? undefined, color: msg.color ?? undefined },
       dedupeKey: `subscription-request:${request.id}:approved`,
     });
     return;
   }
 
   if (request.status === "rejected") {
-    const reason = request.reviewNotes ? `سبب الرفض: ${request.reviewNotes}` : "راجع الطلب وحاول مرة أخرى بصورة كود أوضح.";
+    const cfg = await getMessageConfig("subscription_rejected");
+    if (!cfg || !cfg.enabled) return;
+    // Build the reason prefix in the SAME language the body will actually render in
+    // (English only if the owner kept the English text non-empty) so they can't mix.
+    const notes = (request.reviewNotes ?? "").trim();
+    const reason = notes
+      ? (pickMessageLanguage(cfg, language) === "en" ? `\nReason: ${notes}` : `\nسبب الرفض: ${notes}`)
+      : "";
+    const { title, body } = resolveText(cfg, language, { subject: context.subjectName, reason });
     await createUserNotification({
       userId: request.studentId,
       type: "subscription_rejected",
-      title: `تم رفض طلب الاشتراك في مادة ${context.subjectName}`,
-      body: reason,
-      tone: "danger",
-      data: subscribeActionData(context, request.reviewNotes),
+      title,
+      body,
+      tone: normalizeMessageTone(cfg.tone),
+      data: { ...subscribeActionData(context, request.reviewNotes), icon: cfg.icon ?? undefined, color: cfg.color ?? undefined },
       dedupeKey: `subscription-request:${request.id}:rejected`,
     });
   }
@@ -462,8 +493,11 @@ async function notifyPublishedLesson(lessonId: number) {
   const context = await getLessonNavigationContext(lessonId);
   if (!context || !context.lessonIsPublished || context.videoPublishStatus !== "published") return;
 
+  const cfg = await getMessageConfig("new_lesson");
+  if (!cfg || !cfg.enabled) return;
+
   const subscribers = await db
-    .select({ studentId: subjectSubscriptionsTable.studentId })
+    .select({ studentId: subjectSubscriptionsTable.studentId, language: usersTable.language })
     .from(subjectSubscriptionsTable)
     .innerJoin(usersTable, eq(subjectSubscriptionsTable.studentId, usersTable.id))
     .where(
@@ -476,35 +510,44 @@ async function notifyPublishedLesson(lessonId: number) {
 
   if (subscribers.length === 0) return;
 
+  const vars = { lesson: context.lessonTitle, unit: context.unitName, subject: context.subjectName };
+  const languageByStudent = new Map(subscribers.map((s) => [s.studentId, s.language]));
+
   const createdNotifications = await db
     .insert(notificationsTable)
     .values(
-      subscribers.map((subscription) => ({
-        userId: subscription.studentId,
-        type: "new_lesson",
-        title: `درس جديد: "${context.lessonTitle}"`,
-        body: `تم إضافة الدرس في ${context.unitName} - مادة ${context.subjectName}.`,
-        tone: "primary",
-        data: notificationData(lessonActionData(context)),
-        dedupeKey: `new-lesson:${context.lessonId}:student:${subscription.studentId}`,
-      })),
+      subscribers.map((subscription) => {
+        const { title, body } = resolveText(cfg, subscription.language, vars);
+        return {
+          userId: subscription.studentId,
+          type: "new_lesson",
+          title,
+          body,
+          tone: cfg.tone,
+          data: notificationData({ ...lessonActionData(context), icon: cfg.icon ?? undefined, color: cfg.color ?? undefined }),
+          dedupeKey: `new-lesson:${context.lessonId}:student:${subscription.studentId}`,
+        };
+      }),
     )
     .onConflictDoNothing()
     .returning({ id: notificationsTable.id, userId: notificationsTable.userId });
 
   await Promise.allSettled(
-    createdNotifications.map((notification) =>
-      sendPushNotificationToUser({
+    createdNotifications.map((notification) => {
+      const { title, body } = resolveText(cfg, languageByStudent.get(notification.userId), vars);
+      return sendPushNotificationToUser({
         userId: notification.userId,
-        title: `درس جديد: "${context.lessonTitle}"`,
-        body: `تم إضافة الدرس في ${context.unitName} - مادة ${context.subjectName}.`,
+        title,
+        body,
         data: {
           ...lessonActionData(context),
           type: "new_lesson",
           notificationId: notification.id,
+          icon: cfg.icon ?? undefined,
+          color: cfg.color ?? undefined,
         },
-      }),
-    ),
+      });
+    }),
   );
 }
 
@@ -521,6 +564,8 @@ async function scheduleResumeLessonNotification(args: {
   const now = new Date();
   const lessonDedupePrefix = `resume-lesson:${args.studentId}:${args.context.lessonId}:`;
 
+  // Always clear any stale future reminder for this lesson (also respects the owner
+  // turning the message off — the pending one is removed on the next progress ping).
   await db
     .delete(notificationsTable)
     .where(
@@ -533,6 +578,9 @@ async function scheduleResumeLessonNotification(args: {
       ),
     );
 
+  const cfg = await getMessageConfig("resume_lesson");
+  if (!cfg || !cfg.enabled) return;
+
   const durationSeconds = Math.max(0, args.durationSeconds);
   const currentSeconds = Math.max(0, Math.min(args.currentSeconds, durationSeconds > 0 ? durationSeconds : args.currentSeconds));
   const progressRatio = durationSeconds > 0 ? currentSeconds / durationSeconds : 0;
@@ -542,14 +590,20 @@ async function scheduleResumeLessonNotification(args: {
   if (!shouldRemind) return;
 
   const resumeTitle = String(args.context.videoTitle || args.context.lessonTitle || "").trim();
+  const language = await getUserLanguage(args.studentId);
+  const { title, body } = resolveText(cfg, language, {
+    lesson: args.context.lessonTitle,
+    video: resumeTitle,
+    time: formatDurationLabel(currentSeconds),
+  });
 
   await upsertUserNotification({
     userId: args.studentId,
     type: "resume_lesson",
-    title: `استكمل مشاهدة "${args.context.lessonTitle}"`,
-    body: `وقفت عند ${formatDurationLabel(currentSeconds)} في "${resumeTitle}".`,
-    tone: "warning",
-    data: lessonActionData(args.context, { seekSeconds: currentSeconds }),
+    title,
+    body,
+    tone: cfg.tone,
+    data: lessonActionData(args.context, { seekSeconds: currentSeconds, icon: cfg.icon ?? undefined, color: cfg.color ?? undefined }),
     dedupeKey: `${lessonDedupePrefix}${notificationDateKey(now)}`,
     availableAt: new Date(now.getTime() + 2 * 60 * 60 * 1000),
   });
@@ -1412,6 +1466,7 @@ router.get("/academic/watch-history/me", async (req, res) => {
         videoDurationSeconds: videosTable.duration,
         instructor: videosTable.instructor,
         currentSeconds: lessonWatchProgressTable.currentSeconds,
+        watchedRealSeconds: lessonWatchProgressTable.watchedSeconds,
         progressDurationSeconds: lessonWatchProgressTable.durationSeconds,
         completed: lessonWatchProgressTable.completed,
         lastWatchedAt: lessonWatchProgressTable.lastWatchedAt,
@@ -1513,13 +1568,16 @@ router.get("/academic/watch-history/me", async (req, res) => {
         toSeconds(row.videoDurationSeconds, 0),
         toSeconds(row.progressDurationSeconds, 0),
       );
-      const currentSeconds = Math.min(
-        toSeconds(row.currentSeconds, 0),
-        durationSeconds > 0 ? durationSeconds : Number.MAX_SAFE_INTEGER,
-      );
-      const progressRatio = durationSeconds > 0 ? Math.min(1, currentSeconds / durationSeconds) : 0;
+      const cap = durationSeconds > 0 ? durationSeconds : Number.MAX_SAFE_INTEGER;
+      // currentSeconds = furthest seek position (kept only for "resume where you left off").
+      const currentSeconds = Math.min(toSeconds(row.currentSeconds, 0), cap);
+      // realWatchedSeconds = distinct seconds actually PLAYED (seeking excluded). ALL the
+      // "how much did they watch / progress / completed" numbers use this, so scrubbing to
+      // the end never inflates the watch history.
+      const realWatchedSeconds = Math.min(toSeconds(row.watchedRealSeconds, 0), cap);
+      const progressRatio = durationSeconds > 0 ? Math.min(1, realWatchedSeconds / durationSeconds) : 0;
       const completed = Boolean(row.completed) || progressRatio >= 0.9;
-      const wasWatched = currentSeconds > 0 || Boolean(row.lastWatchedAt);
+      const wasWatched = realWatchedSeconds > 0 || Boolean(row.lastWatchedAt);
       const lesson: WatchLesson = {
         id: row.lessonId,
         title: row.lessonTitle,
@@ -1561,14 +1619,14 @@ router.get("/academic/watch-history/me", async (req, res) => {
 
       unit.lessonCount += 1;
       unit.totalSeconds += durationSeconds;
-      unit.watchedSeconds += currentSeconds;
+      unit.watchedSeconds += realWatchedSeconds;
       if (wasWatched) unit.watchedLessons += 1;
       if (completed) unit.completedLessons += 1;
       unit.lessons.push(lesson);
 
       subject.lessonCount += 1;
       subject.totalSeconds += durationSeconds;
-      subject.watchedSeconds += currentSeconds;
+      subject.watchedSeconds += realWatchedSeconds;
       if (wasWatched) {
         subject.watchedLessons += 1;
         subject.recentLessons.push(lesson);
@@ -2093,9 +2151,32 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
 
     const fallbackDuration = toSeconds(lesson.video?.duration, 0);
     const durationSeconds = toSeconds(req.body?.durationSeconds, fallbackDuration);
-    const currentSeconds = Math.min(toSeconds(req.body?.currentSeconds, 0), durationSeconds > 0 ? durationSeconds : Number.MAX_SAFE_INTEGER);
-    const completed = durationSeconds > 0 && currentSeconds / durationSeconds >= 0.9;
+    const durationCap = durationSeconds > 0 ? durationSeconds : Number.MAX_SAFE_INTEGER;
+    const currentSeconds = Math.min(toSeconds(req.body?.currentSeconds, 0), durationCap);
+    // REAL watched coverage (distinct seconds actually played, seeks excluded) —
+    // computed on the client, capped at the duration here and kept monotonic below.
+    // Drives the quiz watch-gate; scrubbing to the end can't inflate it.
+    const watchedSeconds = Math.min(Math.max(toSeconds(req.body?.watchedSeconds, 0), 0), durationCap);
+    // Completion is based on REAL watched coverage, never the seek position — a student
+    // can't skip/scrub to the end to "finish" a lesson. 90% actually played = completed.
+    const completed = durationSeconds > 0 && watchedSeconds / durationSeconds >= 0.9;
     const now = new Date();
+
+    // Read the prior row first (before the monotonic upsert) so the gamification engine
+    // can credit only the NEW *real-watched* seconds since the last ping and detect the
+    // not-completed → completed transition (to award the lesson bonus once).
+    const [priorProgress] = await db
+      .select({
+        watchedSeconds: lessonWatchProgressTable.watchedSeconds,
+        completed: lessonWatchProgressTable.completed,
+      })
+      .from(lessonWatchProgressTable)
+      .where(and(eq(lessonWatchProgressTable.studentId, student.id), eq(lessonWatchProgressTable.lessonId, lessonId)))
+      .limit(1);
+    // Points credit only the NEW real-watched seconds since the last ping (never negative,
+    // never from seeking) — so watch-points reflect genuine viewing time.
+    const watchedDeltaSeconds = Math.max(0, watchedSeconds - (priorProgress?.watchedSeconds ?? 0));
+    const justCompletedLesson = completed && !(priorProgress?.completed ?? false);
 
     await db
       .insert(lessonWatchProgressTable)
@@ -2104,6 +2185,7 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
         lessonId,
         currentSeconds,
         durationSeconds,
+        watchedSeconds,
         completed,
         lastWatchedAt: now,
         updatedAt: now,
@@ -2111,9 +2193,10 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
       .onConflictDoUpdate({
         target: [lessonWatchProgressTable.studentId, lessonWatchProgressTable.lessonId],
         // review B-17: keep progress monotonic — never let an out-of-order /
-        // smaller report rewind currentSeconds or un-complete a lesson.
+        // smaller report rewind currentSeconds, watchedSeconds, or un-complete a lesson.
         set: {
           currentSeconds: sql`greatest(${lessonWatchProgressTable.currentSeconds}, ${currentSeconds})`,
+          watchedSeconds: sql`greatest(${lessonWatchProgressTable.watchedSeconds}, ${watchedSeconds})`,
           durationSeconds,
           completed: sql`${lessonWatchProgressTable.completed} OR ${completed}`,
           lastWatchedAt: now,
@@ -2125,6 +2208,7 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
       success: true,
       currentSeconds,
       durationSeconds,
+      watchedSeconds,
       completed,
     });
 
@@ -2142,6 +2226,18 @@ router.post("/academic/lessons/:lessonId/progress", async (req, res) => {
       });
     })().catch((err) => {
       req.log.warn({ err, lessonId }, "Failed to schedule resume-lesson notification");
+    });
+
+    // Gamification (v2 Phase 1): award points, advance the daily streak, tick the
+    // daily-goal ring, and fire any triggered auto-messages (goal congrats / points
+    // milestone). Fire-and-forget — must never block or fail the student's write.
+    void handleLessonActivity({
+      userId: student.id,
+      watchedDeltaSeconds,
+      justCompletedLesson,
+      lessonId,
+    }).catch((err) => {
+      req.log.warn({ err, lessonId }, "Failed to record gamification activity");
     });
   } catch (err) {
     req.log.error({ err }, "Failed to save lesson progress");
@@ -2725,6 +2821,165 @@ router.get("/admin/academic/units/:unitId/lessons", async (req, res) => {
     res.json(lessonsWithSegments);
   } catch (err) {
     req.log.error({ err }, "Failed to list lessons (admin)");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Full nested tree for one year (subjects → units → lessons+video+segments) in a
+// single request. Powers the grid/tree view of the academic dashboard so it can
+// render the whole year at once without an N+1 waterfall of per-parent calls.
+// Constant number of queries (subjects, units, lessons, segments) regardless of
+// tree size; mirrors the exact shapes of the per-parent endpoints above.
+router.get("/admin/academic/years/:yearId/tree", async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const yearId = parsePositiveInt(req.params.yearId);
+    if (!yearId) return res.status(400).json({ error: "معرف السنة غير صالح" });
+
+    const subjects = await db
+      .select()
+      .from(subjectsTable)
+      .where(eq(subjectsTable.yearId, yearId))
+      .orderBy(asc(subjectsTable.orderIndex), asc(subjectsTable.id));
+
+    const subjectIds = subjects.map((subject) => subject.id);
+
+    const units = subjectIds.length
+      ? await db
+          .select()
+          .from(unitsTable)
+          .where(inArray(unitsTable.subjectId, subjectIds))
+          .orderBy(asc(unitsTable.orderIndex), asc(unitsTable.id))
+      : [];
+
+    const unitIds = units.map((unit) => unit.id);
+
+    const lessons = unitIds.length
+      ? await db
+          .select({
+            id: lessonsTable.id,
+            unitId: lessonsTable.unitId,
+            title: lessonsTable.title,
+            titleEn: lessonsTable.titleEn,
+            description: lessonsTable.description,
+            descriptionEn: lessonsTable.descriptionEn,
+            videoId: lessonsTable.videoId,
+            orderIndex: lessonsTable.orderIndex,
+            isPublished: lessonsTable.isPublished,
+            createdAt: lessonsTable.createdAt,
+            video: {
+              id: videosTable.id,
+              title: videosTable.title,
+              titleEn: videosTable.titleEn,
+              description: videosTable.description,
+              descriptionEn: videosTable.descriptionEn,
+              subject: videosTable.subject,
+              videoUrl: videosTable.videoUrl,
+              thumbnailUrl: videosTable.thumbnailUrl,
+              posterUrl: videosTable.posterUrl,
+              duration: videosTable.duration,
+              instructor: videosTable.instructor,
+              instructorEn: videosTable.instructorEn,
+              videoType: videosTable.videoType,
+              publishStatus: videosTable.publishStatus,
+            },
+          })
+          .from(lessonsTable)
+          .leftJoin(videosTable, eq(lessonsTable.videoId, videosTable.id))
+          .where(inArray(lessonsTable.unitId, unitIds))
+          .orderBy(asc(lessonsTable.orderIndex), asc(lessonsTable.id))
+      : [];
+
+    const videoIds = lessons
+      .map((lesson) => lesson.video?.id)
+      .filter((id): id is number => typeof id === "number" && Number.isFinite(id) && id > 0);
+
+    const segments = videoIds.length
+      ? await db
+          .select({
+            id: videoSegmentsTable.id,
+            videoId: videoSegmentsTable.videoId,
+            title: videoSegmentsTable.title,
+            titleEn: videoSegmentsTable.titleEn,
+            startSeconds: videoSegmentsTable.startSeconds,
+            segmentType: videoSegmentsTable.segmentType,
+            orderIndex: videoSegmentsTable.orderIndex,
+          })
+          .from(videoSegmentsTable)
+          .where(inArray(videoSegmentsTable.videoId, videoIds))
+          .orderBy(asc(videoSegmentsTable.orderIndex), asc(videoSegmentsTable.startSeconds), asc(videoSegmentsTable.id))
+      : [];
+
+    const videoUrlById = new Map<number, string>();
+    lessons.forEach((lesson) => {
+      const videoId = Number(lesson.video?.id ?? 0);
+      const videoUrl = lesson.video?.videoUrl;
+      if (Number.isFinite(videoId) && videoId > 0 && typeof videoUrl === "string" && videoUrl.trim()) {
+        videoUrlById.set(videoId, videoUrl.trim());
+      }
+    });
+
+    const segmentsByVideoId = new Map<number, Array<(typeof segments)[number] & { thumbnailUrl: string | null }>>();
+    segments.forEach((segment) => {
+      const withThumb = {
+        ...segment,
+        thumbnailUrl: buildSegmentThumbnailEndpoint(
+          segment.videoId,
+          segment.id,
+          segment.startSeconds,
+          videoUrlById.get(segment.videoId),
+        ),
+      };
+      const list = segmentsByVideoId.get(segment.videoId) ?? [];
+      list.push(withThumb);
+      segmentsByVideoId.set(segment.videoId, list);
+    });
+
+    const lessonsByUnit = new Map<number, typeof lessons>();
+    lessons.forEach((lesson) => {
+      const withSegments = lesson.video?.id
+        ? { ...lesson, video: { ...lesson.video, segments: segmentsByVideoId.get(lesson.video.id) ?? [] } }
+        : lesson;
+      const list = lessonsByUnit.get(lesson.unitId) ?? [];
+      list.push(withSegments as (typeof lessons)[number]);
+      lessonsByUnit.set(lesson.unitId, list);
+    });
+
+    // v2 Phase 2 — chapter exams, so the grid can show an exam card beside each unit.
+    const exams = unitIds.length
+      ? await db
+          .select({
+            unitId: unitExamsTable.unitId,
+            reviewPublished: unitExamsTable.reviewPublished,
+            adaptivePublished: unitExamsTable.adaptivePublished,
+          })
+          .from(unitExamsTable)
+          .where(inArray(unitExamsTable.unitId, unitIds))
+      : [];
+    const examByUnit = new Map(exams.map((e) => [e.unitId, e]));
+
+    const unitsBySubject = new Map<number, Array<(typeof units)[number] & { lessons: unknown[] }>>();
+    units.forEach((unit) => {
+      const exam = examByUnit.get(unit.id) ?? null;
+      const withLessons = {
+        ...unit,
+        lessons: lessonsByUnit.get(unit.id) ?? [],
+        exam: exam ? { reviewPublished: exam.reviewPublished, adaptivePublished: exam.adaptivePublished } : null,
+      };
+      const list = unitsBySubject.get(unit.subjectId) ?? [];
+      list.push(withLessons);
+      unitsBySubject.set(unit.subjectId, list);
+    });
+
+    const tree = subjects.map((subject) => ({
+      ...subject,
+      units: unitsBySubject.get(subject.id) ?? [],
+    }));
+
+    res.json({ subjects: tree });
+  } catch (err) {
+    req.log.error({ err }, "Failed to build academic year tree (admin)");
     res.status(500).json({ error: "Internal server error" });
   }
 });

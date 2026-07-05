@@ -163,7 +163,7 @@ async function lastMessageOf(conversationId: number) {
 async function deriveConversations(user: Staff) {
   type Item = {
     key: string; id: number | null; type: string; title: string;
-    counterpart: { id: number; name: string; avatarUrl: string | null; role: string } | null;
+    counterpart: { id: number; name: string; avatarUrl: string | null; role: string; blockedTabs?: string[] | null } | null;
     lastMessage: { id: number; preview: string; senderId: number | null; senderName: string | null; createdAt: Date } | null;
     lastMessageAt: Date | null; unreadCount: number;
   };
@@ -182,7 +182,7 @@ async function deriveConversations(user: Staff) {
   // Direct: counterpart is every admin (for an owner) or every owner (for an admin).
   const counterpartRole = user.role === "owner" ? "admin" : "owner";
   const counterparts = await db
-    .select({ id: usersTable.id, name: usersTable.name, avatarUrl: usersTable.avatarUrl, role: usersTable.role })
+    .select({ id: usersTable.id, name: usersTable.name, avatarUrl: usersTable.avatarUrl, role: usersTable.role, blockedTabs: usersTable.blockedTabs })
     .from(usersTable)
     .where(and(eq(usersTable.role, counterpartRole), eq(usersTable.status, "active")));
 
@@ -197,7 +197,7 @@ async function deriveConversations(user: Staff) {
       id: conv?.id ?? null,
       type: "direct",
       title: cp.name,
-      counterpart: { id: cp.id, name: cp.name, avatarUrl: cp.avatarUrl, role: cp.role },
+      counterpart: { id: cp.id, name: cp.name, avatarUrl: cp.avatarUrl, role: cp.role, blockedTabs: cp.blockedTabs ?? [] },
       lastMessage: conv ? await lastMessageOf(conv.id) : null,
       lastMessageAt: conv?.lastMessageAt ?? null,
       unreadCount: conv ? await unreadFor(conv.id, user.id) : 0,

@@ -15,6 +15,11 @@ import notificationsRouter from "./notifications";
 import supportRouter from "./support";
 import internalChatRouter from "./internal-chat";
 import studentRouter from "./student";
+import gamificationRouter from "./gamification";
+import gamificationAdminRouter from "./gamification-admin";
+import moderationRouter from "./moderation";
+import quizRouter from "./quiz";
+import unitExamsRouter from "./unit-exams";
 
 const router: IRouter = Router();
 
@@ -34,5 +39,10 @@ router.use(notificationsRouter);
 router.use(supportRouter);
 router.use(internalChatRouter);
 router.use(studentRouter);
+router.use(gamificationRouter);
+router.use(gamificationAdminRouter);
+router.use(moderationRouter);
+router.use(quizRouter);
+router.use(unitExamsRouter);
 
 export default router;

@@ -14,6 +14,7 @@ import { fetchReport, exportExcel, exportPdf } from "@/lib/activity-export";
 import { exportReportExcel, exportReportPdf, type MetricColumn } from "@/lib/reports-export";
 import { numTick, numAxisWidth, catAxisWidth, AXIS_GAP } from "@/lib/chart-axis";
 import { makeBackdropClose } from "@/lib/dialog-dismiss";
+import { CONTROLLABLE_PAGES } from "@/lib/admin-pages";
 import { EgyptHeatmap } from "@/components/egypt-heatmap";
 import { InternalChatWidget } from "@/components/internal-chat-widget";
 import { RoleIcon } from "@/components/role-icon";
@@ -1738,6 +1739,11 @@ function AdminsTab() {
   const [pwValue, setPwValue] = useState("");
   const [pwShow, setPwShow] = useState(false);
   const [pwBusy, setPwBusy] = useState(false);
+  // Per-admin page permissions dialog (owner toggles which pages an admin sees).
+  const [permTarget, setPermTarget] = useState<{ id: number; name: string } | null>(null);
+  const [permBlocked, setPermBlocked] = useState<string[]>([]);
+  const [permBusy, setPermBusy] = useState(false);
+  const [permLoading, setPermLoading] = useState(false);
   // Right-click actions menu — actions are hidden on the card and surface here,
   // anchored at the cursor. `u` is the row the menu was opened on.
   const [menu, setMenu] = useState<{ x: number; y: number; u: (typeof admins)[number] } | null>(null);
@@ -1765,6 +1771,41 @@ function AdminsTab() {
       toast.error(e instanceof Error ? e.message : "تعذّر تغيير كلمة المرور");
     } finally {
       setPwBusy(false);
+    }
+  };
+  const openPermissions = async (u: { id: number; name: string }) => {
+    setPermTarget({ id: u.id, name: u.name });
+    setPermBlocked([]);
+    setPermLoading(true);
+    try {
+      const res = await fetch(apiPath(`/api/admin/users/${u.id}/tabs`), { headers: authHeader() });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.blockedTabs)) setPermBlocked(data.blockedTabs as string[]);
+    } catch {
+      /* keep defaults (all enabled) on failure */
+    } finally {
+      setPermLoading(false);
+    }
+  };
+  const togglePage = (id: string) => setPermBlocked((b) => (b.includes(id) ? b.filter((x) => x !== id) : [...b, id]));
+  const submitPermissions = async () => {
+    if (!permTarget) return;
+    setPermBusy(true);
+    try {
+      const res = await fetch(apiPath(`/api/admin/users/${permTarget.id}/tabs`), {
+        method: "PUT",
+        headers: { ...authHeader(), "Content-Type": "application/json" },
+        body: JSON.stringify({ blockedTabs: permBlocked }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string })?.error || "تعذّر حفظ الصلاحيات");
+      toast.success(`تم تحديث صلاحيات ${permTarget.name}`);
+      setPermTarget(null);
+      refetch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "تعذّر حفظ الصلاحيات");
+    } finally {
+      setPermBusy(false);
     }
   };
 
@@ -1858,6 +1899,11 @@ function AdminsTab() {
                     <KeyRound className="h-4 w-4 shrink-0" /><span className="flex-1">تغيير كلمة المرور</span>
                   </button>
                 )}
+                {isOwnerActor && !isOwner && (
+                  <button onClick={() => { close(); void openPermissions({ id: u.id, name: u.name }); }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-right text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-500/10">
+                    <SlidersHorizontal className="h-4 w-4 shrink-0" /><span className="flex-1">الصلاحيات</span>
+                  </button>
+                )}
                 <button onClick={() => { close(); if (confirm(`إزالة ${u.name} من المشرفين؟`)) updateUser.mutate({ id: u.id, data: { role: "student" } as any }, { onSuccess: () => refetch() }); }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-right text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10">
                   <UserMinus className="h-4 w-4 shrink-0" /><span className="flex-1">إزالة الصلاحيات</span>
                 </button>
@@ -1903,6 +1949,51 @@ function AdminsTab() {
                 <button onClick={() => void submitPassword()} disabled={pwBusy || pwValue.length < 8}
                   className="btn-primary text-sm py-2 disabled:opacity-50 disabled:cursor-not-allowed">{pwBusy ? "جارٍ الحفظ…" : "حفظ"}</button>
                 <button onClick={() => setPwTarget(null)} disabled={pwBusy}
+                  className="px-4 py-2 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:bg-muted transition-all">إلغاء</button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Owner-only per-admin page permissions dialog */}
+      <AnimatePresence>
+        {permTarget && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={makeBackdropClose(() => { if (!permBusy) setPermTarget(null); })}
+              className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              transition={{ type: "tween", ease: [0.22, 1, 0.36, 1], duration: 0.2 }}
+              className="fixed left-1/2 top-1/2 z-[61] w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white/97 dark:bg-[#11151b]/97 backdrop-blur border border-white/70 dark:border-white/10 shadow-2xl p-5 space-y-4 text-right" dir="rtl">
+              <div>
+                <h3 className="font-bold text-foreground flex items-center gap-2"><SlidersHorizontal className="w-4 h-4 text-primary" /> صلاحيات الصفحات</h3>
+                <p className="text-xs text-muted-foreground mt-1">للمشرف: <span className="font-bold text-foreground">{permTarget.name}</span> — فعّل الصفحات اللي يقدر يشوفها.</p>
+              </div>
+              {permLoading ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">جارٍ التحميل…</div>
+              ) : (
+                <div className="space-y-1 max-h-[50vh] overflow-y-auto">
+                  {CONTROLLABLE_PAGES.map((p) => {
+                    const enabled = !permBlocked.includes(p.id);
+                    return (
+                      <button key={p.id} type="button" onClick={() => togglePage(p.id)}
+                        className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/60">
+                        <span className="text-sm font-semibold text-foreground">{p.label}</span>
+                        <span dir="ltr" className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${enabled ? "bg-emerald-500" : "bg-muted-foreground/30"}`}>
+                          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button onClick={() => void submitPermissions()} disabled={permBusy || permLoading}
+                  className="btn-primary text-sm py-2 disabled:opacity-50 disabled:cursor-not-allowed">{permBusy ? "جارٍ الحفظ…" : "حفظ"}</button>
+                <button onClick={() => setPermTarget(null)} disabled={permBusy}
                   className="px-4 py-2 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:bg-muted transition-all">إلغاء</button>
               </div>
             </motion.div>
@@ -2080,7 +2171,26 @@ function FilterGroup({ label, options, value, onChange }: { label: string; optio
 export default function OwnerPanel() {
   const { user, logout, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
-  const [tab, setTab] = useState<Tab>("dashboard");
+  // Restore the active tab from the URL so a refresh keeps you where you were
+  // (instead of always bouncing back to the dashboard).
+  const [tab, setTab] = useState<Tab>(() => {
+    try {
+      const requested = new URLSearchParams(window.location.search).get("tab");
+      if (requested && TABS.some((t) => t.id === requested)) return requested as Tab;
+    } catch {
+      /* ignore */
+    }
+    return "dashboard";
+  });
+  // Keep the URL in sync with the active tab (covers every place that changes it).
+  useEffect(() => {
+    try {
+      const url = tab === "dashboard" ? window.location.pathname : `${window.location.pathname}?tab=${tab}`;
+      window.history.replaceState(null, "", url);
+    } catch {
+      /* ignore */
+    }
+  }, [tab]);
   const [adminTheme, setAdminTheme] = useState<AdminTheme>(getInitialAdminTheme);
   const isDarkAdmin = adminTheme === "dark";
 
@@ -2132,8 +2242,7 @@ export default function OwnerPanel() {
   return (
     <div className={`admin-dashboard ${isDarkAdmin ? "dark" : ""} min-h-screen flex bg-background text-foreground`} dir="rtl">
       <div className="mesh-bg" />
-      <aside className="hidden md:flex flex-col fixed top-0 right-0 h-screen w-64 z-40 glass-panel border-l border-white/60"
-        style={{ borderImage: "linear-gradient(to bottom, rgba(245,158,11,0.3), rgba(255,255,255,0.4)) 1" }}>
+      <aside className="hidden md:flex flex-col fixed top-0 right-0 h-screen w-64 z-40 glass-panel border-l border-white/60">
         <div className="px-6 pt-7 pb-5">
           <Logo size={36} />
           <div className="mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold" style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.35)", color: "#d97706" }}>
@@ -2147,7 +2256,7 @@ export default function OwnerPanel() {
             return (
               <button key={t.id} onClick={() => setTab(t.id)}
                 aria-current={isActive ? "page" : undefined}
-                className={`relative w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-colors duration-200 ${isActive ? "text-white" : "text-muted-foreground hover:bg-white/60 hover:text-foreground"}`}>
+                className={`relative w-full flex items-center gap-3 px-4 py-3 rounded-2xl border text-sm font-semibold transition-colors duration-200 ${isActive ? "border-transparent text-white" : "border-slate-200/80 dark:border-white/10 bg-white/55 dark:bg-white/[0.05] text-muted-foreground hover:bg-white hover:text-foreground dark:hover:bg-white/[0.09]"}`}>
                 {isActive && (
                   // Shared-layout pill: framer slides this single element between tabs
                   // (the "إزاحة" effect) instead of the highlight snapping on/off.

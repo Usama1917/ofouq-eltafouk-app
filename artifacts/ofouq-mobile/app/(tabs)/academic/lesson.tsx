@@ -1,5 +1,6 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import * as Haptics from "expo-haptics";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -24,10 +25,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AcademicVideoPlayer, AcademicVideoSegment } from "@/components/AcademicVideoPlayer";
 import { AutoFitTitle } from "@/components/AutoFitTitle";
 import { LessonSummaryCard } from "@/components/LessonSummaryCard";
+import { QuizLessonCard } from "@/components/QuizLessonCard";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { apiFetch } from "@/lib/api";
+import { gamificationQueryKey } from "@/lib/gamification";
 import { academicRoute, getAcademicRouteBase } from "@/lib/academicRoutes";
 import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import { normalizeAcademicUnitLabel } from "@/lib/academicUnitLabels";
@@ -156,19 +159,48 @@ export default function LessonDetailScreen() {
   // Measured so the header grows for a 2-line title instead of clipping it.
   const [headerHeight, setHeaderHeight] = useState(insets.top + 126);
 
+  // "+points" celebration shown once, when this lesson first crosses to completed.
+  const queryClient = useQueryClient();
+  const celebratedRef = useRef(false);
+  const burstAnim = useRef(new Animated.Value(0)).current;
+  const [showBurst, setShowBurst] = useState(false);
+
+  const triggerPointsBurst = useCallback(() => {
+    setShowBurst(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    burstAnim.setValue(0);
+    Animated.sequence([
+      Animated.spring(burstAnim, { toValue: 1, useNativeDriver: true, tension: 60, friction: 7 }),
+      Animated.delay(1100),
+      Animated.timing(burstAnim, { toValue: 2, duration: 380, useNativeDriver: true }),
+    ]).start(() => setShowBurst(false));
+  }, [burstAnim]);
+
   const reportLessonProgress = useCallback(
-    (progress: { currentTime: number; duration: number }) => {
+    (progress: { currentTime: number; duration: number; watchedSeconds?: number }) => {
       if (!token || !lesson?.id) return;
-      void apiFetch(`/api/academic/lessons/${lesson.id}/progress`, {
+      void apiFetch<{ completed?: boolean }>(`/api/academic/lessons/${lesson.id}/progress`, {
         method: "POST",
         token,
         body: JSON.stringify({
           currentSeconds: progress.currentTime,
           durationSeconds: progress.duration,
+          // Real watched coverage (seeks excluded) — powers the quiz watch-gate.
+          watchedSeconds: progress.watchedSeconds ?? 0,
         }),
-      }).catch(() => undefined);
+      })
+        .then((res) => {
+          // First time this lesson crosses to completed → celebrate + refresh the
+          // home gamification strip so the new points/streak show on return.
+          if (res?.completed && !celebratedRef.current) {
+            celebratedRef.current = true;
+            triggerPointsBurst();
+            void queryClient.invalidateQueries({ queryKey: gamificationQueryKey });
+          }
+        })
+        .catch(() => undefined);
     },
-    [lesson?.id, token],
+    [lesson?.id, token, queryClient, triggerPointsBurst],
   );
 
   function backToLessonsList() {
@@ -200,6 +232,29 @@ export default function LessonDetailScreen() {
         }
         style={StyleSheet.absoluteFill}
       />
+
+      {showBurst ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.pointsBurst,
+            {
+              top: insets.top + 80,
+              opacity: burstAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 1, 0] }),
+              transform: [
+                { translateY: burstAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [12, 0, -44] }) },
+                { scale: burstAnim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1], extrapolate: "clamp" }) },
+              ],
+            },
+          ]}
+        >
+          <View style={styles.pointsBurstPill}>
+            <Text style={styles.pointsBurstText}>
+              {language === "en" ? "+10 points 🎉" : "+10 نقطة 🎉"}
+            </Text>
+          </View>
+        </Animated.View>
+      ) : null}
 
       <View
         style={[styles.topBar, { paddingTop: insets.top + 12 }]}
@@ -326,19 +381,31 @@ export default function LessonDetailScreen() {
                   thumbnailUrl={lesson.video.thumbnailUrl ?? null}
                   segments={lesson.video.segments ?? []}
                   belowPlayerContent={
-                    <LessonSummaryCard
-                      thumbnailUrl={summaryThumbnailUrl}
-                      title={lesson.video.title}
-                      titleEn={lesson.video.titleEn}
-                      instructor={lesson.video.instructor}
-                      instructorEn={lesson.video.instructorEn}
-                      duration={lesson.video.duration}
-                      description={lesson.video.description}
-                      descriptionEn={lesson.video.descriptionEn}
-                      segmentsCount={lesson.video.segments?.length ?? 0}
-                      userName={user?.name ?? null}
-                      userEmail={user?.email ?? null}
-                    />
+                    <>
+                      <LessonSummaryCard
+                        thumbnailUrl={summaryThumbnailUrl}
+                        title={lesson.video.title}
+                        titleEn={lesson.video.titleEn}
+                        instructor={lesson.video.instructor}
+                        instructorEn={lesson.video.instructorEn}
+                        duration={lesson.video.duration}
+                        description={lesson.video.description}
+                        descriptionEn={lesson.video.descriptionEn}
+                        segmentsCount={lesson.video.segments?.length ?? 0}
+                        userName={user?.name ?? null}
+                        userEmail={user?.email ?? null}
+                      />
+                      {/* v2 Phase 2 — quiz entry card: below the description, above segments.
+                          Shown only in the "الدروس المرئية" (videos) tab per the owner's choice. */}
+                      {routeBase === "/(tabs)/videos" ? (
+                        <View style={{ marginTop: 12 }}>
+                          <QuizLessonCard
+                            videoId={lesson.video.id}
+                            videoTitle={localizeAcademicText(lesson.video.title, language, lesson.video.titleEn)}
+                          />
+                        </View>
+                      ) : null}
+                    </>
                   }
                   watermarkText={user
                     ? `${localizeAcademicText(user.name, language).trim().split(/\s+/)[0]} · ${toEnglishDigits(user.phone || user.email)}`
@@ -363,6 +430,29 @@ export default function LessonDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  pointsBurst: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 50,
+  },
+  pointsBurstPill: {
+    backgroundColor: "#059669",
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 9999,
+    shadowColor: "#059669",
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  pointsBurstText: {
+    ...FONT.bold,
+    fontSize: 16,
+    color: "#FFFFFF",
+  },
   topBar: {
     position: "absolute",
     top: 0,

@@ -1,14 +1,49 @@
-import { boolean, integer, jsonb, pgTable, serial, text, timestamp, unique, index } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, serial, text, timestamp, unique, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { lessonsTable } from "./academic";
 import { usersTable } from "./users";
+
+// A "campaign" is one send event — a manual admin broadcast OR one firing of an
+// automated message — that fanned out to many students. It anchors the delivery
+// report: each per-user `notifications` row points back to its campaign, so the
+// admin can see, per send, who received it / when / who opened it. (v2 Phase 1)
+export const notificationCampaignsTable = pgTable(
+  "notification_campaigns",
+  {
+    id: serial("id").primaryKey(),
+    // "manual" = admin broadcast; "automated" = a gamification auto-message firing.
+    kind: text("kind").notNull(),
+    // For automated campaigns: the message key (e.g. "evening_reminder"). Null for manual.
+    sourceKey: text("source_key"),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    // Plain-language audience description shown in the report (e.g. "كل الطلاب").
+    audienceSummary: text("audience_summary"),
+    // The admin who triggered a manual send; null for system/automated.
+    sentByUserId: integer("sent_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+    totalRecipients: integer("total_recipients").notNull().default(0),
+    pushSentCount: integer("push_sent_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    // Report lists campaigns newest-first.
+    createdIdx: index("notification_campaigns_created_idx").on(table.createdAt),
+    // Automated campaigns are found-or-created by sourceKey (e.g. "goal_congrats:2026-06-30")
+    // so a given day's auto-message has exactly one campaign. Manual sends pass null
+    // (Postgres treats nulls as distinct, so they're unconstrained).
+    sourceKeyIdx: uniqueIndex("notification_campaigns_source_key_idx").on(table.sourceKey),
+  }),
+);
 
 export const notificationsTable = pgTable(
   "notifications",
   {
     id: serial("id").primaryKey(),
     userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    // Links this per-user notification back to the send that produced it (for the
+    // delivery report). Null for one-off / system notifications without a campaign.
+    campaignId: integer("campaign_id").references(() => notificationCampaignsTable.id, { onDelete: "set null" }),
     type: text("type").notNull(),
     title: text("title").notNull(),
     body: text("body").notNull().default(""),
@@ -25,6 +60,8 @@ export const notificationsTable = pgTable(
     // Per-user feed: WHERE user_id = ? AND available_at <= now() ORDER BY created_at DESC. See review B-09.
     userFeedIdx: index("notifications_user_feed_idx").on(table.userId, table.availableAt, table.createdAt),
     userReadIdx: index("notifications_user_read_idx").on(table.userId, table.readAt),
+    // Delivery report: per-campaign recipient list + read counts.
+    campaignIdx: index("notifications_campaign_idx").on(table.campaignId),
   }),
 );
 
@@ -36,6 +73,11 @@ export const lessonWatchProgressTable = pgTable(
     lessonId: integer("lesson_id").notNull().references(() => lessonsTable.id, { onDelete: "cascade" }),
     currentSeconds: integer("current_seconds").notNull().default(0),
     durationSeconds: integer("duration_seconds").notNull().default(0),
+    // v2 Phase 2 (quiz watch-gate): REAL watched coverage — distinct seconds of the
+    // video actually PLAYED (dragging the scrubber does NOT count), accumulated across
+    // sessions. Distinct from currentSeconds (furthest seek position). Drives the
+    // "watched ≥ N%" quiz gate; monotonic (server keeps the max), capped at duration.
+    watchedSeconds: integer("watched_seconds").notNull().default(0),
     completed: boolean("completed").notNull().default(false),
     lastWatchedAt: timestamp("last_watched_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -46,6 +88,18 @@ export const lessonWatchProgressTable = pgTable(
     lessonIdx: index("lesson_watch_progress_lesson_idx").on(table.lessonId),
   }),
 );
+
+// Owner-defined custom notification badge colours (hex), shared across ALL admins
+// (not per-user). The client also has a fixed preset palette; these are the extra
+// colours the owner added by hex code and can delete. (v2 Phase 1)
+export const notificationColorsTable = pgTable("notification_colors", {
+  id: serial("id").primaryKey(),
+  // Stored normalized as a lowercase "#rrggbb" string; unique so the same colour
+  // can't be added twice.
+  hex: text("hex").notNull().unique(),
+  createdByUserId: integer("created_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const pushNotificationTokensTable = pgTable(
   "push_notification_tokens",
@@ -86,6 +140,8 @@ export const insertPushNotificationTokenSchema = createInsertSchema(pushNotifica
 });
 
 export type Notification = typeof notificationsTable.$inferSelect;
+export type NotificationCampaign = typeof notificationCampaignsTable.$inferSelect;
+export type NotificationColor = typeof notificationColorsTable.$inferSelect;
 export type LessonWatchProgress = typeof lessonWatchProgressTable.$inferSelect;
 export type PushNotificationToken = typeof pushNotificationTokensTable.$inferSelect;
 

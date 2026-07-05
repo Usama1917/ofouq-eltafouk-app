@@ -6,6 +6,7 @@ import { getSessionUserId, hashPassword } from "../lib/auth";
 // review B-43: shared role allowlists (were re-declared inline in each handler).
 import { VALID_ROLES, PRIVILEGED_ROLES } from "../lib/roles";
 import { invalidateUserAuth } from "../lib/user-cache";
+import { reportUser } from "../lib/profile-moderation";
 import {
   db,
   booksTable,
@@ -717,6 +718,7 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
         role: usersTable.role, status: usersTable.status, phone: usersTable.phone,
         governorate: usersTable.governorate, joinedAt: usersTable.joinedAt, lastActiveAt: usersTable.lastActiveAt,
         expectationStars: usersTable.expectationStars, scoringFrozen: usersTable.scoringFrozen,
+        reportCount: usersTable.reportCount,
       })
       .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
     if (!profile) {
@@ -947,6 +949,7 @@ router.get("/admin/reports/activity", async (req, res) => {
         role: usersTable.role, status: usersTable.status, phone: usersTable.phone,
         governorate: usersTable.governorate, joinedAt: usersTable.joinedAt, lastActiveAt: usersTable.lastActiveAt,
         expectationStars: usersTable.expectationStars, scoringFrozen: usersTable.scoringFrozen,
+        reportCount: usersTable.reportCount,
       })
       .from(usersTable).where(eq(usersTable.id, targetId)).limit(1);
     if (!profile) {
@@ -1184,7 +1187,7 @@ router.get("/admin/reports/activity", async (req, res) => {
 // active users, subscriptions (activity), and the most-subscribed subject.
 router.get("/admin/owner-dashboard/geo", async (req, res) => {
   try {
-    const [usersByGov, subsByGov, subjectRows] = await Promise.all([
+    const [usersByGov, subsByGov, subjectRows, gradeRows, watchByGov] = await Promise.all([
       db.select({
         gov: usersTable.governorate,
         total: count(),
@@ -1200,6 +1203,24 @@ router.get("/admin/owner-dashboard/geo", async (req, res) => {
         .innerJoin(usersTable, eq(subjectSubscriptionsTable.studentId, usersTable.id))
         .innerJoin(subjectsTable, eq(subjectSubscriptionsTable.subjectId, subjectsTable.id))
         .groupBy(usersTable.governorate, subjectsTable.name),
+      // Grade breakdown per governorate (from each student's onboarding answer).
+      db.select({
+        gov: usersTable.governorate,
+        grade1: sql<number>`count(*) filter (where ${studentOnboardingResponsesTable.gradeLevel} = 'secondary_1')`,
+        grade2: sql<number>`count(*) filter (where ${studentOnboardingResponsesTable.gradeLevel} = 'secondary_2')`,
+        grade3: sql<number>`count(*) filter (where ${studentOnboardingResponsesTable.gradeLevel} = 'secondary_3')`,
+      })
+        .from(studentOnboardingResponsesTable)
+        .innerJoin(usersTable, eq(studentOnboardingResponsesTable.userId, usersTable.id))
+        .groupBy(usersTable.governorate),
+      // Total watched seconds per governorate (converted to hours below).
+      db.select({
+        gov: usersTable.governorate,
+        seconds: sql<number>`coalesce(sum(${lessonWatchProgressTable.currentSeconds}), 0)`,
+      })
+        .from(lessonWatchProgressTable)
+        .innerJoin(usersTable, eq(lessonWatchProgressTable.studentId, usersTable.id))
+        .groupBy(usersTable.governorate),
     ]);
 
     const subsMap = new Map<string, number>();
@@ -1211,12 +1232,23 @@ router.get("/admin/owner-dashboard/geo", async (req, res) => {
       const n = Number(r.n) || 0;
       if (!cur || n > cur.n) topSubject.set(r.gov, { subject: r.subject, n });
     }
+    const gradeMap = new Map<string, { g1: number; g2: number; g3: number }>();
+    for (const r of gradeRows) {
+      if (!r.gov) continue;
+      gradeMap.set(r.gov, { g1: Number(r.grade1) || 0, g2: Number(r.grade2) || 0, g3: Number(r.grade3) || 0 });
+    }
+    const watchHoursMap = new Map<string, number>();
+    for (const r of watchByGov) {
+      if (!r.gov) continue;
+      watchHoursMap.set(r.gov, Math.round(((Number(r.seconds) || 0) / 3600) * 10) / 10);
+    }
 
     let unknownUsers = 0;
-    const governorates = [] as Array<{ name: string; users: number; students: number; activeUsers: number; subscriptions: number; topSubject: string | null; topSubjectCount: number }>;
+    const governorates = [] as Array<{ name: string; users: number; students: number; activeUsers: number; subscriptions: number; topSubject: string | null; topSubjectCount: number; grade1: number; grade2: number; grade3: number; watchHours: number }>;
     for (const r of usersByGov) {
       if (!r.gov) { unknownUsers += Number(r.total) || 0; continue; }
       const ts = topSubject.get(r.gov);
+      const gr = gradeMap.get(r.gov);
       governorates.push({
         name: r.gov,
         users: Number(r.total) || 0,
@@ -1225,6 +1257,10 @@ router.get("/admin/owner-dashboard/geo", async (req, res) => {
         subscriptions: subsMap.get(r.gov) || 0,
         topSubject: ts?.subject ?? null,
         topSubjectCount: ts?.n ?? 0,
+        grade1: gr?.g1 ?? 0,
+        grade2: gr?.g2 ?? 0,
+        grade3: gr?.g3 ?? 0,
+        watchHours: watchHoursMap.get(r.gov) || 0,
       });
     }
     governorates.sort((a, b) => b.users - a.users);
@@ -1342,6 +1378,7 @@ router.get("/admin/users/:userId/details", async (req, res) => {
         howDidYouHear: usersTable.howDidYouHear,
         supportNeeded: usersTable.supportNeeded,
         bio: usersTable.bio,
+        reportCount: usersTable.reportCount,
         joinedAt: usersTable.joinedAt,
         lastActiveAt: usersTable.lastActiveAt,
       })
@@ -1596,7 +1633,7 @@ router.put("/admin/users/:id", async (req, res) => {
     const name = body.name === undefined ? undefined : String(body.name).trim();
     const role = body.role === undefined ? undefined : String(body.role);
     const status = body.status === undefined ? undefined : String(body.status);
-    const [before] = await db.select({ name: usersTable.name, role: usersTable.role, status: usersTable.status }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    const [before] = await db.select({ name: usersTable.name, role: usersTable.role, status: usersTable.status, email: usersTable.email, phone: usersTable.phone }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
     const actor = (req as any).adminActor;
     // review B-43: VALID_ROLES / PRIVILEGED_ROLES now imported from ../lib/roles.
     const VALID_STATUSES = new Set(["active", "suspended", "inactive"]);
@@ -1628,8 +1665,74 @@ router.put("/admin/users/:id", async (req, res) => {
     if (name !== undefined) updateData.name = name;
     if (role !== undefined) updateData.role = role;
     if (status !== undefined) updateData.status = status;
-    const [user] = await db.update(usersTable).set(updateData).where(eq(usersTable.id, id)).returning();
+
+    // Editable account + student-profile fields from the details drawer. Changing the
+    // email/phone of a PRIVILEGED account (admin/owner/moderator) is owner-only, so a
+    // plain admin can't hijack another staff account by swapping its login identity.
+    const touchesAccountIdentity = body.email !== undefined || body.phone !== undefined;
+    if (touchesAccountIdentity && before && PRIVILEGED_ROLES.has(String(before.role)) && actor?.role !== "owner") {
+      return res.status(403).json({ error: "تعديل بيانات حساب المشرفين متاح للمالك فقط" });
+    }
+
+    // Free-text fields: undefined = leave unchanged; empty string clears to null.
+    const setStr = (key: "phone" | "parentPhone" | "governorate" | "address" | "specialty" | "qualifications" | "howDidYouHear" | "supportNeeded" | "bio") => {
+      if (body[key] === undefined) return;
+      const v = String(body[key]).trim();
+      updateData[key] = v === "" ? null : v;
+    };
+    (["phone", "parentPhone", "governorate", "address", "specialty", "qualifications", "howDidYouHear", "supportNeeded", "bio"] as const).forEach(setStr);
+
+    // Age: a non-negative integer or null.
+    if (body.age !== undefined) {
+      const s = String(body.age).trim();
+      const n = Number.parseInt(s, 10);
+      updateData.age = s !== "" && Number.isFinite(n) && n >= 0 && n <= 150 ? n : null;
+    }
+
+    // Email: required + unique. Reject an empty or malformed value, or one already taken.
+    if (body.email !== undefined) {
+      const email = String(body.email).trim();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ error: "البريد الإلكتروني غير صالح" });
+      }
+      const [dup] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email)).limit(1);
+      if (dup && dup.id !== id) return res.status(400).json({ error: "البريد الإلكتروني مستخدم بالفعل" });
+      updateData.email = email;
+    }
+
+    // A changed phone is unverified again (so 2FA re-confirms it).
+    if (updateData.phone !== undefined && before && updateData.phone !== before.phone) {
+      updateData.phoneVerifiedAt = null;
+    }
+
+    // Grade lives on the student's onboarding row (a separate table). Validate + upsert it.
+    const VALID_GRADES = new Set(["secondary_1", "secondary_2", "secondary_3"]);
+    const gradeProvided = body.gradeLevel !== undefined;
+    let gradeVal: string | null = null;
+    if (gradeProvided) {
+      const g = String(body.gradeLevel).trim();
+      if (g !== "" && !VALID_GRADES.has(g)) return res.status(400).json({ error: "الصف الدراسي غير صالح" });
+      gradeVal = g === "" ? null : g;
+    }
+
+    if (Object.keys(updateData).length === 0 && !gradeProvided) {
+      return res.status(400).json({ error: "لا توجد بيانات للتحديث" });
+    }
+
+    let user;
+    if (Object.keys(updateData).length > 0) {
+      [user] = await db.update(usersTable).set(updateData).where(eq(usersTable.id, id)).returning();
+    } else {
+      [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    }
     if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (gradeProvided) {
+      await db
+        .insert(studentOnboardingResponsesTable)
+        .values({ userId: id, gradeLevel: gradeVal })
+        .onConflictDoUpdate({ target: studentOnboardingResponsesTable.userId, set: { gradeLevel: gradeVal, updatedAt: new Date() } });
+    }
     invalidateUserAuth(id); // review B-34: a role/status change must take effect immediately
     // Classify the change so suspend/activate show as distinct actions in reports.
     let actionType = "user_update";
@@ -1645,6 +1748,59 @@ router.put("/admin/users/:id", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Update user error");
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Owner-controlled per-admin page access. The owner toggles which admin pages each
+// admin can see; we store the HIDDEN (blocked) page ids — empty/null = all visible.
+const CONTROLLABLE_TABS = new Set([
+  "users",
+  "academic",
+  "subscriptionRequests",
+  "supportMessages",
+  "broadcastMessages",
+  "moralReviews",
+]);
+
+// Owner-only: read which pages are currently hidden from this admin.
+router.get("/admin/users/:id/tabs", async (req, res) => {
+  const actor = (req as any).adminActor;
+  if (actor?.role !== "owner") return res.status(403).json({ error: "متاح للمالك فقط" });
+  const id = parseInt(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "معرف غير صالح" });
+  const [u] = await db.select({ blockedTabs: usersTable.blockedTabs }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
+  if (!u) return res.status(404).json({ error: "غير موجود" });
+  return res.json({ blockedTabs: u.blockedTabs ?? [], controllable: [...CONTROLLABLE_TABS] });
+});
+
+// Owner-only: set the pages hidden from this admin (the toggles in the permissions card).
+router.put("/admin/users/:id/tabs", async (req, res) => {
+  const actor = (req as any).adminActor;
+  if (actor?.role !== "owner") return res.status(403).json({ error: "متاح للمالك فقط" });
+  const id = parseInt(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "معرف غير صالح" });
+  const raw = (req.body ?? {}).blockedTabs;
+  const blocked = Array.isArray(raw) ? Array.from(new Set(raw.map(String).filter((t) => CONTROLLABLE_TABS.has(t)))) : [];
+  const [user] = await db.update(usersTable).set({ blockedTabs: blocked }).where(eq(usersTable.id, id)).returning({ id: usersTable.id, name: usersTable.name });
+  if (!user) return res.status(404).json({ error: "غير موجود" });
+  invalidateUserAuth(id); // refresh the cached auth so the change is picked up promptly
+  await logAudit(req, { actionType: "admin_tabs", actionLabel: "حدّث صلاحيات صفحات مشرف", entityType: "user", entityId: id, entityLabel: user.name, oldValue: "", newValue: blocked.join(",") || "كل الصفحات" });
+  return res.json({ ok: true, blockedTabs: blocked });
+});
+
+// Report a user from their details view. At the threshold the account auto-suspends.
+router.post("/admin/users/:id/report", async (req, res) => {
+  const actor = (req as any).adminActor;
+  const reporterId = actor?.id ?? getSessionUserId(req);
+  const id = parseInt(req.params.id);
+  if (!reporterId || !Number.isInteger(id)) return res.status(400).json({ error: "طلب غير صالح" });
+  try {
+    const result = await reportUser({ userId: id, reportedBy: reporterId });
+    await logAudit(req, { actionType: "user_report", actionLabel: "أبلغ عن مستخدم", entityType: "user", entityId: id, entityLabel: String(id), oldValue: "", newValue: `reports=${result.reportCount}${result.suspended ? " (معلّق)" : ""}` });
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    req.log.error({ err }, "report user (admin) failed");
+    return res.status(500).json({ error: "خطأ في الخادم" });
   }
 });
 

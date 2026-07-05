@@ -21,6 +21,7 @@ import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
+import { resolveNotificationIconGlyph, type FeatherIconName } from "@/constants/notificationIcons";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { toEnglishDigits } from "@/lib/format";
@@ -73,6 +74,22 @@ function normalizeTone(tone: string): NotificationTone {
   return "primary";
 }
 
+// Owner-chosen badge colour: validate a hex string and derive a light-tint background
+// (the colour at ~13% alpha, using RN's 8-digit #rrggbbaa form). Null when unset/invalid
+// so the card falls back to the tone's colour + background (the original look).
+function normalizeHexColor(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const raw = value.trim().toLowerCase();
+  const short = raw.match(/^#?([0-9a-f]{3})$/);
+  if (short) return "#" + short[1].split("").map((c) => c + c).join("");
+  const full = raw.match(/^#?([0-9a-f]{6})$/);
+  if (full) return "#" + full[1];
+  return null;
+}
+function hexTintBackground(hex: string): string {
+  return `${hex}22`; // 0x22 ≈ 13% alpha
+}
+
 // review F-27: Arabic counts the noun with four forms — singular (1), dual (2),
 // plural (3–10), then back to the singular noun for 11+. The old code always
 // used one form ("منذ 2 دقيقة"), which is ungrammatical. Build the correct form
@@ -121,7 +138,9 @@ function formatNotificationTime(value: string, locale: string) {
 
 type NotificationCardProps = {
   item: AppNotification;
-  tone: ReturnType<typeof getToneMeta>;
+  // Widened icon type so an owner-chosen glyph (any Feather name) can override the
+  // tone-derived default while keeping the tone's colour/background.
+  tone: { color: string; background: string; icon: FeatherIconName };
   isUnread: boolean;
   colors: typeof COLORS.light;
   titleDirection: ViewStyle["flexDirection"];
@@ -525,7 +544,16 @@ export default function NotificationsScreen() {
 
   const renderNotificationCard = React.useCallback(
     (item: AppNotification) => {
-      const tone = getToneMeta(normalizeTone(item.tone));
+      // Glyph from the owner-chosen icon (else the tone default); colour + tinted
+      // background from the owner-chosen colour (else the tone's). Both fall back to
+      // the original tone-derived look when unset.
+      const baseTone = getToneMeta(normalizeTone(item.tone));
+      const customColor = normalizeHexColor(item.data?.color);
+      const tone = {
+        color: customColor ?? baseTone.color,
+        background: customColor ? hexTintBackground(customColor) : baseTone.background,
+        icon: resolveNotificationIconGlyph(item.data?.icon) ?? baseTone.icon,
+      };
       const isUnread = !item.readAt;
 
       return (

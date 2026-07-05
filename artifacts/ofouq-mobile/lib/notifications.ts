@@ -7,7 +7,7 @@ export type NotificationTone = "primary" | "success" | "warning" | "danger";
 
 export type NotificationActionData = {
   type?: string;
-  route?: "units" | "subscribe" | "lesson" | "supportChat" | "external";
+  route?: "units" | "subscribe" | "lesson" | "lessons" | "supportChat" | "external" | "rewards";
   url?: string;
   yearId?: number | string;
   yearName?: string;
@@ -25,6 +25,10 @@ export type NotificationActionData = {
   resumeFromNotification?: number | string;
   notificationId?: number | string;
   reviewNotes?: string;
+  // Owner-chosen badge glyph key (see constants/notificationIcons). Absent = auto.
+  icon?: string;
+  // Owner-chosen badge colour (hex, e.g. "#8b5cf6"). Absent = colour from the tone.
+  color?: string;
 };
 
 export type AppNotification = {
@@ -110,6 +114,12 @@ export function openNotificationTarget(notification: AppNotification) {
     return;
   }
 
+  // Points-gain notifications → open the points log and pulse the newest entry.
+  if (data.route === "rewards") {
+    router.push({ pathname: "/(tabs)/settings/rewards", params: { highlight: "1" } });
+    return;
+  }
+
   if (data.route === "units") {
     router.push({
       pathname: "/(tabs)/videos/units",
@@ -119,6 +129,22 @@ export function openNotificationTarget(notification: AppNotification) {
         subjectId: cleanParam(data.subjectId),
         subjectName: cleanParam(data.subjectName),
         unitLabel: cleanParam(data.unitLabel),
+      },
+    });
+    return;
+  }
+
+  if (data.route === "lessons") {
+    router.push({
+      pathname: "/(tabs)/videos/lessons",
+      params: {
+        yearId: cleanParam(data.yearId),
+        yearName: cleanParam(data.yearName),
+        subjectId: cleanParam(data.subjectId),
+        subjectName: cleanParam(data.subjectName),
+        unitLabel: cleanParam(data.unitLabel),
+        unitId: cleanParam(data.unitId),
+        unitName: cleanParam(data.unitName),
       },
     });
     return;

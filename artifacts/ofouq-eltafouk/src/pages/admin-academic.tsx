@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowDown,
   ArrowUp,
+  Award,
+  ChevronDown,
   ChevronLeft,
+  ChevronRight,
   Download,
   Eye,
   EyeOff,
@@ -12,6 +15,8 @@ import {
   GraduationCap,
   Info,
   Layers,
+  List,
+  Network,
   Pencil,
   PlayCircle,
   Plus,
@@ -24,6 +29,8 @@ import * as XLSX from "xlsx";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/contexts/auth-context";
 import { confirmDiscardIfDirty } from "@/lib/dialog-dismiss";
+import QuizManager, { type LocalQuestion, apiQuestionToLocal, localQuestionToPayload } from "@/components/quiz-manager";
+import ChapterExamManager from "@/components/chapter-exam-manager";
 
 type Level = "years" | "subjects" | "units" | "lessons";
 type AcademicUnitLabel = "unit" | "chapter" | "section";
@@ -172,6 +179,8 @@ function getUnitLabelCopy(value: unknown) {
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+// localStorage key for the in-progress lesson editor draft (autosave / crash recovery).
+const LESSON_DRAFT_KEY = "ofouq:academic:lessonDraft:v1";
 const YEAR_ITEM_TONES = [
   {
     top: "bg-blue-500/80",
@@ -504,6 +513,8 @@ function ItemCard({
   containerClassName,
   iconWrapperClassName,
   topAccentClassName,
+  highlight,
+  onHighlightEnd,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -520,9 +531,23 @@ function ItemCard({
   containerClassName?: string;
   iconWrapperClassName?: string;
   topAccentClassName?: string;
+  highlight?: boolean;
+  onHighlightEnd?: () => void;
 }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (highlight && rootRef.current) {
+      rootRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlight]);
   return (
-    <div className={`glass-card no-lift relative overflow-hidden p-4 min-h-[92px] flex items-center gap-3 ${!isPublished ? "opacity-75" : ""} ${containerClassName ?? ""}`}>
+    <div
+      ref={rootRef}
+      onAnimationEnd={() => {
+        if (highlight) onHighlightEnd?.();
+      }}
+      className={`glass-card no-lift relative overflow-hidden p-4 min-h-[92px] flex items-center gap-3 ${!isPublished ? "opacity-75" : ""} ${highlight ? "acad-flash" : ""} ${containerClassName ?? ""}`}
+    >
       {topAccentClassName ? <div className={`absolute inset-x-0 top-0 h-1 ${topAccentClassName}`} /> : null}
       <div className={`w-10 h-10 rounded-xl border bg-muted/50 flex items-center justify-center flex-shrink-0 ${iconWrapperClassName ?? ""}`}>{icon}</div>
       <div className="flex-1 min-w-0">
@@ -577,12 +602,444 @@ function useSorted<T extends { orderIndex: number; id: number }>(items: T[]) {
   }, [items]);
 }
 
+// ─── Grid / tree view ────────────────────────────────────────────────────────
+// A second way to view academic content (alongside the nested-cards drill-down):
+// a year card expands in place and reveals its WHOLE subtree — subjects → units →
+// lessons — as a top-down knockout-bracket-style org chart, with the same
+// edit / publish / delete / reorder actions on every node.
+
+type NodeKind = "year" | "subject" | "unit" | "lesson";
+const NODE_KIND_PATH: Record<NodeKind, string> = {
+  year: "years",
+  subject: "subjects",
+  unit: "units",
+  lesson: "lessons",
+};
+
+type UnitExamFlags = { reviewPublished: boolean; adaptivePublished: boolean } | null;
+type UnitTreeNode = Unit & { lessons: Lesson[]; exam?: UnitExamFlags };
+type SubjectTreeNode = Subject & { units: UnitTreeNode[] };
+type YearTreeData = { subjects: SubjectTreeNode[] };
+
+type TreeActions = {
+  editYear: (year: AcademicYear) => void;
+  editSubject: (subject: Subject, ctx: { yearId: number; yearName: string }) => void;
+  editUnit: (
+    unit: Unit,
+    ctx: { yearId: number; subjectId: number; subjectName: string; yearName: string; unitLabel: AcademicUnitLabel },
+  ) => void;
+  editLesson: (
+    lesson: Lesson,
+    ctx: {
+      yearId: number;
+      subjectId: number;
+      unitId: number;
+      unitName: string;
+      subjectName: string;
+      yearName: string;
+      unitLabel: AcademicUnitLabel;
+    },
+  ) => void;
+  togglePublish: (kind: NodeKind, id: number, next: boolean) => void;
+  remove: (kind: NodeKind, id: number) => void;
+  reorder: <T extends { id: number; orderIndex: number }>(kind: NodeKind, siblings: T[], index: number, dir: "up" | "down") => void;
+  // Clicking a tree node jumps to the normal cards view at that node's level and
+  // flashes it among its siblings.
+  gotoSubject: (subject: Subject, ctx: { yearId: number; yearName: string }) => void;
+  gotoUnit: (
+    unit: Unit,
+    ctx: { yearId: number; subjectId: number; subjectName: string; yearName: string; unitLabel: AcademicUnitLabel },
+  ) => void;
+  gotoLesson: (
+    lesson: Lesson,
+    ctx: {
+      yearId: number;
+      subjectId: number;
+      unitId: number;
+      unitName: string;
+      subjectName: string;
+      yearName: string;
+      unitLabel: AcademicUnitLabel;
+    },
+  ) => void;
+  gotoExam: (
+    unit: Unit,
+    ctx: { yearId: number; subjectId: number; subjectName: string; yearName: string; unitLabel: AcademicUnitLabel; unitName: string },
+  ) => void;
+};
+
+// Compact card for a single node inside the tree. No inline actions — the whole card
+// is a click target that jumps to that node in the normal cards view (kept as a plain
+// <div> onClick, NOT a <button>, so drag-to-pan still works on the card body; a drag
+// is cancelled before it fires a click by the tree's onClickCapture).
+function TreeNodeCard({
+  icon,
+  title,
+  subtitle,
+  isPublished,
+  accentClass,
+  iconWrapperClass,
+  badge,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  isPublished: boolean;
+  accentClass?: string;
+  iconWrapperClass?: string;
+  badge?: React.ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <div className={`acad-tree-card acad-tree-clickable ${!isPublished ? "opacity-70" : ""}`} onClick={onClick} title="اضغط للانتقال إليه">
+      <span className={`acad-tree-accent ${accentClass ?? "bg-primary/40"}`} />
+      <div className="flex items-center gap-2">
+        <div className={`w-8 h-8 rounded-lg border bg-muted/50 flex items-center justify-center flex-shrink-0 ${iconWrapperClass ?? ""}`}>
+          {icon}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h4 className="font-bold text-[13px] text-foreground truncate leading-tight">{title}</h4>
+          {subtitle ? <p className="text-[11px] text-muted-foreground truncate">{subtitle}</p> : null}
+        </div>
+      </div>
+      <div className="flex items-center gap-1 mt-2.5 min-w-0">
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${isPublished ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+          {isPublished ? "منشور" : "مسودة"}
+        </span>
+        {badge}
+      </div>
+    </div>
+  );
+}
+
+// The chapter-exam card that sits beside a unit in the tree (only when the unit has an
+// exam). Clicking it opens that chapter's exam settings.
+function TreeExamCard({ reviewOpen, adaptiveOpen, onClick }: { reviewOpen: boolean; adaptiveOpen: boolean; onClick?: () => void }) {
+  const pill = (label: string, open: boolean) => (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${open ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+      {label}
+    </span>
+  );
+  return (
+    <div className="acad-tree-exam acad-tree-clickable" onClick={onClick} title="اضغط لإعدادات الامتحان">
+      <span className="acad-tree-accent bg-indigo-400/70" />
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-indigo-100 text-indigo-600">
+          <Award className="w-4 h-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h4 className="font-bold text-[13px] text-foreground truncate leading-tight">الامتحان</h4>
+          <p className="text-[11px] text-muted-foreground truncate">استدراك + تحدي</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-1 mt-2.5 min-w-0">
+        {pill("استدراك", reviewOpen)}
+        {pill("تحدي", adaptiveOpen)}
+      </div>
+    </div>
+  );
+}
+
+// Click-and-drag horizontal panning for wide trees (in addition to the native
+// trackpad / Magic-Mouse two-finger swipe that overflow-x already gives us).
+// Grab anywhere on the tree background/cards and pull to scroll; buttons and
+// links are left alone, and a drag never fires a stray click on them. A grab
+// cursor only shows when the tree is actually wider than its container.
+function useDragScroll() {
+  const elRef = useRef<HTMLDivElement | null>(null);
+  const drag = useRef({ down: false, moved: false, startX: 0, startScroll: 0, pointerId: -1 });
+  const roRef = useRef<ResizeObserver | null>(null);
+
+  const setRef = useCallback((node: HTMLDivElement | null) => {
+    roRef.current?.disconnect();
+    elRef.current = node;
+    if (node) {
+      const update = () => node.classList.toggle("is-grabbable", node.scrollWidth > node.clientWidth + 1);
+      update();
+      const ro = new ResizeObserver(update);
+      ro.observe(node);
+      roRef.current = ro;
+    }
+  }, []);
+
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const el = elRef.current;
+    if (!el) return;
+    if ((e.target as HTMLElement).closest("button, a, input, textarea, select, [role='button']")) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return; // left button only
+    if (el.scrollWidth <= el.clientWidth + 1) return; // nothing to pan
+    drag.current = { down: true, moved: false, startX: e.clientX, startScroll: el.scrollLeft, pointerId: e.pointerId };
+    el.classList.add("is-grabbing");
+    el.setPointerCapture?.(e.pointerId);
+  }, []);
+
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const el = elRef.current;
+    const d = drag.current;
+    if (!d.down || !el) return;
+    const dx = e.clientX - d.startX;
+    if (Math.abs(dx) > 3) d.moved = true;
+    el.scrollLeft = d.startScroll - dx;
+  }, []);
+
+  const endDrag = useCallback(() => {
+    const el = elRef.current;
+    if (el) {
+      el.classList.remove("is-grabbing");
+      if (drag.current.pointerId >= 0) el.releasePointerCapture?.(drag.current.pointerId);
+    }
+    drag.current.down = false;
+    drag.current.pointerId = -1;
+    // keep `moved` alive for the click that immediately follows, then clear it
+    window.setTimeout(() => {
+      drag.current.moved = false;
+    }, 0);
+  }, []);
+
+  const onClickCapture = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (drag.current.moved) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, []);
+
+  return { setRef, onPointerDown, onPointerMove, onPointerUp: endDrag, onPointerCancel: endDrag, onClickCapture };
+}
+
+// One year row in the grid: a normal-width card that grows in height (animated)
+// and reveals its full subtree as a bracket when opened. Siblings reflow down via
+// framer's layout animation. The subtree loads lazily (only while expanded).
+function YearTreeCard({
+  year,
+  expanded,
+  onToggle,
+  token,
+  actions,
+  tone,
+  onMoveUp,
+  onMoveDown,
+}: {
+  year: AcademicYear;
+  expanded: boolean;
+  onToggle: () => void;
+  token: string | null;
+  actions: TreeActions;
+  tone: { top: string; iconWrapper: string };
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+}) {
+  const treeQ = useQuery<YearTreeData>({
+    queryKey: ["admin", "academic", "tree", year.id],
+    queryFn: () => apiFetch(token, `/admin/academic/years/${year.id}/tree`),
+    enabled: !!token && expanded,
+  });
+  const subjects = treeQ.data?.subjects ?? [];
+  const dragScroll = useDragScroll();
+
+  return (
+    <motion.div
+      layout="position"
+      transition={{ duration: 0.3, ease: "easeInOut" }}
+      className={`glass-card no-lift relative overflow-hidden ${!year.isPublished ? "opacity-75" : ""}`}
+    >
+      <div className={`absolute inset-x-0 top-0 h-1 ${tone.top}`} />
+      <div className="p-4 flex items-center gap-3">
+        <button
+          onClick={onToggle}
+          className="w-8 h-8 rounded-xl bg-primary text-white flex items-center justify-center flex-shrink-0 hover:opacity-90"
+          aria-label={expanded ? "طي السنة" : "فتح السنة"}
+        >
+          <motion.span animate={{ rotate: expanded ? 0 : -90 }} transition={{ duration: 0.2 }} className="flex">
+            <ChevronDown className="w-4 h-4" />
+          </motion.span>
+        </button>
+        <div className={`w-10 h-10 rounded-xl border bg-muted/50 flex items-center justify-center flex-shrink-0 ${tone.iconWrapper}`}>
+          <GraduationCap className="w-5 h-5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-bold text-foreground truncate">{year.name}</h3>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${year.isPublished ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+              {year.isPublished ? "منشور" : "مسودة"}
+            </span>
+          </div>
+          {year.description ? <p className="text-xs text-muted-foreground mt-0.5 truncate">{year.description}</p> : null}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {onMoveUp ? (
+            <button onClick={onMoveUp} className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center hover:bg-muted/80">
+              <ArrowUp className="w-3.5 h-3.5" />
+            </button>
+          ) : null}
+          {onMoveDown ? (
+            <button onClick={onMoveDown} className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center hover:bg-muted/80">
+              <ArrowDown className="w-3.5 h-3.5" />
+            </button>
+          ) : null}
+          <button onClick={() => actions.editYear(year)} className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center hover:bg-primary/20">
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => actions.togglePublish("year", year.id, !year.isPublished)}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center ${year.isPublished ? "bg-emerald-100 text-emerald-600" : "bg-gray-100 text-gray-500"}`}
+          >
+            {year.isPublished ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            onClick={() => {
+              if (confirm("هل أنت متأكد من الحذف؟")) actions.remove("year", year.id);
+            }}
+            className="w-7 h-7 rounded-lg bg-red-100 text-red-600 flex items-center justify-center hover:bg-red-200"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <AnimatePresence initial={false}>
+        {expanded ? (
+          <motion.div
+            key="body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-white/50 px-3 pb-4 pt-1">
+              {treeQ.isLoading ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">جارِ تحميل الشجرة…</div>
+              ) : subjects.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">لا توجد مواد داخل هذه السنة بعد.</div>
+              ) : (
+                <div
+                  className="acad-tree"
+                  dir="rtl"
+                  ref={dragScroll.setRef}
+                  onPointerDown={dragScroll.onPointerDown}
+                  onPointerMove={dragScroll.onPointerMove}
+                  onPointerUp={dragScroll.onPointerUp}
+                  onPointerCancel={dragScroll.onPointerCancel}
+                  onClickCapture={dragScroll.onClickCapture}
+                >
+                  <ul>
+                    {subjects.map((subject) => (
+                      <li key={subject.id}>
+                        <TreeNodeCard
+                          icon={<span className="text-lg leading-none">{subject.icon || "📚"}</span>}
+                          title={subject.name}
+                          subtitle={subject.description}
+                          isPublished={subject.isPublished}
+                          accentClass="bg-blue-400/60"
+                          badge={
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold truncate">
+                              {getUnitLabelCopy(subject.unitLabel).plural}
+                            </span>
+                          }
+                          onClick={() => actions.gotoSubject(subject, { yearId: year.id, yearName: year.name })}
+                        />
+                        {subject.units.length ? (
+                          <ul>
+                            {subject.units.map((unit) => (
+                              <li key={unit.id}>
+                                {/* Unit card stays centered under the connector; the exam
+                                    card sits on its left. An equal-width spacer on the right
+                                    keeps the unit card dead-centre (so the tree line still
+                                    hits it, not the pair). */}
+                                <div className="acad-unit-row">
+                                  {unit.exam ? <div className="acad-unit-spacer" aria-hidden="true" /> : null}
+                                  <TreeNodeCard
+                                    icon={<Layers className="w-4 h-4 text-sky-500" />}
+                                    title={unit.name}
+                                    subtitle={unit.description}
+                                    isPublished={unit.isPublished}
+                                    accentClass="bg-sky-400/60"
+                                    onClick={() =>
+                                      actions.gotoUnit(unit, {
+                                        yearId: year.id,
+                                        subjectId: subject.id,
+                                        subjectName: subject.name,
+                                        yearName: year.name,
+                                        unitLabel: normalizeUnitLabel(subject.unitLabel),
+                                      })
+                                    }
+                                  />
+                                  {unit.exam ? (
+                                    <TreeExamCard
+                                      reviewOpen={unit.exam.reviewPublished}
+                                      adaptiveOpen={unit.exam.adaptivePublished}
+                                      onClick={() =>
+                                        actions.gotoExam(unit, {
+                                          yearId: year.id,
+                                          subjectId: subject.id,
+                                          subjectName: subject.name,
+                                          yearName: year.name,
+                                          unitLabel: normalizeUnitLabel(subject.unitLabel),
+                                          unitName: unit.name,
+                                        })
+                                      }
+                                    />
+                                  ) : null}
+                                </div>
+                                {unit.lessons.length ? (
+                                  <ul>
+                                    {unit.lessons.map((lesson) => (
+                                      <li key={lesson.id}>
+                                        <TreeNodeCard
+                                          icon={<PlayCircle className="w-4 h-4 text-emerald-500" />}
+                                          title={lesson.title}
+                                          subtitle={lesson.video ? (lesson.video.videoType === "youtube" ? "YouTube" : "رفع") : "بلا فيديو"}
+                                          isPublished={lesson.isPublished}
+                                          accentClass="bg-emerald-400/60"
+                                          onClick={() =>
+                                            actions.gotoLesson(lesson, {
+                                              yearId: year.id,
+                                              subjectId: subject.id,
+                                              unitId: unit.id,
+                                              unitName: unit.name,
+                                              subjectName: subject.name,
+                                              yearName: year.name,
+                                              unitLabel: normalizeUnitLabel(subject.unitLabel),
+                                            })
+                                          }
+                                        />
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
 export function AcademicTab() {
   const qc = useQueryClient();
   const { token } = useAuth();
 
   const [crumbs, setCrumbs] = useState<Breadcrumb[]>([{ level: "years", label: "السنوات الدراسية" }]);
   const [showAdd, setShowAdd] = useState(false);
+  // Two ways to view the hierarchy: nested drill-down cards (default) or a
+  // top-down bracket/grid where a year expands to its whole subtree. Persisted.
+  const [viewMode, setViewMode] = useState<"cards" | "grid">(() =>
+    typeof window !== "undefined" && window.localStorage.getItem("acad-view-mode") === "grid" ? "grid" : "cards",
+  );
+  const [expandedYearId, setExpandedYearId] = useState<number | null>(null);
+  useEffect(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem("acad-view-mode", viewMode);
+  }, [viewMode]);
 
   const [yearForm, setYearForm] = useState({ name: "", nameEn: "", description: "", descriptionEn: "" });
   const [yearFormMode, setYearFormMode] = useState<"create" | "edit">("create");
@@ -646,6 +1103,16 @@ export function AcademicTab() {
   const [lessonFormMode, setLessonFormMode] = useState<"create" | "edit">("create");
   const [editingLessonId, setEditingLessonId] = useState<number | null>(null);
   const [lastSavedLesson, setLastSavedLesson] = useState<{ id: number; title: string; videoId?: number | null } | null>(null);
+  // Quiz questions edited with the lesson (on their own page, saved together in one "save").
+  const [lessonQuestions, setLessonQuestions] = useState<LocalQuestion[]>([]);
+  const [lessonQuizCount, setLessonQuizCount] = useState<number | null>(null);
+  const [lessonQuizLanguage, setLessonQuizLanguage] = useState<"ar" | "en">("ar");
+  // v2 Phase 2 — per-video quiz watch-gate: lock the quiz until the student has really
+  // watched `percent`% of the video (playback coverage, not seek position).
+  const [lessonQuizWatchGateEnabled, setLessonQuizWatchGateEnabled] = useState(false);
+  const [lessonQuizWatchGatePercent, setLessonQuizWatchGatePercent] = useState(75);
+  const [draftRestored, setDraftRestored] = useState(false);
+  const [showQuestionsPage, setShowQuestionsPage] = useState(false);
   const [isSavingLesson, setIsSavingLesson] = useState(false);
   const [detectedDurationSeconds, setDetectedDurationSeconds] = useState<number | null>(null);
   const [isDurationDetecting, setIsDurationDetecting] = useState(false);
@@ -658,7 +1125,9 @@ export function AcademicTab() {
   const addToggleRef = useRef<HTMLButtonElement | null>(null);
 
   const current = crumbs[crumbs.length - 1];
-  const currentUnitCopy = getUnitLabelCopy(current.unitLabel);
+  // The unit-label term (فصل/وحدة/باب) lives on the units-level crumb; at the lessons
+  // level fall back to the nearest crumb that carries it so labels stay correct.
+  const currentUnitCopy = getUnitLabelCopy(current.unitLabel ?? [...crumbs].reverse().find((c) => c.unitLabel)?.unitLabel);
 
   const yearsQ = useQuery<AcademicYear[]>({
     queryKey: ["admin", "academic", "years"],
@@ -684,11 +1153,42 @@ export function AcademicTab() {
     enabled: !!token && !!current.unitId,
   });
 
+  // v2 Phase 2 — does this chapter already have an exam row? Drives the "add exam"
+  // button (hidden once created) + the distinguished exam card at the bottom of the
+  // lessons list. `showExam` opens the exam-settings panel (create or edit).
+  const [showExam, setShowExam] = useState(false);
+  // When you click a node in the grid, we jump to the cards view at its level and
+  // briefly flash that card (a "here it is" highlight among its siblings).
+  const [flash, setFlash] = useState<{ kind: NodeKind; id: number } | null>(null);
+  const unitExamQ = useQuery<{ exam: { reviewPublished?: boolean; adaptivePublished?: boolean } | null }>({
+    queryKey: ["admin", "academic", "unit-exam", current.unitId],
+    queryFn: () => apiFetch(token, `/admin/units/${current.unitId}/exam`),
+    enabled: !!token && !!current.unitId && current.level === "lessons",
+  });
+  const examExists = !!unitExamQ.data?.exam;
+  const examReviewOpen = !!unitExamQ.data?.exam?.reviewPublished;
+  const examAdaptiveOpen = !!unitExamQ.data?.exam?.adaptivePublished;
+
   const years = useSorted(yearsQ.data ?? []);
   const subjects = useSorted(subjectsQ.data ?? []);
   const units = useSorted(unitsQ.data ?? []);
   const lessons = useSorted(lessonsQ.data ?? []);
   const editingLesson = editingLessonId ? lessons.find((lesson) => lesson.id === editingLessonId) ?? null : null;
+
+  // Warm each year's full-tree cache as soon as the grid view is shown, so the
+  // first time a year is expanded its data is already there and the open
+  // animation grows straight to the final height (no mid-animation "jump" while
+  // the request is still in flight).
+  useEffect(() => {
+    if (viewMode !== "grid" || !token) return;
+    for (const year of years) {
+      qc.prefetchQuery({
+        queryKey: ["admin", "academic", "tree", year.id],
+        queryFn: () => apiFetch(token, `/admin/academic/years/${year.id}/tree`),
+        staleTime: 30_000,
+      });
+    }
+  }, [viewMode, years, token, qc]);
 
   // Whether the open add/edit panel has unsaved input, judged per level against
   // each form's reset/default state. Used to confirm before an outside-click close.
@@ -735,6 +1235,9 @@ export function AcademicTab() {
   // outside the toggle button, which handles its own close) confirms-then-closes.
   useEffect(() => {
     if (!showAdd) return;
+    // The lesson editor is a dedicated full page (heavy: video + segments + quiz) —
+    // it must NOT close on an outside click; the explicit "رجوع"/"إغلاق" button closes it.
+    if (current.level === "lessons") return;
     function onDocMouseDown(event: globalThis.MouseEvent) {
       const target = event.target as Node | null;
       if (!target) return;
@@ -895,6 +1398,13 @@ export function AcademicTab() {
     setLessonThumbnailFile(null);
     setLessonPosterFile(null);
     setLessonSegments([]);
+    setLessonQuestions([]);
+    setLessonQuizCount(null);
+    setLessonQuizLanguage("ar");
+    setLessonQuizWatchGateEnabled(false);
+    setLessonQuizWatchGatePercent(75);
+    setDraftRestored(false);
+    setShowQuestionsPage(false);
     setLessonFormMode("create");
     setEditingLessonId(null);
     setDetectedDurationSeconds(null);
@@ -954,7 +1464,114 @@ export function AcademicTab() {
     setDetectedDurationSeconds(lesson.video && lesson.video.duration > 0 ? lesson.video.duration : null);
     setIsDurationDetecting(false);
     setDurationDetectionError(null);
+    // Seed the quiz questions from the server (they save back together with the lesson).
+    setLessonQuestions([]);
+    setLessonQuizCount(null);
+    setLessonQuizLanguage("ar");
+    setLessonQuizWatchGateEnabled(false);
+    setLessonQuizWatchGatePercent(75);
+    setDraftRestored(false);
+    setShowQuestionsPage(false);
+    const videoId = lesson.video?.id;
+    if (videoId) {
+      void apiFetch<{
+        video: {
+          quizQuestionCount: number | null;
+          quizLanguage?: string;
+          quizWatchGateEnabled?: boolean;
+          quizWatchGatePercent?: number;
+        };
+        questions: unknown[];
+      }>(token, `/admin/videos/${videoId}/questions`)
+        .then((data) => {
+          setLessonQuestions((data.questions ?? []).map(apiQuestionToLocal));
+          setLessonQuizCount(data.video?.quizQuestionCount ?? null);
+          setLessonQuizLanguage(data.video?.quizLanguage === "en" ? "en" : "ar");
+          setLessonQuizWatchGateEnabled(Boolean(data.video?.quizWatchGateEnabled));
+          setLessonQuizWatchGatePercent(
+            typeof data.video?.quizWatchGatePercent === "number" ? data.video.quizWatchGatePercent : 75,
+          );
+        })
+        .catch(() => undefined);
+    }
     setShowAdd(true);
+  }
+
+  // ── Draft autosave: survive an accidental refresh / power cut / crash ──────────
+  // The lesson editor takes ~30 min to fill (video + many questions), so we persist
+  // the whole editor state to localStorage while it's open and offer to restore it on
+  // the next load. Uploaded file blobs can't be serialised (only their URLs), so the
+  // admin re-picks any not-yet-uploaded file — but every typed field + all questions
+  // come back. Cleared on a successful save.
+  const [pendingDraft, setPendingDraft] = useState<any | null>(null);
+
+  function clearLessonDraft() {
+    try {
+      localStorage.removeItem(LESSON_DRAFT_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // On mount: if a draft exists, surface a restore banner (don't auto-apply).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LESSON_DRAFT_KEY);
+      if (raw) setPendingDraft(JSON.parse(raw));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Persist the lesson editor continuously while it's open (debounced).
+  useEffect(() => {
+    if (!showAdd || current.level !== "lessons") return;
+    const id = window.setTimeout(() => {
+      try {
+        localStorage.setItem(
+          LESSON_DRAFT_KEY,
+          JSON.stringify({
+            savedAt: Date.now(),
+            crumbs,
+            mode: lessonFormMode,
+            editingLessonId,
+            form: lessonForm,
+            segments: lessonSegments,
+            questions: lessonQuestions,
+            quizCount: lessonQuizCount,
+            quizLanguage: lessonQuizLanguage,
+            quizWatchGateEnabled: lessonQuizWatchGateEnabled,
+            quizWatchGatePercent: lessonQuizWatchGatePercent,
+          }),
+        );
+      } catch {
+        /* ignore (e.g. quota) */
+      }
+    }, 600);
+    return () => window.clearTimeout(id);
+  }, [showAdd, current.level, crumbs, lessonFormMode, editingLessonId, lessonForm, lessonSegments, lessonQuestions, lessonQuizCount, lessonQuizLanguage, lessonQuizWatchGateEnabled, lessonQuizWatchGatePercent]);
+
+  function restoreLessonDraft() {
+    const d = pendingDraft;
+    if (!d) return;
+    if (Array.isArray(d.crumbs)) setCrumbs(d.crumbs);
+    if (d.form) setLessonForm(d.form);
+    setLessonSegments(Array.isArray(d.segments) ? d.segments : []);
+    setLessonQuestions(Array.isArray(d.questions) ? d.questions : []);
+    setLessonQuizCount(d.quizCount ?? null);
+    setLessonQuizLanguage(d.quizLanguage === "en" ? "en" : "ar");
+    setLessonQuizWatchGateEnabled(Boolean(d.quizWatchGateEnabled));
+    setLessonQuizWatchGatePercent(typeof d.quizWatchGatePercent === "number" ? d.quizWatchGatePercent : 75);
+    setLessonFormMode(d.mode === "edit" ? "edit" : "create");
+    setEditingLessonId(d.editingLessonId ?? null);
+    setDetectedDurationSeconds(null);
+    setDraftRestored(true);
+    setShowAdd(true);
+    setPendingDraft(null);
+  }
+  function discardLessonDraft() {
+    clearLessonDraft();
+    setPendingDraft(null);
   }
 
   // Deep-link entry: the dashboard "videos without segments" alert stashes the target
@@ -1167,27 +1784,43 @@ export function AcademicTab() {
         },
       };
 
+      let savedLesson: Lesson;
       if (lessonFormMode === "create") {
         payload.orderIndex = lessons.length;
-        const savedLesson = await apiFetch<Lesson>(token, `/admin/academic/units/${current.unitId}/lessons`, {
+        savedLesson = await apiFetch<Lesson>(token, `/admin/academic/units/${current.unitId}/lessons`, {
           method: "POST",
           body: JSON.stringify(payload),
         });
         upsertLessonInCache(current.unitId, savedLesson);
-        setLastSavedLesson({ id: savedLesson.id, title: savedLesson.title, videoId: savedLesson.video?.id ?? null });
       } else {
         if (!editingLessonId) {
           throw new Error("تعذر تحديد الدرس المطلوب تعديله");
         }
-        const savedLesson = await apiFetch<Lesson>(token, `/admin/academic/lessons/${editingLessonId}`, {
+        savedLesson = await apiFetch<Lesson>(token, `/admin/academic/lessons/${editingLessonId}`, {
           method: "PUT",
           body: JSON.stringify(payload),
         });
         upsertLessonInCache(savedLesson.unitId, savedLesson);
-        setLastSavedLesson({ id: savedLesson.id, title: savedLesson.title, videoId: savedLesson.video?.id ?? null });
+      }
+      setLastSavedLesson({ id: savedLesson.id, title: savedLesson.title, videoId: savedLesson.video?.id ?? null });
+
+      // Save the quiz questions + settings together with the lesson (one save).
+      const savedVideoId = savedLesson.video?.id;
+      if (savedVideoId) {
+        await apiFetch(token, `/admin/videos/${savedVideoId}/questions`, {
+          method: "PUT",
+          body: JSON.stringify({
+            quizQuestionCount: lessonQuizCount,
+            quizLanguage: lessonQuizLanguage,
+            quizWatchGateEnabled: lessonQuizWatchGateEnabled,
+            quizWatchGatePercent: lessonQuizWatchGatePercent,
+            questions: lessonQuestions.map(localQuestionToPayload),
+          }),
+        });
       }
 
       invalidateAcademic();
+      clearLessonDraft();
       resetLessonForm();
       setShowAdd(false);
     } catch (err) {
@@ -1197,6 +1830,98 @@ export function AcademicTab() {
     }
   }
 
+  // Actions for the grid/tree nodes. Edits reuse the existing per-level editor
+  // panel by first pointing the breadcrumb path at the node's level (so the right
+  // form renders), then opening it. Publish/delete/reorder are direct API calls.
+  const treeActions: TreeActions = {
+    editYear: (year) => {
+      setCrumbs([{ level: "years", label: "السنوات الدراسية" }]);
+      openYearEditor(year);
+    },
+    editSubject: (subject, ctx) => {
+      setCrumbs([
+        { level: "years", label: "السنوات الدراسية" },
+        { level: "subjects", label: ctx.yearName, yearId: ctx.yearId },
+      ]);
+      openSubjectEditor(subject);
+    },
+    editUnit: (unit, ctx) => {
+      setCrumbs([
+        { level: "years", label: "السنوات الدراسية" },
+        { level: "subjects", label: ctx.yearName, yearId: ctx.yearId },
+        { level: "units", label: ctx.subjectName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitLabel: ctx.unitLabel },
+      ]);
+      openUnitEditor(unit);
+    },
+    editLesson: (lesson, ctx) => {
+      setCrumbs([
+        { level: "years", label: "السنوات الدراسية" },
+        { level: "subjects", label: ctx.yearName, yearId: ctx.yearId },
+        { level: "units", label: ctx.subjectName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitLabel: ctx.unitLabel },
+        { level: "lessons", label: ctx.unitName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitId: ctx.unitId },
+      ]);
+      openLessonEditor(lesson);
+    },
+    togglePublish: async (kind, id, next) => {
+      await apiFetch(token, `/admin/academic/${NODE_KIND_PATH[kind]}/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ isPublished: next }),
+      });
+      invalidateAcademic();
+    },
+    remove: async (kind, id) => {
+      await apiFetch(token, `/admin/academic/${NODE_KIND_PATH[kind]}/${id}`, { method: "DELETE" });
+      invalidateAcademic();
+    },
+    reorder: (kind, siblings, index, dir) => {
+      void moveItem(siblings, index, dir, `/admin/academic/${NODE_KIND_PATH[kind]}/reorder`);
+    },
+    gotoSubject: (subject, ctx) => {
+      setViewMode("cards");
+      setShowAdd(false);
+      setShowExam(false);
+      setCrumbs([
+        { level: "years", label: "السنوات الدراسية" },
+        { level: "subjects", label: ctx.yearName, yearId: ctx.yearId },
+      ]);
+      setFlash({ kind: "subject", id: subject.id });
+    },
+    gotoUnit: (unit, ctx) => {
+      setViewMode("cards");
+      setShowAdd(false);
+      setShowExam(false);
+      setCrumbs([
+        { level: "years", label: "السنوات الدراسية" },
+        { level: "subjects", label: ctx.yearName, yearId: ctx.yearId },
+        { level: "units", label: ctx.subjectName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitLabel: ctx.unitLabel },
+      ]);
+      setFlash({ kind: "unit", id: unit.id });
+    },
+    gotoLesson: (lesson, ctx) => {
+      setViewMode("cards");
+      setShowAdd(false);
+      setShowExam(false);
+      setCrumbs([
+        { level: "years", label: "السنوات الدراسية" },
+        { level: "subjects", label: ctx.yearName, yearId: ctx.yearId },
+        { level: "units", label: ctx.subjectName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitLabel: ctx.unitLabel },
+        { level: "lessons", label: ctx.unitName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitId: ctx.unitId, unitLabel: ctx.unitLabel },
+      ]);
+      setFlash({ kind: "lesson", id: lesson.id });
+    },
+    gotoExam: (unit, ctx) => {
+      setViewMode("cards");
+      setShowAdd(false);
+      setCrumbs([
+        { level: "years", label: "السنوات الدراسية" },
+        { level: "subjects", label: ctx.yearName, yearId: ctx.yearId },
+        { level: "units", label: ctx.subjectName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitLabel: ctx.unitLabel },
+        { level: "lessons", label: ctx.unitName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitId: unit.id, unitLabel: ctx.unitLabel },
+      ]);
+      setShowExam(true);
+    },
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -1205,50 +1930,116 @@ export function AcademicTab() {
             <GraduationCap className="w-5 h-5 text-primary" />
             إدارة المحتوى الأكاديمي
           </h2>
-          <nav className="flex items-center gap-1.5 mt-2 flex-wrap">
-            {crumbs.map((crumb, i) => (
-              <span key={`${crumb.level}-${i}`} className="flex items-center gap-1">
-                {i > 0 ? <ChevronLeft className="w-3.5 h-3.5 text-muted-foreground" /> : null}
-                <button
-                  onClick={() => {
-                    setCrumbs((prev) => prev.slice(0, i + 1));
-                    setShowAdd(false);
-                  }}
-                  className={`text-sm font-semibold ${i === crumbs.length - 1 ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
-                >
-                  {crumb.label}
-                </button>
-              </span>
-            ))}
-          </nav>
+          {viewMode === "cards" ? (
+            <nav className="flex items-center gap-1.5 mt-2 flex-wrap">
+              {crumbs.map((crumb, i) => (
+                <span key={`${crumb.level}-${i}`} className="flex items-center gap-1">
+                  {i > 0 ? <ChevronLeft className="w-3.5 h-3.5 text-muted-foreground" /> : null}
+                  <button
+                    onClick={() => {
+                      setCrumbs((prev) => prev.slice(0, i + 1));
+                      setShowAdd(false);
+                      setShowExam(false);
+                    }}
+                    className={`text-sm font-semibold ${i === crumbs.length - 1 ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    {crumb.label}
+                  </button>
+                </span>
+              ))}
+            </nav>
+          ) : (
+            <p className="text-sm font-semibold text-primary mt-2">عرض شبكي · اضغط سنة لفتح شجرتها كاملة</p>
+          )}
         </div>
 
-        <button
-          ref={addToggleRef}
-          onClick={() => {
-            setShowAdd((open) => {
-              const next = !open;
-              if (next && current.level === "years") {
-                resetYearForm();
-              }
-              if (next && current.level === "subjects") {
-                resetSubjectForm();
-              }
-              if (next && current.level === "units") {
-                resetUnitForm();
-              }
-              if (next && current.level === "lessons") {
-                resetLessonForm();
-              }
-              return next;
-            });
-          }}
-          className="btn-primary text-sm py-2 px-4"
-        >
-          <Plus className="w-4 h-4" />
-          {showAdd ? "إغلاق" : "إضافة"}
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-xl bg-muted/60 p-1">
+            <button
+              type="button"
+              onClick={() => setViewMode("cards")}
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${viewMode === "cards" ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              title="عرض الكروت"
+              aria-label="عرض الكروت"
+            >
+              <List className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("grid")}
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${viewMode === "grid" ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              title="عرض شجري"
+              aria-label="عرض شجري"
+            >
+              <Network className="w-4 h-4" />
+            </button>
+          </div>
+
+          {viewMode === "cards" && current.level === "lessons" && !examExists && !showExam ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (lessons.length === 0) return;
+                setShowAdd(false);
+                setShowExam(true);
+              }}
+              disabled={lessons.length === 0}
+              title={lessons.length === 0 ? `ضيف درس واحد على الأقل الأول عشان تقدر تضيف الامتحان` : undefined}
+              className="text-sm py-2 px-4 rounded-xl font-bold inline-flex items-center gap-1.5 border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Award className="w-4 h-4" />
+              إضافة امتحان {currentUnitCopy.singular}
+            </button>
+          ) : null}
+
+          {/* While the chapter-exam panel is open, the generic "إضافة" is hidden — the
+              panel has its own "رجوع" and there's nothing to add at that point. */}
+          {showExam ? null : (
+            <button
+              ref={addToggleRef}
+              onClick={() => {
+                setShowExam(false);
+                setShowAdd((open) => {
+                  const next = !open;
+                  if (next) {
+                    if (viewMode === "grid") {
+                      // In grid mode the top "إضافة" always adds a year.
+                      setCrumbs([{ level: "years", label: "السنوات الدراسية" }]);
+                      resetYearForm();
+                    } else if (current.level === "years") {
+                      resetYearForm();
+                    } else if (current.level === "subjects") {
+                      resetSubjectForm();
+                    } else if (current.level === "units") {
+                      resetUnitForm();
+                    } else if (current.level === "lessons") {
+                      resetLessonForm();
+                    }
+                  }
+                  return next;
+                });
+              }}
+              className="btn-primary text-sm py-2 px-4"
+            >
+              <Plus className="w-4 h-4" />
+              {showAdd ? "إغلاق" : "إضافة"}
+            </button>
+          )}
+        </div>
       </div>
+
+      {pendingDraft && !showAdd ? (
+        <div className="glass-card p-3 flex items-center justify-between gap-3 flex-wrap border-amber-300/50 bg-amber-50/60">
+          <div className="flex items-center gap-2 text-sm">
+            <span>📝</span>
+            <span className="font-bold text-amber-800">فيه مسودة درس لسه ماتحفظتش — تحب تكمّلها؟</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={restoreLessonDraft} className="btn-primary text-xs py-1.5 px-3">استرجاع المسودة</button>
+            <button onClick={discardLessonDraft} className="text-xs py-1.5 px-3 rounded-lg bg-white/70 border border-white/70 font-bold text-muted-foreground hover:text-foreground">تجاهل</button>
+          </div>
+        </div>
+      ) : null}
 
       <AnimatePresence>
         {showAdd ? (
@@ -1494,9 +2285,53 @@ export function AcademicTab() {
             ) : null}
 
             {current.level === "lessons" && current.unitId ? (
+              showQuestionsPage ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap border-b border-white/40 pb-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowQuestionsPage(false)}
+                      className="flex items-center gap-1.5 text-sm font-bold text-muted-foreground hover:text-primary"
+                    >
+                      <ChevronRight className="w-4 h-4" /> رجوع لبيانات الدرس
+                    </button>
+                    <span className="text-sm font-bold text-primary">أسئلة الاختبار</span>
+                  </div>
+                  <QuizManager
+                    questions={lessonQuestions}
+                    onChange={setLessonQuestions}
+                    quizQuestionCount={lessonQuizCount}
+                    onCountChange={setLessonQuizCount}
+                    quizLanguage={lessonQuizLanguage}
+                    onLanguageChange={setLessonQuizLanguage}
+                    quizWatchGateEnabled={lessonQuizWatchGateEnabled}
+                    onWatchGateEnabledChange={setLessonQuizWatchGateEnabled}
+                    quizWatchGatePercent={lessonQuizWatchGatePercent}
+                    onWatchGatePercentChange={setLessonQuizWatchGatePercent}
+                    token={token}
+                  />
+                  <button type="button" onClick={() => setShowQuestionsPage(false)} className="btn-primary text-sm py-2 px-5">
+                    تمام — رجوع للدرس (الأسئلة بتتحفظ مع الدرس)
+                  </button>
+                </div>
+              ) : (
               <>
+                <div className="flex items-center justify-between gap-2 flex-wrap border-b border-white/40 pb-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAdd(false)}
+                    className="flex items-center gap-1.5 text-sm font-bold text-muted-foreground hover:text-primary"
+                  >
+                    <ChevronRight className="w-4 h-4" /> رجوع لقائمة الدروس
+                  </button>
+                  {draftRestored ? (
+                    <span className="text-[11px] font-bold text-amber-700 bg-amber-100 rounded-full px-2.5 py-1">📝 مسودة مستعادة (لسه ماتحفظتش)</span>
+                  ) : (
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 rounded-full px-2.5 py-1">💾 بيتحفظ تلقائي وأنت بتكتب</span>
+                  )}
+                </div>
                 <h3 className="font-bold text-foreground">
-                  {lessonFormMode === "edit" ? "تعديل الدرس + الفيديو + التقسيمات" : "إضافة درس + فيديو (داخل السياق الأكاديمي)"}
+                  {lessonFormMode === "edit" ? "تعديل الدرس + الفيديو + الأسئلة" : "إضافة درس + فيديو + أسئلة (كله مرة واحدة)"}
                 </h3>
                 <div className="rounded-xl border border-primary/15 bg-primary/10 px-3 py-2 text-xs font-bold text-primary flex flex-wrap gap-2">
                   {lessonFormMode === "edit" ? (
@@ -1861,6 +2696,18 @@ export function AcademicTab() {
                   نشر الدرس مباشرة
                 </label>
 
+                {/* v2 Phase 2 — quiz questions open on their own page; saved WITH the lesson */}
+                <button
+                  type="button"
+                  onClick={() => setShowQuestionsPage(true)}
+                  className="w-full flex items-center justify-between gap-2 px-4 py-3 rounded-xl border border-primary/25 bg-primary/5 text-primary font-bold text-sm hover:bg-primary/10"
+                >
+                  <span className="flex items-center gap-2">
+                    📝 أسئلة الاختبار{lessonQuestions.length > 0 ? ` (${lessonQuestions.length})` : ""}
+                  </span>
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
                 <button
                   onClick={submitLesson}
                   disabled={isSavingLesson || isDurationDetecting}
@@ -1875,12 +2722,36 @@ export function AcademicTab() {
                     : "حفظ الدرس والفيديو"}
                 </button>
               </>
+              )
             ) : null}
           </motion.div>
         ) : null}
       </AnimatePresence>
 
       <div className="space-y-3">
+        {viewMode === "grid" ? (
+          years.length === 0 ? (
+            <div className="glass-card p-8 text-center text-muted-foreground">لا توجد سنوات دراسية بعد.</div>
+          ) : (
+            years.map((year, index) => (
+              <YearTreeCard
+                key={year.id}
+                year={year}
+                expanded={expandedYearId === year.id}
+                onToggle={() => {
+                  setExpandedYearId((prev) => (prev === year.id ? null : year.id));
+                  setShowAdd(false);
+                }}
+                token={token}
+                actions={treeActions}
+                tone={yearItemTone(index)}
+                onMoveUp={index > 0 ? () => moveItem(years, index, "up", "/admin/academic/years/reorder") : undefined}
+                onMoveDown={index < years.length - 1 ? () => moveItem(years, index, "down", "/admin/academic/years/reorder") : undefined}
+              />
+            ))
+          )
+        ) : (
+        <>
         {current.level === "years" ? (
           years.length === 0 ? (
             <div className="glass-card p-8 text-center text-muted-foreground">لا توجد سنوات دراسية بعد.</div>
@@ -1928,6 +2799,8 @@ export function AcademicTab() {
             subjects.map((subject, index) => (
               <ItemCard
                 key={subject.id}
+                highlight={flash?.kind === "subject" && flash.id === subject.id}
+                onHighlightEnd={() => setFlash(null)}
                 icon={<span className="text-xl">{subject.icon || "📚"}</span>}
                 title={subject.name}
                 description={subject.description}
@@ -1976,6 +2849,8 @@ export function AcademicTab() {
             units.map((unit, index) => (
               <ItemCard
                 key={unit.id}
+                highlight={flash?.kind === "unit" && flash.id === unit.id}
+                onHighlightEnd={() => setFlash(null)}
                 icon={<Layers className="w-5 h-5 text-sky-500" />}
                 title={unit.name}
                 description={unit.description}
@@ -1995,15 +2870,42 @@ export function AcademicTab() {
                 onMoveUp={index > 0 ? () => moveItem(units, index, "up", "/admin/academic/units/reorder") : undefined}
                 onMoveDown={index < units.length - 1 ? () => moveItem(units, index, "down", "/admin/academic/units/reorder") : undefined}
                 onOpen={() => {
-                  setCrumbs((prev) => [...prev, { level: "lessons", label: unit.name, yearId: current.yearId, subjectId: current.subjectId, unitId: unit.id }]);
+                  setCrumbs((prev) => [...prev, { level: "lessons", label: unit.name, yearId: current.yearId, subjectId: current.subjectId, unitId: unit.id, unitLabel: current.unitLabel }]);
                   setShowAdd(false);
+                  setShowExam(false);
                 }}
               />
             ))
           )
         ) : null}
 
-        {current.level === "lessons" ? (
+        {/* v2 Phase 2 — the chapter-exam settings panel (both exams, each independent). */}
+        {current.level === "lessons" && showExam && current.unitId ? (
+          <div className="glass-card p-4 space-y-3 border-indigo-200/60">
+            <div className="flex items-center justify-between gap-2 flex-wrap border-b border-white/40 pb-2.5">
+              <h3 className="font-bold text-foreground flex items-center gap-2">
+                <Award className="w-4 h-4 text-indigo-600" /> امتحان {currentUnitCopy.singular}: {current.label}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowExam(false)}
+                className="flex items-center gap-1.5 text-sm font-bold text-muted-foreground hover:text-primary"
+              >
+                <ChevronRight className="w-4 h-4" /> رجوع لقائمة الدروس
+              </button>
+            </div>
+            <ChapterExamManager
+              unitId={current.unitId}
+              token={token}
+              unitLabelSingular={currentUnitCopy.singular}
+              onSaved={() => {
+                qc.invalidateQueries({ queryKey: ["admin", "academic", "unit-exam", current.unitId] });
+              }}
+            />
+          </div>
+        ) : null}
+
+        {current.level === "lessons" && !showAdd && !showExam ? (
           <>
             {lastSavedLesson ? (
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
@@ -2018,6 +2920,8 @@ export function AcademicTab() {
               lessons.map((lesson, index) => (
               <ItemCard
                 key={lesson.id}
+                highlight={flash?.kind === "lesson" && flash.id === lesson.id}
+                onHighlightEnd={() => setFlash(null)}
                 icon={<PlayCircle className="w-5 h-5 text-emerald-500" />}
                 title={lesson.title}
                 description={lesson.description}
@@ -2058,12 +2962,41 @@ export function AcademicTab() {
                 }}
                 onMoveUp={index > 0 ? () => moveItem(lessons, index, "up", "/admin/academic/lessons/reorder") : undefined}
                 onMoveDown={index < lessons.length - 1 ? () => moveItem(lessons, index, "down", "/admin/academic/lessons/reorder") : undefined}
-                onOpen={() => openLessonEditor(lesson)}
               />
               ))
             )}
+
+            {/* The distinguished chapter-exam card — always pinned at the bottom, once
+                the exam exists. Tap to open its settings (both exams). */}
+            {examExists ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAdd(false);
+                  setShowExam(true);
+                }}
+                className="w-full text-start rounded-2xl p-4 flex items-center gap-3 bg-gradient-to-l from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/20 hover:brightness-105 transition"
+              >
+                <span className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                  <Award className="w-5 h-5 text-white" />
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block font-bold text-[15px]">امتحان {currentUnitCopy.singular}</span>
+                  <span className="block text-[12px] text-indigo-100 mt-0.5">
+                    امتحان الاستدراك:{" "}
+                    <b className={examReviewOpen ? "text-emerald-200" : "text-indigo-200"}>{examReviewOpen ? "مفتوح" : "مقفول"}</b>
+                    {" · "}تحديك الخاص:{" "}
+                    <b className={examAdaptiveOpen ? "text-emerald-200" : "text-indigo-200"}>{examAdaptiveOpen ? "مفتوح" : "مقفول"}</b>
+                    {" · "}اضغط للإعدادات
+                  </span>
+                </span>
+                <ChevronLeft className="w-5 h-5 text-white/80 shrink-0" />
+              </button>
+            ) : null}
           </>
         ) : null}
+        </>
+        )}
       </div>
     </div>
   );
