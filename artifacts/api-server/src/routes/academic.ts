@@ -1463,8 +1463,10 @@ router.get("/me/home-feed", async (req, res) => {
       const currentSeconds = Math.min(toSeconds(r.currentSeconds, 0), cap);
       const realWatched = Math.min(toSeconds(r.watchedRealSeconds, 0), cap);
       const progressRatio = duration > 0 ? Math.min(1, realWatched / duration) : 0;
-      const completed = Boolean(r.completed) || progressRatio >= 0.9;
-      const started = realWatched > 0 || Boolean(r.lastWatchedAt);
+      // Real-coverage only (consistent with watch-history): seeking / merely opening a
+      // video doesn't mark it completed or "in progress".
+      const completed = duration > 0 && progressRatio >= 0.9;
+      const started = realWatched > 0;
       const lastWatchedMs = r.lastWatchedAt ? r.lastWatchedAt.getTime() : 0;
       const createdMs = r.lessonCreatedAt ? r.lessonCreatedAt.getTime() : 0;
       return { r, duration, currentSeconds, progressRatio, completed, started, inProgress: started && !completed, lastWatchedMs, createdMs };
@@ -1723,8 +1725,11 @@ router.get("/academic/watch-history/me", async (req, res) => {
       // the end never inflates the watch history.
       const realWatchedSeconds = Math.min(toSeconds(row.watchedRealSeconds, 0), cap);
       const progressRatio = durationSeconds > 0 ? Math.min(1, realWatchedSeconds / durationSeconds) : 0;
-      const completed = Boolean(row.completed) || progressRatio >= 0.9;
-      const wasWatched = realWatchedSeconds > 0 || Boolean(row.lastWatchedAt);
+      // Completed + watched are derived PURELY from real coverage — NOT the stored
+      // `completed` flag (which older/seek-based data can set with 0 real seconds) and NOT
+      // `lastWatchedAt` (opening a video ≠ watching it). So "2 مكتمل / 1د استمعت" can't happen.
+      const completed = durationSeconds > 0 && progressRatio >= 0.9;
+      const wasWatched = realWatchedSeconds > 0;
       const lesson: WatchLesson = {
         id: row.lessonId,
         title: row.lessonTitle,

@@ -13,7 +13,7 @@ import {
   quizAttemptsTable,
   unitExamAttemptsTable,
 } from "@workspace/db";
-import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { getSessionUser, isPrivileged, userHasSubjectAccess, parseId } from "./quiz";
 import { getGamificationSummary } from "../lib/gamification";
 
@@ -21,6 +21,24 @@ import { getGamificationSummary } from "../lib/gamification";
 // (🔎), and the student progress dashboard (📊). All student-only + subscription-scoped.
 
 const router: IRouter = Router();
+
+// Arabic-insensitive search: fold hamza/alef variants (أإآٱ→ا), ة→ه, ى→ي, ؤ→و, ئ→ي, and
+// drop tatweel + all diacritics — so "الحركه" matches "الحركة", "احياء" matches "أحياء",
+// etc. The JS + SQL versions MUST fold identically so the query and the columns line up.
+// `AR_FROM` letters map 1:1 to `AR_TO`; the trailing tatweel+diacritics have no target in
+// AR_TO, so Postgres `translate()` deletes them.
+const AR_FROM = "أإآٱةىؤئـًٌٍَُِّْ";
+const AR_TO = "ااااهيوي";
+function normalizeArabic(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[ـً-ْ]/g, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي");
+}
 
 async function requireStudentId(req: any, res: any): Promise<number | null> {
   const user = await getSessionUser(req);
@@ -228,7 +246,10 @@ router.get("/search", async (req, res) => {
 
     const q = String(req.query?.q ?? "").trim();
     if (q.length < 2) return res.json({ lessons: [] });
-    const like = `%${q}%`;
+    // Fold the query the same way we fold the columns, so Arabic spelling variants match.
+    const qNorm = normalizeArabic(q);
+    if (qNorm.length < 1) return res.json({ lessons: [] });
+    const like = `%${qNorm}%`;
 
     const subs = await db
       .select({ subjectId: subjectSubscriptionsTable.subjectId })
@@ -236,6 +257,16 @@ router.get("/search", async (req, res) => {
       .where(and(eq(subjectSubscriptionsTable.studentId, userId), eq(subjectSubscriptionsTable.status, "active")));
     const subjectIds = [...new Set(subs.map((s) => s.subjectId))];
     if (subjectIds.length === 0) return res.json({ lessons: [] });
+
+    // Normalized (Arabic-folded) column expressions, reused for both substring + fuzzy match.
+    const normTitle = sql`translate(lower(${lessonsTable.title}), ${AR_FROM}, ${AR_TO})`;
+    const normTitleEn = sql`translate(lower(coalesce(${lessonsTable.titleEn}, '')), ${AR_FROM}, ${AR_TO})`;
+    const normUnit = sql`translate(lower(${unitsTable.name}), ${AR_FROM}, ${AR_TO})`;
+    const normSubject = sql`translate(lower(${subjectsTable.name}), ${AR_FROM}, ${AR_TO})`;
+    // Trigram word-similarity (pg_trgm) → typo tolerance (الكائناث ≈ الكائنات). Best score
+    // across title/unit/subject; used to both filter and rank.
+    const FUZZ = 0.4;
+    const simScore = sql<number>`greatest(word_similarity(${qNorm}, ${normTitle}), word_similarity(${qNorm}, ${normUnit}), word_similarity(${qNorm}, ${normSubject}))`;
 
     const lessons = await db
       .select({
@@ -267,14 +298,16 @@ router.get("/search", async (req, res) => {
           inArray(unitsTable.subjectId, subjectIds),
           eq(lessonsTable.isPublished, true),
           or(
-            ilike(lessonsTable.title, like),
-            ilike(sql`coalesce(${lessonsTable.titleEn}, '')`, like),
-            ilike(unitsTable.name, like),
-            ilike(subjectsTable.name, like),
+            sql`${normTitle} ILIKE ${like}`,
+            sql`${normTitleEn} ILIKE ${like}`,
+            sql`${normUnit} ILIKE ${like}`,
+            sql`${normSubject} ILIKE ${like}`,
+            sql`${simScore} >= ${FUZZ}`,
           ),
         ),
       )
-      .orderBy(asc(subjectsTable.orderIndex), asc(unitsTable.orderIndex), asc(lessonsTable.orderIndex))
+      // Closest (fuzzy) matches first, then the natural curriculum order.
+      .orderBy(sql`${simScore} DESC`, asc(subjectsTable.orderIndex), asc(unitsTable.orderIndex), asc(lessonsTable.orderIndex))
       .limit(40);
 
     return res.json({ lessons });

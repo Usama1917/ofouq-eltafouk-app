@@ -27,6 +27,7 @@ import { LessonNotes } from "@/components/LessonNotes";
 import { BookmarkStar } from "@/components/BookmarkStar";
 import { AutoFitTitle } from "@/components/AutoFitTitle";
 import { LessonSummaryCard } from "@/components/LessonSummaryCard";
+import { LessonSegmentsCard } from "@/components/LessonSegmentsCard";
 import { QuizLessonCard } from "@/components/QuizLessonCard";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
@@ -38,6 +39,7 @@ import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import { normalizeAcademicUnitLabel } from "@/lib/academicUnitLabels";
 import { toEnglishDigits } from "@/lib/format";
 import { resolveMediaUrl } from "@/lib/media";
+import { addNote, notesQueryKey, type LessonNote } from "@/lib/engagement";
 
 const HORIZONTAL_PADDING = 18;
 
@@ -166,10 +168,20 @@ export default function LessonDetailScreen() {
   const celebratedRef = useRef(false);
   const burstAnim = useRef(new Animated.Value(0)).current;
   const [showBurst, setShowBurst] = useState(false);
-  // v2 Phase 4 — notes: track the latest watched second (for "add note here"), and a
-  // seek target that remounts the player at a note's timestamp when tapped.
+  // v2 Phase 4 — notes/segments: track the latest watched second (for "add note
+  // here"), and a stable seek handle the player registers so tapping a note or a
+  // segment jumps the SAME player instance to that second (no remount, no bug).
   const lastPositionRef = useRef(0);
-  const [noteSeek, setNoteSeek] = useState<{ at: number; k: number } | null>(null);
+  // Auto-name counter for quick "add note" taps. Seeded from the notes cache on each
+  // add + kept monotonic via the ref so rapid taps become "ملاحظة 1" then "ملاحظة 2".
+  const autoNoteSeqRef = useRef(0);
+  const playerSeekRef = useRef<((seconds: number, autoPlay?: boolean) => void) | null>(null);
+  const registerPlayerSeek = useCallback((seek: (seconds: number, autoPlay?: boolean) => void) => {
+    playerSeekRef.current = seek;
+  }, []);
+  const seekPlayerTo = useCallback((seconds: number) => {
+    playerSeekRef.current?.(seconds, true);
+  }, []);
 
   const triggerPointsBurst = useCallback(() => {
     setShowBurst(true);
@@ -208,6 +220,30 @@ export default function LessonDetailScreen() {
         .catch(() => undefined);
     },
     [lesson?.id, token, queryClient, triggerPointsBurst],
+  );
+
+  // Reset the auto-note counter when the lesson changes (the router reuses this screen).
+  useEffect(() => {
+    autoNoteSeqRef.current = 0;
+  }, [lesson?.id]);
+
+  // Create a note from the in-player button. Empty title → auto "ملاحظة N" (sequential).
+  const handleAddNote = useCallback(
+    async (atSeconds: number, title: string) => {
+      if (!token || !lesson?.id) return;
+      let finalTitle = title.trim();
+      if (!finalTitle) {
+        const existing =
+          queryClient.getQueryData<{ notes: LessonNote[] }>(notesQueryKey(lesson.id))?.notes?.length ?? 0;
+        const n = Math.max(existing, autoNoteSeqRef.current) + 1;
+        autoNoteSeqRef.current = n;
+        finalTitle = language === "en" ? `Note ${n}` : `ملاحظة ${toEnglishDigits(String(n))}`;
+      }
+      // engagement's addNote stores the text in `body` (a note has no separate title field).
+      await addNote(token, lesson.id, Math.max(0, Math.floor(atSeconds)), finalTitle);
+      await queryClient.invalidateQueries({ queryKey: notesQueryKey(lesson.id) });
+    },
+    [token, lesson?.id, language, queryClient],
   );
 
   function backToLessonsList() {
@@ -384,7 +420,7 @@ export default function LessonDetailScreen() {
             {lesson.video ? (
               <>
                 <AcademicVideoPlayer
-                  key={`${lesson.id}:${initialSeekSeconds}:${resumeFromNotification ?? ""}:${notificationId ?? ""}:${noteSeek?.k ?? ""}`}
+                  key={`${lesson.id}:${initialSeekSeconds}:${resumeFromNotification ?? ""}:${notificationId ?? ""}`}
                   videoUrl={lesson.video.videoUrl}
                   videoType={lesson.video.videoType}
                   title={localizeAcademicText(lesson.video.title, language, lesson.video.titleEn)}
@@ -394,6 +430,9 @@ export default function LessonDetailScreen() {
                   segments={lesson.video.segments ?? []}
                   belowPlayerContent={
                     <>
+                      {/* Card order (owner-specified): description → segments → notes → quiz.
+                          Each of the first three collapses with the same animation; the
+                          lesson quiz is always the last card. */}
                       <LessonSummaryCard
                         thumbnailUrl={summaryThumbnailUrl}
                         title={lesson.video.title}
@@ -407,7 +446,19 @@ export default function LessonDetailScreen() {
                         userName={user?.name ?? null}
                         userEmail={user?.email ?? null}
                       />
-                      {/* v2 Phase 2 — quiz entry card: below the description, above segments.
+                      {/* v2 — collapsible lesson segments; tap a segment to seek. */}
+                      <View style={{ marginTop: 12 }}>
+                        <LessonSegmentsCard segments={lesson.video.segments} onSeek={seekPlayerTo} />
+                      </View>
+                      {/* v2 Phase 4 — collapsible timestamped notes; tap a note to seek. */}
+                      <View style={{ marginTop: 12 }}>
+                        <LessonNotes
+                          lessonId={lesson.id}
+                          getCurrentSeconds={() => lastPositionRef.current}
+                          onSeek={seekPlayerTo}
+                        />
+                      </View>
+                      {/* v2 Phase 2 — quiz entry card: always the LAST card.
                           Shown only in the "الدروس المرئية" (videos) tab per the owner's choice. */}
                       {routeBase === "/(tabs)/videos" ? (
                         <View style={{ marginTop: 12 }}>
@@ -417,19 +468,15 @@ export default function LessonDetailScreen() {
                           />
                         </View>
                       ) : null}
-                      {/* v2 Phase 4 — timestamped notes under the video. */}
-                      <LessonNotes
-                        lessonId={lesson.id}
-                        getCurrentSeconds={() => lastPositionRef.current}
-                        onSeek={(s) => setNoteSeek((prev) => ({ at: s, k: (prev?.k ?? 0) + 1 }))}
-                      />
                     </>
                   }
                   watermarkText={user
                     ? `${localizeAcademicText(user.name, language).trim().split(/\s+/)[0]} · ${toEnglishDigits(user.phone || user.email)}`
                     : undefined}
-                  initialSeekSeconds={noteSeek ? noteSeek.at : initialSeekSeconds}
-                  autoPlayOnLoad={noteSeek ? true : shouldAutoResume}
+                  initialSeekSeconds={initialSeekSeconds}
+                  autoPlayOnLoad={shouldAutoResume}
+                  registerSeek={registerPlayerSeek}
+                  onAddNote={handleAddNote}
                   onProgressUpdate={reportLessonProgress}
                 />
               </>

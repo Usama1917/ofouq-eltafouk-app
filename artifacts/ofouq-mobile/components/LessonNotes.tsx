@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { useState } from "react";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
+import { CollapsibleCard } from "@/components/CollapsibleCard";
 import { COLORS } from "@/constants/colors";
 import { FONT } from "@/constants/typography";
 import { useAuth } from "@/contexts/AuthContext";
@@ -19,8 +20,9 @@ function fmtTime(sec: number): string {
   return h > 0 ? `${toEnglishDigits(String(h))}:${two(m)}:${two(r)}` : `${toEnglishDigits(String(m))}:${two(r)}`;
 }
 
-// v2 Phase 4 — timestamped notes under the video. Adding a note captures the last
-// watched second; tapping a note's time chip seeks the player there. Private per student.
+// v2 Phase 4 — timestamped notes, now a collapsible card (under the segments card).
+// Adding a note captures the last watched second; tapping a note's time chip seeks
+// the player there. Private per student. The card shows all notes (no cap).
 export function LessonNotes({
   lessonId,
   getCurrentSeconds,
@@ -113,26 +115,16 @@ export function LessonNotes({
   };
 
   return (
-    <View style={[styles.wrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <View style={[styles.header, { direction: "ltr", flexDirection: en ? "row" : "row-reverse" }]}>
-        <View style={[styles.headerLeft, { flexDirection: en ? "row" : "row-reverse" }]}>
-          <Feather name="edit-3" size={17} color={COLORS.primary} />
-          <Text style={[styles.title, { color: colors.text, writingDirection: direction }]}>{en ? "My notes" : "ملاحظاتي"}</Text>
-          {notes.length > 0 ? (
-            <View style={styles.countPill}>
-              <Text style={styles.countText}>{toEnglishDigits(String(notes.length))}</Text>
-            </View>
-          ) : null}
-        </View>
-        {!adding ? (
-          <Pressable onPress={startAdd} style={({ pressed }) => [styles.addBtn, { opacity: pressed ? 0.85 : 1, flexDirection: en ? "row" : "row-reverse" }]}>
-            <Feather name="plus" size={15} color="#fff" />
-            <Text style={styles.addBtnText}>{en ? "Add note" : "أضف ملاحظة"}</Text>
-          </Pressable>
-        ) : null}
-      </View>
-
-      {adding ? (
+    <CollapsibleCard icon="edit-3" title={en ? "My notes" : "ملاحظاتي"} count={notes.length}>
+      {!adding ? (
+        <Pressable
+          onPress={startAdd}
+          style={({ pressed }) => [styles.addBtnFull, { opacity: pressed ? 0.85 : 1, flexDirection: en ? "row" : "row-reverse" }]}
+        >
+          <Feather name="plus" size={15} color="#fff" />
+          <Text style={styles.addBtnText}>{en ? "Add note" : "أضف ملاحظة"}</Text>
+        </Pressable>
+      ) : (
         <View style={styles.addBox}>
           <View style={[styles.timeChip, { alignSelf: en ? "flex-start" : "flex-end" }]}>
             <Feather name="clock" size={12} color={COLORS.primary} />
@@ -156,12 +148,12 @@ export function LessonNotes({
             </Pressable>
           </View>
         </View>
-      ) : null}
+      )}
 
       {isLoading ? (
         <ActivityIndicator color={COLORS.primary} style={{ marginVertical: 14 }} />
       ) : notes.length === 0 && !adding ? (
-        <Text style={[styles.empty, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+        <Text style={[styles.empty, { color: colors.textSecondary, writingDirection: direction }]}>
           {en ? "No notes yet — jot down key moments while you watch." : "لسه مفيش ملاحظات — دوّن اللحظات المهمة وإنت بتتفرّج."}
         </Text>
       ) : (
@@ -209,27 +201,28 @@ export function LessonNotes({
           ))}
         </View>
       )}
-    </View>
+    </CollapsibleCard>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { borderRadius: 16, borderWidth: 1, padding: 14, marginTop: 12 },
-  header: { alignItems: "center", justifyContent: "space-between" },
-  headerLeft: { alignItems: "center", gap: 8 },
-  title: { ...FONT.bold, fontSize: 15 },
-  countPill: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: COLORS.primary + "1A", alignItems: "center", justifyContent: "center" },
-  countText: { ...FONT.bold, fontSize: 11, color: COLORS.primary },
-  addBtn: { alignItems: "center", gap: 5, backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 7 },
-  addBtnText: { ...FONT.bold, fontSize: 12.5, color: "#fff" },
-  addBox: { marginTop: 10, gap: 8 },
+  addBtnFull: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 11,
+  },
+  addBtnText: { ...FONT.bold, fontSize: 13.5, color: "#fff" },
+  addBox: { gap: 8 },
   input: { minHeight: 44, borderRadius: 11, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 9, ...FONT.regular, fontSize: 14, lineHeight: 20 },
   addActions: { alignItems: "center", justifyContent: "flex-end", gap: 8 },
   cancelBtn: { paddingHorizontal: 12, paddingVertical: 8 },
   cancelText: { ...FONT.bold, fontSize: 13 },
   saveBtn: { backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 18, paddingVertical: 8, minWidth: 64, alignItems: "center" },
   saveText: { ...FONT.bold, fontSize: 13, color: "#fff" },
-  empty: { ...FONT.regular, fontSize: 13, lineHeight: 20, marginTop: 10 },
+  empty: { ...FONT.regular, fontSize: 13, lineHeight: 20, marginTop: 10, textAlign: "center" },
   note: { alignItems: "flex-start", gap: 9, borderRadius: 12, borderWidth: 1, padding: 10 },
   timeChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: COLORS.primary + "14", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
   timeChipTappable: { marginTop: 1 },

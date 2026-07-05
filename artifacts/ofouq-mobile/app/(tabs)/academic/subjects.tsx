@@ -18,6 +18,7 @@ import { toEnglishDigits } from "@/lib/format";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AutoFitTitle } from "@/components/AutoFitTitle";
+import { SearchButton } from "@/components/SearchButton";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
@@ -326,7 +327,8 @@ export default function SubjectsScreen() {
           ]}
         />
         <View style={[styles.topBarContent, { paddingHorizontal: 18 }]}>
-          <View style={styles.backCornerRow}>
+          {/* Back button: pinned to the physical LEFT, on its own row at the top. */}
+          <View style={[styles.backCornerRow, { direction: "ltr", alignItems: "flex-start" }]}>
             <Pressable
               onPress={backToYears}
               hitSlop={8}
@@ -346,22 +348,27 @@ export default function SubjectsScreen() {
             </Pressable>
           </View>
 
-          <View style={[styles.titleRow, { flexDirection: rowDirection, direction }]}>
-            <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
-              <Feather name="book-open" size={23} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
-            </View>
-            <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-              <AutoFitTitle
-                style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}
-                maxFontSize={28}
-                minFontSize={18}
-                maxLines={2}
-              >
-                {displayTitle}
-              </AutoFitTitle>
-              <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                {strings.academic.chooseSubject}
-              </Text>
+          {/* Row below: search on the LEFT (under the back button), title + its icon on the
+              RIGHT — the search sits on the same line as the title icon. */}
+          <View style={{ direction: "ltr", flexDirection: "row", alignItems: "center", gap: 12, marginTop: 10 }}>
+            <SearchButton />
+            <View style={[styles.titleRow, { flex: 1, flexDirection: rowDirection, direction }]}>
+              <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+                <Feather name="book-open" size={23} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+              </View>
+              <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                <AutoFitTitle
+                  style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}
+                  maxFontSize={21}
+                  minFontSize={16}
+                  maxLines={2}
+                >
+                  {displayTitle}
+                </AutoFitTitle>
+                <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                  {strings.academic.chooseSubject}
+                </Text>
+              </View>
             </View>
           </View>
         </View>
@@ -524,8 +531,8 @@ const styles = StyleSheet.create({
   title: {
     flexShrink: 1,
     ...FONT.bold,
-    fontSize: 28,
-    lineHeight: 40,
+    fontSize: 21,
+    lineHeight: 30,
     textAlign: "right",
   },
   subtitle: {

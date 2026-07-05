@@ -24,6 +24,7 @@ import {
   StyleSheet,
   StyleProp,
   Text,
+  TextInput,
   View,
   ViewStyle,
   useWindowDimensions,
@@ -66,6 +67,12 @@ type AcademicVideoPlayerProps = {
   watermarkText?: string;
   initialSeekSeconds?: number | null;
   autoPlayOnLoad?: boolean;
+  // Hands the host a stable seek handle so cards rendered in `belowPlayerContent`
+  // (notes / segments) can jump the SAME player instance to a second — no remount.
+  registerSeek?: (seek: (seconds: number, autoPlay?: boolean) => void) => void;
+  // In-player "add note" button (quick tap = instant, long-press = titled card).
+  // Host persists it (maps `title` → the note body) + owns the sequential name.
+  onAddNote?: (atSeconds: number, title: string) => Promise<void>;
   onProgressUpdate?: (progress: {
     currentTime: number;
     duration: number;
@@ -717,6 +724,8 @@ export function AcademicVideoPlayer({
   watermarkText,
   initialSeekSeconds,
   autoPlayOnLoad = false,
+  registerSeek,
+  onAddNote,
   onProgressUpdate,
 }: AcademicVideoPlayerProps) {
   const { colors, language, strings, isRTL, direction, textAlign, rowDirection } = usePreferences();
@@ -759,6 +768,9 @@ export function AcademicVideoPlayer({
   const initialSeekAppliedRef = useRef(false);
   const autoPlayInitialSeekAppliedRef = useRef(false);
   const onProgressUpdateRef = useRef(onProgressUpdate);
+  // Always points at the latest `seekTo` closure so the handle we hand the host
+  // (via registerSeek) never goes stale on `isFullscreen`/`isPlaying`.
+  const seekHandleRef = useRef<(seconds: number, autoPlay?: boolean) => void>(() => {});
   const progressSnapshotRef = useRef({
     currentTime: 0,
     duration: 0,
@@ -802,6 +814,19 @@ export function AcademicVideoPlayer({
   // review F-18: holds the pending hide-timeout id so we can clear the previous one
   // before scheduling a new toast and clear it on unmount (no setState-after-unmount).
   const seekToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── In-player notes: quick-tap toast + long-press morph card ─────────────────
+  // "Note added" confirmation. Opacity-driven + always mounted → no setState runs
+  // in an async callback (only clearTimeout cleanup needed, like the seek toast).
+  const noteToastOpacity = useRef(new Animated.Value(0)).current;
+  const noteToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Long-press morph: 0 = round button (at its own spot), 1 = full card (centred).
+  const noteMorph = useRef(new Animated.Value(0)).current;
+  const noteBtnRef = useRef<View>(null);
+  const [noteBtnRect, setNoteBtnRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [noteCardOpen, setNoteCardOpen] = useState(false);
+  const [noteCardTime, setNoteCardTime] = useState(0);
+  const [noteTitleDraft, setNoteTitleDraft] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Bumping this remounts the media source so a failed load can be retried.
   const [reloadKey, setReloadKey] = useState(0);
@@ -897,12 +922,34 @@ export function AcademicVideoPlayer({
       }))
       .sort((a, b) => (a.startSeconds - b.startSeconds) || ((a.orderIndex ?? 0) - (b.orderIndex ?? 0)));
   }, [segments]);
-  const segmentCountLabel = `${toEnglishDigits(normalizedSegments.length)} ${
-    normalizedSegments.length === 1 ? strings.academic.segmentItem : strings.academic.segmentItems
-  }`;
 
   const displayedTime = scrubTime ?? currentTime;
   const watermarkLabel = watermarkText ? `${watermarkText} · ${clockText}` : null;
+
+  // ── Note-card morph geometry (single `noteMorph` value drives all of it) ──────
+  // 0 = the round button at its measured on-screen spot; 1 = the full card centred.
+  // The button flies to centre AND grows into the card on one value; close reverses.
+  const NOTE_BTN_SIZE = 46;
+  const NOTE_CARD_H = 176;
+  // Cap so the card always fits (landscape phones + notch insets); 320 is target.
+  const noteCardTargetW = Math.max(220, Math.min(320, width - insets.left - insets.right - 32));
+  const noteStartX = noteBtnRect ? noteBtnRect.x : (width - NOTE_BTN_SIZE) / 2;
+  const noteStartY = noteBtnRect ? noteBtnRect.y : height - 120;
+  const noteStartW = noteBtnRect ? noteBtnRect.w : NOTE_BTN_SIZE;
+  const noteStartH = noteBtnRect ? noteBtnRect.h : NOTE_BTN_SIZE;
+  const noteTargetX = (width - noteCardTargetW) / 2;
+  const noteTargetY = (height - NOTE_CARD_H) / 2;
+  const noteCardLeft = noteMorph.interpolate({ inputRange: [0, 1], outputRange: [noteStartX, noteTargetX] });
+  const noteCardTop = noteMorph.interpolate({ inputRange: [0, 1], outputRange: [noteStartY, noteTargetY] });
+  const noteCardWidth = noteMorph.interpolate({ inputRange: [0, 1], outputRange: [noteStartW, noteCardTargetW] });
+  const noteCardHeight = noteMorph.interpolate({ inputRange: [0, 1], outputRange: [noteStartH, NOTE_CARD_H] });
+  const noteCardRadius = noteMorph.interpolate({ inputRange: [0, 1], outputRange: [noteStartW / 2, 22] });
+  // Background morphs from the blue button to the themed card in the first half.
+  const noteCardBg = noteMorph.interpolate({ inputRange: [0, 0.5], outputRange: [COLORS.primary, colors.card], extrapolate: "clamp" });
+  const noteContentOpacity = noteMorph.interpolate({ inputRange: [0, 0.55, 1], outputRange: [0, 0, 1] });
+  const noteSeedIconOpacity = noteMorph.interpolate({ inputRange: [0, 0.3], outputRange: [1, 0], extrapolate: "clamp" });
+  const noteScrimOpacity = noteMorph.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] });
+  const canSaveNote = noteTitleDraft.trim().length > 0 && !noteSaving;
   const segmentPanelWidth = isLandscapeFullscreen ? landscapeSegmentPanelWidth : Math.max(1, width - 36);
   // Lift the panel above the Android system navigation bar / gesture area so its
   // bottom rows are never covered (portrait fullscreen, the reported case).
@@ -1100,6 +1147,13 @@ export function AcademicVideoPlayer({
     onProgressUpdateRef.current = onProgressUpdate;
   }, [onProgressUpdate]);
 
+  // Keep the seek handle fresh every render, and register the stable wrapper once.
+  seekHandleRef.current = seekTo;
+  useEffect(() => {
+    if (!registerSeek) return;
+    registerSeek((seconds, autoPlay = true) => seekHandleRef.current(seconds, autoPlay));
+  }, [registerSeek]);
+
   useEffect(() => {
     progressSnapshotRef.current = {
       currentTime,
@@ -1265,6 +1319,14 @@ export function AcademicVideoPlayer({
   useEffect(
     () => () => {
       if (seekToastTimerRef.current) clearTimeout(seekToastTimerRef.current);
+    },
+    [],
+  );
+
+  // Cancel the pending note-toast hide timer on unmount.
+  useEffect(
+    () => () => {
+      if (noteToastTimerRef.current) clearTimeout(noteToastTimerRef.current);
     },
     [],
   );
@@ -1485,6 +1547,77 @@ export function AcademicVideoPlayer({
   function seekBy(delta: number) {
     showSeekToast(delta > 0 ? "+10s" : "-10s");
     void seekTo(currentTime + delta, isPlaying);
+  }
+
+  // ── In-player notes ──────────────────────────────────────────────────────────
+  function showNoteToast() {
+    if (noteToastTimerRef.current) clearTimeout(noteToastTimerRef.current);
+    Animated.timing(noteToastOpacity, { toValue: 1, duration: 150, useNativeDriver: true }).start();
+    noteToastTimerRef.current = setTimeout(() => {
+      noteToastTimerRef.current = null;
+      Animated.timing(noteToastOpacity, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+    }, 1300);
+  }
+
+  // Quick tap → instant note at the current second (host auto-names it).
+  function handleQuickNote() {
+    if (!onAddNote) return;
+    void onAddNote(Math.max(0, Math.floor(currentTime)), "");
+    showNoteToast();
+  }
+
+  // Long press → pause, measure the button's on-screen spot, then fly it to the
+  // centre while it morphs into the card (the interpolations start from this rect).
+  function handleNoteLongPress() {
+    if (!onAddNote) return;
+    const pressTime = Math.max(0, Math.floor(currentTime));
+    void pause();
+    const node = noteBtnRef.current;
+    if (node) {
+      node.measureInWindow((x, y, w, h) => {
+        setNoteBtnRect(typeof x === "number" && w > 0 ? { x, y, w, h } : null);
+        openNoteCard(pressTime);
+      });
+    } else {
+      setNoteBtnRect(null);
+      openNoteCard(pressTime);
+    }
+  }
+
+  // Grow the round note button into the card over ~1000ms. Layout props
+  // (width/height/borderRadius) → the native driver CANNOT be used here.
+  function openNoteCard(pressTime: number) {
+    setNoteCardTime(pressTime);
+    setNoteTitleDraft("");
+    setNoteSaving(false);
+    setNoteCardOpen(true);
+    noteMorph.setValue(0);
+    // Quick fly-to-centre + grow. out-cubic = fast off the mark, eases into place.
+    Animated.timing(noteMorph, { toValue: 1, duration: 620, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+  }
+
+  function closeNoteCard() {
+    // Reverse: shrink back into the button and fly home (mirror of the open).
+    Animated.timing(noteMorph, { toValue: 0, duration: 560, easing: Easing.in(Easing.cubic), useNativeDriver: false }).start(({ finished }) => {
+      if (finished) {
+        setNoteCardOpen(false);
+        setNoteTitleDraft("");
+        setNoteSaving(false);
+      }
+    });
+  }
+
+  async function saveNote() {
+    const title = noteTitleDraft.trim();
+    if (!title || noteSaving || !onAddNote) return;
+    setNoteSaving(true);
+    try {
+      await onAddNote(noteCardTime, title);
+      showNoteToast();
+      closeNoteCard();
+    } catch {
+      setNoteSaving(false); // keep the card open so the student can retry
+    }
   }
 
   function handleSurfacePress(event: GestureResponderEvent) {
@@ -1959,6 +2092,11 @@ export function AcademicVideoPlayer({
           </View>
         ) : null}
 
+        {/* Floating "note added" confirmation (always mounted, opacity-driven). */}
+        <Animated.View pointerEvents="none" style={[styles.noteToast, { top: insets.top + 14, opacity: noteToastOpacity }]}>
+          <Text style={styles.noteToastText}>{strings.academic.noteAddedToast}</Text>
+        </Animated.View>
+
         {error ? (
           <View style={styles.errorOverlay}>
             <Feather name="alert-triangle" size={24} color="#FDE68A" />
@@ -2120,6 +2258,30 @@ export function AcademicVideoPlayer({
                   ) : null}
                 </View>
 
+                {/* Center — add-note button. Quick tap = instant note at the current
+                    second; long-press = pause + morph the titled note card. Absolutely
+                    centered so it stays dead-center even when the quality chip is
+                    hidden (upload videos, where the left group is narrower). */}
+                {onAddNote ? (
+                  <View pointerEvents="box-none" style={styles.npNoteCenter}>
+                    {/* Ref'd + hidden while the card is open so it reads as the button
+                        travelling to the centre (not a duplicate left behind). */}
+                    <View ref={noteBtnRef} collapsable={false} style={noteCardOpen ? styles.noteBtnHidden : undefined}>
+                      <AnimatedPressable
+                        style={styles.npRoundBtn}
+                        onPress={handleQuickNote}
+                        onLongPress={handleNoteLongPress}
+                        delayLongPress={380}
+                        pressedScale={0.88}
+                        accessibilityRole="button"
+                        accessibilityLabel={strings.academic.addNote}
+                      >
+                        <Feather name="edit-3" size={16} color="#fff" />
+                      </AnimatedPressable>
+                    </View>
+                  </View>
+                ) : null}
+
                 {/* Fixed LTR so rewind is always left, forward always right. */}
                 <View pointerEvents="box-none" style={styles.npRowGroupFixed}>
                   <AnimatedPressable
@@ -2154,6 +2316,65 @@ export function AcademicVideoPlayer({
               </View>
             </View>
           </Animated.View>
+        ) : null}
+
+        {/* Long-press note card — the round button flies from its spot to screen
+            centre while morphing into this card; save/cancel reverses it. Works in
+            both portrait + landscape fullscreen. */}
+        {noteCardOpen ? (
+          <View style={styles.noteOverlay} pointerEvents="box-none">
+            <Animated.View style={[StyleSheet.absoluteFill, styles.noteScrim, { opacity: noteScrimOpacity }]}>
+              <Pressable style={StyleSheet.absoluteFill} onPress={closeNoteCard} />
+            </Animated.View>
+
+            <Animated.View
+              style={[
+                styles.noteCard,
+                { left: noteCardLeft, top: noteCardTop, width: noteCardWidth, height: noteCardHeight, borderRadius: noteCardRadius, backgroundColor: noteCardBg, borderColor: colors.border },
+              ]}
+            >
+              {/* Seed icon: the blue-button look (white pencil), fades out as it grows. */}
+              <Animated.View pointerEvents="none" style={[styles.noteSeedIcon, { opacity: noteSeedIconOpacity }]}>
+                <Feather name="edit-3" size={16} color="#fff" />
+              </Animated.View>
+
+              {/* Card body: fixed size (stable layout), clipped while small, fades in. */}
+              <Animated.View style={[styles.noteCardInner, { width: noteCardTargetW, height: NOTE_CARD_H, opacity: noteContentOpacity }]}>
+                <View style={[styles.noteChipRow, { direction: "ltr", flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                  <View style={[styles.noteChip, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                    <Feather name="clock" size={12} color={colors.textSecondary} />
+                    <Text style={[styles.noteChipText, { color: colors.textSecondary }]}>{toEnglishDigits(formatTime(noteCardTime))}</Text>
+                  </View>
+                </View>
+
+                <TextInput
+                  autoFocus
+                  value={noteTitleDraft}
+                  onChangeText={setNoteTitleDraft}
+                  placeholder={strings.academic.noteTitlePlaceholder}
+                  placeholderTextColor={colors.textTertiary}
+                  maxLength={120}
+                  returnKeyType="done"
+                  onSubmitEditing={saveNote}
+                  style={[styles.noteInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}
+                />
+
+                <View style={[styles.noteBtnRow, { direction: "ltr", flexDirection: isRTL ? "row-reverse" : "row" }]}>
+                  <Pressable style={[styles.noteBtn, styles.noteBtnGhost, { borderColor: colors.border }]} onPress={closeNoteCard} accessibilityRole="button">
+                    <Text style={[styles.noteBtnText, { color: colors.textSecondary }]}>{strings.common.cancel}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.noteBtn, { backgroundColor: COLORS.primary, opacity: canSaveNote ? 1 : 0.5 }]}
+                    onPress={saveNote}
+                    disabled={!canSaveNote}
+                    accessibilityRole="button"
+                  >
+                    {noteSaving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={[styles.noteBtnText, { color: "#fff" }]}>{strings.common.save}</Text>}
+                  </Pressable>
+                </View>
+              </Animated.View>
+            </Animated.View>
+          </View>
         ) : null}
 
         {sheetMounted && isFullscreen ? (
@@ -2204,50 +2425,12 @@ export function AcademicVideoPlayer({
       </View>
       </PlayerHost>
 
+      {/* The inline lesson-segments list now renders as a collapsible card in
+          `belowPlayerContent` (LessonSegmentsCard), placed under the description
+          card, so the screen stays tidy. Segment taps seek this player via the
+          registerSeek handle. The in-player segments bottom-sheet stays. */}
       {belowPlayerContent ? (
         <View style={styles.belowPlayerSlot}>{belowPlayerContent}</View>
-      ) : null}
-
-      {normalizedSegments.length > 0 ? (
-        <View style={styles.externalSegments}>
-          <View style={[styles.segmentHeader, { direction }]}>
-            <Text style={[styles.segmentHeaderTitle, { color: colors.text }]}>{strings.academic.lessonSegments}</Text>
-            <Text style={[styles.segmentHeaderMeta, { color: colors.textSecondary }]}>{segmentCountLabel}</Text>
-          </View>
-          <View style={styles.segmentList}>
-            {normalizedSegments.map((segment) => (
-              <Pressable
-                key={`${segment.id}-${segment.startSeconds}`}
-                onPress={() => void seekTo(segment.startSeconds, true)}
-                style={({ pressed }) => [
-                  styles.segmentChip,
-                  {
-                    width: playerWidth,
-                    // Force a physical LTR box so RN's automatic RTL flip can't
-                    // double-flip this row. We then place things explicitly:
-                    // Arabic -> play on the right, Engish -> play on the left.
-                    direction: "ltr",
-                    flexDirection: isRTL ? "row-reverse" : "row",
-                    justifyContent: "flex-start",
-                    opacity: pressed ? 0.72 : 1,
-                  },
-                ]}
-              >
-                {segment.thumbnailUrl ? (
-                  <Image source={{ uri: segment.thumbnailUrl }} style={styles.segmentThumb} contentFit="cover" />
-                ) : (
-                  <View style={styles.segmentThumbFallback}>
-                    <Feather name="play" size={15} color="#fff" />
-                  </View>
-                )}
-                <View style={[styles.segmentChipText, { direction: "ltr" }]}>
-                  <Text style={[styles.segmentChipTitle, { textAlign: isRTL ? "right" : "left", writingDirection: direction, width: "100%" }]} numberOfLines={1}>{localizeAcademicText(segment.title, language, segment.titleEn)}</Text>
-                  <Text style={[styles.segmentChipMeta, { textAlign: isRTL ? "right" : "left", writingDirection: direction, width: "100%" }]}>{segmentLabel(segment.segmentType)} · {formatTime(segment.startSeconds)}</Text>
-                </View>
-              </Pressable>
-            ))}
-          </View>
-        </View>
       ) : null}
     </View>
   );
@@ -2841,6 +3024,101 @@ const styles = StyleSheet.create({
     ...FONT.bold,
     fontSize: 13,
     color: "#fff",
+  },
+  // ── In-player notes ──
+  npNoteCenter: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  noteBtnHidden: { opacity: 0 },
+  noteToast: {
+    position: "absolute",
+    alignSelf: "center",
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  noteToastText: {
+    ...FONT.semiBold,
+    fontSize: 13,
+    color: "#fff",
+  },
+  noteOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 50, // above the controls overlay (6) and the fullscreen close button (30)
+  },
+  noteScrim: {
+    backgroundColor: "#000",
+  },
+  noteCard: {
+    position: "absolute", // driven by animated left/top so it flies from the button
+    overflow: "hidden", // clips the fixed-size body while the card is still small
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 14,
+  },
+  noteSeedIcon: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  noteCardInner: {
+    padding: 16,
+    gap: 12,
+  },
+  noteChipRow: {
+    alignItems: "center",
+    justifyContent: "flex-start",
+  },
+  noteChip: {
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(127,127,127,0.14)",
+  },
+  noteChipText: {
+    ...FONT.semiBold,
+    fontSize: 12.5,
+    letterSpacing: 0.3,
+  },
+  noteInput: {
+    ...FONT.regular,
+    fontSize: 15,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === "ios" ? 12 : 8,
+  },
+  noteBtnRow: {
+    marginTop: "auto",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 10,
+  },
+  noteBtn: {
+    minWidth: 84,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  noteBtnGhost: {
+    borderWidth: 1,
+    backgroundColor: "transparent",
+  },
+  noteBtnText: {
+    ...FONT.semiBold,
+    fontSize: 14,
   },
   errorOverlay: {
     ...StyleSheet.absoluteFillObject,

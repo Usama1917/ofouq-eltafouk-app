@@ -175,22 +175,15 @@ export default function GeneralSettingsScreen() {
       <View style={[styles.pageBackWrap, { top: insets.top + 12 }]}>
         <Pressable
           onPress={() => router.back()}
+          hitSlop={8}
           style={({ pressed }) => [
             styles.pageBackButton,
-            {
-              backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
-              borderColor: colors.border,
-              flexDirection: "row",
-              direction: "ltr",
-            },
+            { backgroundColor: pressed ? colors.surfaceSecondary : colors.card, borderColor: colors.border },
           ]}
           accessibilityRole="button"
           accessibilityLabel={strings.common.back}
         >
           <Feather name="arrow-left" size={20} color={colors.textSecondary} />
-          <Text style={[styles.pageBackText, { color: colors.text, writingDirection: direction }]}>
-            {strings.common.back}
-          </Text>
         </Pressable>
       </View>
 
@@ -473,22 +466,12 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   pageBackButton: {
-    minHeight: 40,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
-    paddingHorizontal: 13,
-    flexDirection: "row-reverse",
     alignItems: "center",
-    gap: 7,
-    shadowColor: "#1E3A8A",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-  },
-  pageBackText: {
-    ...FONT.bold,
-    fontSize: 15,
-    lineHeight: 24,
+    justifyContent: "center",
   },
   titleIcon: {
     width: 56,

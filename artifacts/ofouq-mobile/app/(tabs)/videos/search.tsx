@@ -47,9 +47,9 @@ export default function SearchScreen() {
       />
       <View style={[styles.header, { paddingTop: insets.top + 12, borderBottomColor: colors.border, flexDirection: en ? "row" : "row-reverse" }]}>
         <Pressable onPress={() => router.back()} hitSlop={8} style={({ pressed }) => [styles.backBtn, { backgroundColor: pressed ? colors.surfaceSecondary : colors.card, borderColor: colors.border }]}>
-          <Feather name={en ? "arrow-left" : "arrow-right"} size={19} color={colors.textSecondary} />
+          <Feather name="arrow-left" size={19} color={colors.textSecondary} />
         </Pressable>
-        <View style={[styles.searchBox, { backgroundColor: colors.card, borderColor: colors.border, flexDirection: en ? "row" : "row-reverse" }]}>
+        <View style={[styles.searchBox, { backgroundColor: colors.card, borderColor: colors.border, direction: "ltr", flexDirection: en ? "row" : "row-reverse" }]}>
           <Feather name="search" size={18} color={colors.textTertiary} />
           <TextInput
             ref={inputRef}
@@ -57,7 +57,7 @@ export default function SearchScreen() {
             onChangeText={setInput}
             placeholder={en ? "Search for a lesson…" : "دوّر على درس…"}
             placeholderTextColor={colors.textTertiary}
-            style={[styles.input, { color: colors.text, textAlign, writingDirection: direction }]}
+            style={[styles.input, { color: colors.text, textAlign: en ? "left" : "right", writingDirection: direction }]}
             returnKeyType="search"
             autoCorrect={false}
           />

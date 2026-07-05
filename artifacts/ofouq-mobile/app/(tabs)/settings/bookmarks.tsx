@@ -34,14 +34,15 @@ export default function BookmarksScreen() {
         colors={resolvedScheme === "dark" ? ["#000", "#000", "#000"] : ["#EEF5FF", "#F7FAFF", "#F3F0FF"]}
         style={StyleSheet.absoluteFill}
       />
-      <View style={[styles.header, { paddingTop: insets.top + 12, borderBottomColor: colors.border, flexDirection: en ? "row" : "row-reverse" }]}>
-        <Pressable onPress={() => router.back()} hitSlop={8} style={({ pressed }) => [styles.backBtn, { backgroundColor: pressed ? colors.surfaceSecondary : colors.card, borderColor: colors.border, flexDirection: en ? "row" : "row-reverse" }]}>
-          <Feather name={en ? "arrow-left" : "arrow-right"} size={19} color={colors.textSecondary} />
-          <Text style={[styles.backText, { color: colors.text }]}>{en ? "Settings" : "الإعدادات"}</Text>
+      {/* Back = arrow-only (points left) on the left; title centered via a matching spacer. */}
+      <View style={[styles.header, { paddingTop: insets.top + 12, borderBottomColor: colors.border, direction: "ltr", flexDirection: "row", alignItems: "center" }]}>
+        <Pressable onPress={() => router.back()} hitSlop={8} style={({ pressed }) => [styles.backBtn, { backgroundColor: pressed ? colors.surfaceSecondary : colors.card, borderColor: colors.border }]}>
+          <Feather name="arrow-left" size={20} color={colors.textSecondary} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
+        <Text style={[styles.headerTitle, { color: colors.text, flex: 1, textAlign: "center", writingDirection: direction }]} numberOfLines={1}>
           {en ? "Saved lessons" : "الدروس المحفوظة"}
         </Text>
+        <View style={{ width: 40 }} />
       </View>
 
       {isLoading ? (
@@ -69,9 +70,8 @@ export default function BookmarksScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, alignItems: "center", gap: 12 },
-  backBtn: { minHeight: 38, borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, alignItems: "center", gap: 7 },
-  backText: { ...FONT.bold, fontSize: 14 },
-  headerTitle: { ...FONT.bold, fontSize: 18, flex: 1 },
+  backBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  headerTitle: { ...FONT.bold, fontSize: 18 },
   empty: { alignItems: "center", justifyContent: "center", paddingTop: 80, paddingHorizontal: 30, gap: 10 },
   emptyTitle: { ...FONT.bold, fontSize: 16 },
   emptyText: { ...FONT.regular, fontSize: 13, textAlign: "center", lineHeight: 20 },

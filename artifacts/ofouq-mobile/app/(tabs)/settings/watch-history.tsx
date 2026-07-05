@@ -433,7 +433,7 @@ export default function WatchHistoryScreen() {
   const isDark = resolvedScheme === "dark";
   // Extra top room so the floating back button never overlaps the page title
   // (in LTR the title is left-aligned and would otherwise sit under the button).
-  const headerOverlayHeight = insets.top + 150;
+  const headerOverlayHeight = insets.top + 92;
   const [expandedSubjectId, setExpandedSubjectId] = React.useState<number | null>(null);
   const {
     data,
@@ -482,35 +482,12 @@ export default function WatchHistoryScreen() {
         style={StyleSheet.absoluteFill}
       />
 
-      <View style={[styles.pageBackWrap, { top: insets.top + 12 }]}>
-        <Pressable
-          onPress={() => router.back()}
-          style={({ pressed }) => [
-            styles.pageBackButton,
-            {
-              backgroundColor: pressed ? colors.surfaceSecondary : colors.card,
-              borderColor: colors.border,
-              flexDirection: "row",
-              direction: "ltr",
-            },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={strings.common.back}
-        >
-          <Feather name="arrow-left" size={20} color={colors.textSecondary} />
-          <Text style={[styles.pageBackText, { color: colors.text, writingDirection: direction }]}>
-            {strings.common.back}
-          </Text>
-        </Pressable>
-      </View>
-
       <View
         style={[
           styles.topBar,
           {
             height: headerOverlayHeight,
-            paddingTop: insets.top + 60,
-            flexDirection: rowDirection,
+            paddingTop: insets.top + 14,
             direction,
           },
         ]}
@@ -527,21 +504,34 @@ export default function WatchHistoryScreen() {
             { backgroundColor: isDark ? "rgba(0,0,0,0.92)" : "rgba(248,251,255,0.92)" },
           ]}
         />
-        <View style={[styles.topBarContent, { paddingHorizontal: 18, flexDirection: rowDirection, direction }]}>
-          <View style={[styles.titleIcon, isDark && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
-            <MaterialCommunityIcons
-              name="timeline-clock-outline"
-              size={27}
-              color={isDark ? COLORS.darkIconFrame.foreground : COLORS.primary}
-            />
-          </View>
-          <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-            <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
-              {strings.settings.watchHistoryTitle}
-            </Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-              {strings.settings.watchHistorySubtitle}
-            </Text>
+        {/* Compact one-row header: arrow-only back on the LEFT, title+icon+subtitle on the
+            RIGHT — all on the same level, so the header is short. */}
+        <View style={[styles.topBarContent, { paddingHorizontal: 18, direction: "ltr", flexDirection: "row", alignItems: "center", gap: 12 }]}>
+          <Pressable
+            onPress={() => router.back()}
+            hitSlop={8}
+            style={({ pressed }) => [styles.pageBackButton, { backgroundColor: pressed ? colors.surfaceSecondary : colors.card, borderColor: colors.border }]}
+            accessibilityRole="button"
+            accessibilityLabel={strings.common.back}
+          >
+            <Feather name="arrow-left" size={20} color={colors.textSecondary} />
+          </Pressable>
+          <View style={{ flex: 1, flexDirection: rowDirection, direction, alignItems: "center", gap: 12 }}>
+            <View style={[styles.titleIcon, isDark && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+              <MaterialCommunityIcons
+                name="timeline-clock-outline"
+                size={24}
+                color={isDark ? COLORS.darkIconFrame.foreground : COLORS.primary}
+              />
+            </View>
+            <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start", flex: 1 }]}>
+              <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
+                {strings.settings.watchHistoryTitle}
+              </Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
+                {strings.settings.watchHistorySubtitle}
+              </Text>
+            </View>
           </View>
         </View>
       </View>
@@ -697,27 +687,17 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   pageBackButton: {
-    minHeight: 40,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
-    paddingHorizontal: 13,
-    flexDirection: "row-reverse",
     alignItems: "center",
-    gap: 7,
-    shadowColor: "#1E3A8A",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-  },
-  pageBackText: {
-    ...FONT.bold,
-    fontSize: 15,
-    lineHeight: 24,
+    justifyContent: "center",
   },
   titleIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 21,
+    width: 46,
+    height: 46,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
@@ -727,8 +707,8 @@ const styles = StyleSheet.create({
   titleBlock: { flex: 1, alignItems: "flex-end", justifyContent: "center" },
   title: {
     ...FONT.bold,
-    fontSize: 27,
-    lineHeight: 38,
+    fontSize: 20,
+    lineHeight: 28,
     textAlign: "right",
   },
   subtitle: {
