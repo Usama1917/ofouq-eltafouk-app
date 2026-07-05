@@ -12,6 +12,7 @@ import {
 } from "@workspace/db";
 import { and, asc, count, desc, eq, inArray, notInArray } from "drizzle-orm";
 import { POINTS, recordExamActivity } from "../lib/gamification";
+import { notifyExamOpened, notifyExamResult, type ExamType } from "../lib/exam-notifications";
 import {
   getSessionUser,
   isPrivileged,
@@ -141,6 +142,14 @@ router.put("/admin/units/:unitId/exam", async (req, res) => {
     const rawReviewPoints = Number.parseInt(String(req.body?.reviewPoints ?? "10"), 10);
     const reviewPoints = Number.isInteger(rawReviewPoints) && rawReviewPoints >= 0 ? Math.min(rawReviewPoints, 1000) : 10;
 
+    // Snapshot the prior publish flags so we can detect a closed→open transition and
+    // notify the subject's subscribers exactly once (not on every re-save).
+    const [prior] = await db
+      .select({ reviewPublished: unitExamsTable.reviewPublished, adaptivePublished: unitExamsTable.adaptivePublished })
+      .from(unitExamsTable)
+      .where(eq(unitExamsTable.unitId, unitId))
+      .limit(1);
+
     const now = new Date();
     await db
       .insert(unitExamsTable)
@@ -190,6 +199,17 @@ router.put("/admin/units/:unitId/exam", async (req, res) => {
       .from(unitExamQuestionsTable)
       .where(eq(unitExamQuestionsTable.unitId, unitId))
       .orderBy(asc(unitExamQuestionsTable.orderIndex), asc(unitExamQuestionsTable.id));
+
+    // Notify the subject's subscribers when an exam FIRST opens. Review is auto-built
+    // from lesson mistakes (always has potential content); adaptive needs a non-empty
+    // bank to be worth taking, so only announce it once it has questions.
+    const publishedBank = saved.filter((q) => q.isPublished).length;
+    const openedTypes: ExamType[] = [];
+    if (reviewPublished && !prior?.reviewPublished) openedTypes.push("review");
+    if (adaptivePublished && !prior?.adaptivePublished && publishedBank > 0) openedTypes.push("adaptive");
+    if (openedTypes.length > 0) {
+      void notifyExamOpened(unitId, openedTypes).catch((err) => req.log.warn({ err, unitId }, "notifyExamOpened failed"));
+    }
 
     return res.json({ count: saved.length, questions: saved, reviewPublished, adaptivePublished, adaptiveCount, timerMinutes, points, reviewPoints });
   } catch (err) {
@@ -526,6 +546,13 @@ async function gradeAndSubmit(params: {
   const pointsAwarded = activity.pointsAwarded;
   if (pointsAwarded > 0) {
     await db.update(unitExamAttemptsTable).set({ pointsAwarded }).where(eq(unitExamAttemptsTable.id, attempt.id));
+  }
+
+  // Encouragement notification (congrats / try-again) — first attempt only.
+  if (isFirstAttempt) {
+    void notifyExamResult({ userId: access.userId, unitId, examType: examType as ExamType, percent }).catch((err) =>
+      req.log.warn({ err, unitId, examType }, "notifyExamResult failed"),
+    );
   }
 
   return res.json({

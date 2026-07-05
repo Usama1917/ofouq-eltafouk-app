@@ -144,6 +144,49 @@ const DEFAULTS: MessageConfig[] = [
     color: null,
     config: null,
   },
+  // ── Exam notifications (v2 Phase 2) ─────────────────────────────────────────
+  // Sent only to students subscribed to the chapter's subject. `{exam}` = the exam's
+  // name (امتحان الاستدراك / تحديك الخاص / امتحان الفصل), `{unit}` = chapter, `{subject}`
+  // = subject, `{percent}` = the student's score.
+  {
+    key: "exam_opened",
+    enabled: true,
+    titleAr: "امتحان جديد متاح 📝",
+    bodyAr: "اتفتح {exam} في {unit} - مادة {subject}. اختبر نفسك دلوقتي!",
+    titleEn: "A new exam is open 📝",
+    bodyEn: "{exam} is now open in {unit} - {subject}. Test yourself now!",
+    sendHour: null,
+    tone: "primary",
+    icon: null,
+    color: null,
+    config: null,
+  },
+  {
+    key: "exam_passed",
+    enabled: true,
+    titleAr: "نتيجة ممتازة! 🎉",
+    bodyAr: "جبت {percent}% في {exam}. استمر في التألق!",
+    titleEn: "Great score! 🎉",
+    bodyEn: "You scored {percent}% on {exam}. Keep shining!",
+    sendHour: null,
+    tone: "success",
+    icon: null,
+    color: null,
+    config: { passPercent: 50 },
+  },
+  {
+    key: "exam_retry",
+    enabled: true,
+    titleAr: "حاول تاني 💪",
+    bodyAr: "نتيجتك في {exam} كانت {percent}%. راجع وحاول تاني — انت قدّها!",
+    titleEn: "Try again 💪",
+    bodyEn: "You scored {percent}% on {exam}. Review and try again — you've got this!",
+    sendHour: null,
+    tone: "warning",
+    icon: null,
+    color: null,
+    config: { passPercent: 50 },
+  },
 ];
 
 export function defaultMessages(): MessageConfig[] {

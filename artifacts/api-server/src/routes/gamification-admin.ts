@@ -29,6 +29,9 @@ const MESSAGE_ORDER = [
   "subscription_rejected",
   "new_lesson",
   "resume_lesson",
+  "exam_opened",
+  "exam_passed",
+  "exam_retry",
 ] as const;
 const ASSIGNABLE_KEYS = new Set<string>(MESSAGE_ORDER);
 

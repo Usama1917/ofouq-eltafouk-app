@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Bell, Clock, Save, Send, Sparkles, Ticket, BookOpen } from "lucide-react";
+import { Bell, Clock, Save, Send, Sparkles, Ticket, BookOpen, Award } from "lucide-react";
 import { NotificationIconPicker } from "@/components/notification-icon-picker";
 import { NotificationColorPicker } from "@/components/notification-color-picker";
 import { useNotificationColors } from "@/lib/notification-colors";
@@ -84,6 +84,27 @@ const META: Record<string, { title: string; emoji: string; desc: string; hasHour
     hasHour: false,
     hasMilestones: false,
   },
+  exam_opened: {
+    title: "فتح امتحان الفصل",
+    emoji: "📝",
+    desc: "بتتبعت للمشتركين في المادة أول ما تفتح امتحان في فصل (استدراك أو تحدي). استخدم {exam} لاسم الامتحان و{unit} للفصل و{subject} للمادة.",
+    hasHour: false,
+    hasMilestones: false,
+  },
+  exam_passed: {
+    title: "نتيجة امتحان ممتازة",
+    emoji: "🎉",
+    desc: "بتتبعت للطالب لما ينجح في امتحان الفصل (٥٠٪ أو أكتر). استخدم {exam} لاسم الامتحان و{percent} للنتيجة.",
+    hasHour: false,
+    hasMilestones: false,
+  },
+  exam_retry: {
+    title: "تشجيع بعد نتيجة ضعيفة",
+    emoji: "💪",
+    desc: "بتتبعت للطالب لما تكون نتيجته في امتحان الفصل أقل من ٥٠٪، تشجّعه يراجع ويحاول تاني. استخدم {exam} لاسم الامتحان و{percent} للنتيجة.",
+    hasHour: false,
+    hasMilestones: false,
+  },
 };
 
 // Automated messages grouped into owner-facing categories (tabs).
@@ -91,6 +112,7 @@ const CATEGORIES = [
   { id: "encourage", label: "إشعارات التشجيع", icon: Sparkles, keys: ["evening_reminder", "goal_congrats", "points_milestone"] },
   { id: "subscription", label: "إشعارات الاشتراك", icon: Ticket, keys: ["subscription_pending", "subscription_approved", "subscription_rejected"] },
   { id: "lessons", label: "إشعارات الدروس", icon: BookOpen, keys: ["new_lesson", "resume_lesson"] },
+  { id: "exams", label: "إشعارات الامتحانات", icon: Award, keys: ["exam_opened", "exam_passed", "exam_retry"] },
 ] as const;
 
 type CategoryId = (typeof CATEGORIES)[number]["id"];
