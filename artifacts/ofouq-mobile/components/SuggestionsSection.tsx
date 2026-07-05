@@ -51,14 +51,14 @@ function SuggestionCard({ item }: { item: FeedLesson }) {
 
 // v2 Phase 3 — the "مقترح ليك" horizontal rail. Hidden when there's nothing to suggest.
 export function SuggestionsSection({ items }: { items: FeedLesson[] }) {
-  const { strings, isRTL, direction, textAlign } = usePreferences();
+  const { colors, strings, isRTL, direction, textAlign } = usePreferences();
   if (!items.length) return null;
 
   return (
     <View style={{ marginBottom: 4 }}>
       <View style={[styles.header, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-        <Text style={[styles.headerTitle, { textAlign, writingDirection: direction }]}>{strings.home.suggestedTitle}</Text>
-        <Text style={[styles.headerSub, { textAlign, writingDirection: direction }]} numberOfLines={1}>
+        <Text style={[styles.headerTitle, { color: colors.text, textAlign, writingDirection: direction }]}>{strings.home.suggestedTitle}</Text>
+        <Text style={[styles.headerSub, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
           {strings.home.suggestedSubtitle}
         </Text>
       </View>
@@ -80,8 +80,8 @@ export function SuggestionsSection({ items }: { items: FeedLesson[] }) {
 
 const styles = StyleSheet.create({
   header: { marginBottom: 12 },
-  headerTitle: { ...FONT.bold, fontSize: 19, color: "#0F172A" },
-  headerSub: { ...FONT.regular, fontSize: 12.5, color: "#64748B", marginTop: 2 },
+  headerTitle: { ...FONT.bold, fontSize: 19 },
+  headerSub: { ...FONT.regular, fontSize: 12.5, marginTop: 2 },
   rail: { gap: 12, paddingBottom: 4 },
   card: { width: 164, borderRadius: 16, borderWidth: 1, padding: 8, gap: 7 },
   thumbWrap: { width: "100%", height: 96, borderRadius: 11, overflow: "hidden", position: "relative" },

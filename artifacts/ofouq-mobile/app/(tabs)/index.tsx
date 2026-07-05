@@ -23,7 +23,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import { apiFetch } from "@/lib/api";
-import { formatNumber, toEnglishDigits } from "@/lib/format";
+import { toEnglishDigits } from "@/lib/format";
 import { resolveMediaUrl } from "@/lib/media";
 import { fetchNotificationSummary, notificationsQueryKey } from "@/lib/notifications";
 import { fetchGamification, gamificationQueryKey } from "@/lib/gamification";
@@ -318,10 +318,6 @@ export default function HomeScreen() {
             { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
           ]}
         >
-          {/* v2 Phase 3 — "continue where you left off" is the first thing on home. */}
-          {isStudent && continueCard ? <ContinueLessonCard item={continueCard} mode="continue" /> : null}
-          {isStudent && startCard ? <ContinueLessonCard item={startCard} mode="start" /> : null}
-
           <View style={[styles.hero, { backgroundColor: colors.card, borderColor: colors.border, direction }]}>
             <LinearGradient
               colors={["rgba(29,78,216,0.12)", "rgba(14,165,233,0.05)", "rgba(255,255,255,0)"]}
@@ -361,30 +357,23 @@ export default function HomeScreen() {
                 </Text>
                 <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={17} color="#fff" />
               </Pressable>
-
-              <View
-                style={[
-                  styles.statCard,
-                  { backgroundColor: colors.surface, borderColor: colors.border, flexDirection: rowDirection, direction },
-                ]}
-              >
-                <View style={[styles.statIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
-                  <Feather name="video" size={21} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
-                </View>
-                <View style={[styles.statTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-                  <Text style={[styles.statValue, { color: colors.text, textAlign, writingDirection: direction }]}>
-                    {isLoading ? "..." : formatNumber(years.length)}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                    {strings.home.availableLessons}
-                  </Text>
-                </View>
-              </View>
             </View>
           </View>
 
           {user?.role === "student" && gamification ? (
             <GamificationStrip summary={gamification} onPress={() => router.push("/leaderboard")} />
+          ) : null}
+
+          {/* v2 Phase 3 — "continue where you left off", right under the streak/points strip. */}
+          {isStudent && continueCard ? (
+            <View style={{ marginTop: 16 }}>
+              <ContinueLessonCard item={continueCard} mode="continue" />
+            </View>
+          ) : null}
+          {isStudent && startCard ? (
+            <View style={{ marginTop: 16 }}>
+              <ContinueLessonCard item={startCard} mode="start" />
+            </View>
           ) : null}
 
           {/* v2 Phase 3 — "مقترح ليك" smart suggestions (subscribed subjects only). */}
@@ -639,40 +628,6 @@ const styles = StyleSheet.create({
     ...FONT.bold,
     color: "#fff",
     fontSize: 15,
-  },
-  statCard: {
-    borderRadius: 22,
-    borderWidth: 1,
-    padding: 16,
-    minHeight: 112,
-    alignItems: "center",
-    justifyContent: "flex-start",
-    gap: 14,
-  },
-  statTextBlock: { flexShrink: 1, minWidth: 0 },
-  statIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: COLORS.primary + "18",
-    backgroundColor: COLORS.primary + "12",
-  },
-  statLabel: {
-    ...FONT.semiBold,
-    fontSize: 12,
-    lineHeight: 20,
-    textAlign: "right",
-  },
-  statValue: {
-    ...FONT.bold,
-    fontSize: 34,
-    lineHeight: 48,
-    marginBottom: -8,
-    textAlign: "right",
-    transform: [{ translateY: 4 }],
   },
   sectionHeader: {
     flexDirection: "row",
