@@ -35,6 +35,13 @@ const META: Record<string, { title: string; emoji: string; desc: string; hasHour
     hasHour: true,
     hasMilestones: false,
   },
+  study_reminder: {
+    title: "تذكيرة المذاكرة",
+    emoji: "📚",
+    desc: "بتتبعت للطالب في «وقت مذاكرته المفضّل» (من الأونبوردنج) — بس الأيام اللي ماذاكرش فيها لسه، تحثّه يذاكر.",
+    hasHour: false,
+    hasMilestones: false,
+  },
   goal_congrats: {
     title: "تهنئة الهدف اليومي",
     emoji: "🎉",
@@ -109,7 +116,7 @@ const META: Record<string, { title: string; emoji: string; desc: string; hasHour
 
 // Automated messages grouped into owner-facing categories (tabs).
 const CATEGORIES = [
-  { id: "encourage", label: "إشعارات التشجيع", icon: Sparkles, keys: ["evening_reminder", "goal_congrats", "points_milestone"] },
+  { id: "encourage", label: "إشعارات التشجيع", icon: Sparkles, keys: ["evening_reminder", "study_reminder", "goal_congrats", "points_milestone"] },
   { id: "subscription", label: "إشعارات الاشتراك", icon: Ticket, keys: ["subscription_pending", "subscription_approved", "subscription_rejected"] },
   { id: "lessons", label: "إشعارات الدروس", icon: BookOpen, keys: ["new_lesson", "resume_lesson"] },
   { id: "exams", label: "إشعارات الامتحانات", icon: Award, keys: ["exam_opened", "exam_passed", "exam_retry"] },

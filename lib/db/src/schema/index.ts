@@ -22,3 +22,4 @@ export * from "./gamification";
 export * from "./moderation";
 export * from "./quiz";
 export * from "./unit-exams";
+export * from "./engagement";

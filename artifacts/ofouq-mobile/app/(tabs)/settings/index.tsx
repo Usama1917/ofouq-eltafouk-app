@@ -304,6 +304,57 @@ export default function SettingsScreen() {
           </View>
         ) : null}
 
+        {/* v2 Phase 4 — Saved lessons + My progress (students only). */}
+        {user?.role === "student" ? (
+          <View style={[styles.subscriptionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Pressable
+              onPress={() => router.push("/(tabs)/settings/bookmarks")}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.subscriptionRow, { backgroundColor: pressed ? colors.surfaceSecondary : colors.surface, flexDirection: rowDirection, direction }]}
+            >
+              <View style={[styles.subscriptionLeading, { flexDirection: rowDirection, direction }]}>
+                <View style={[styles.subscriptionIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+                  <Feather name="star" size={22} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+                </View>
+                <View style={[styles.subscriptionTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                  <Text style={[styles.subscriptionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+                    {isRTL ? "الدروس المحفوظة" : "Saved lessons"}
+                  </Text>
+                  <Text style={[styles.subscriptionSubtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
+                    {isRTL ? "الدروس اللي حفظتها بالنجمة" : "Lessons you starred"}
+                  </Text>
+                </View>
+              </View>
+              <Feather name={isRTL ? "chevron-left" : "chevron-right"} size={19} color={colors.textTertiary} />
+            </Pressable>
+          </View>
+        ) : null}
+
+        {user?.role === "student" ? (
+          <View style={[styles.subscriptionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Pressable
+              onPress={() => router.push("/(tabs)/settings/progress")}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.subscriptionRow, { backgroundColor: pressed ? colors.surfaceSecondary : colors.surface, flexDirection: rowDirection, direction }]}
+            >
+              <View style={[styles.subscriptionLeading, { flexDirection: rowDirection, direction }]}>
+                <View style={[styles.subscriptionIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+                  <Feather name="bar-chart-2" size={22} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+                </View>
+                <View style={[styles.subscriptionTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                  <Text style={[styles.subscriptionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
+                    {isRTL ? "تقدّمي" : "My progress"}
+                  </Text>
+                  <Text style={[styles.subscriptionSubtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
+                    {isRTL ? "نسبة إنجازك وساعات مذاكرتك" : "Your completion & study time"}
+                  </Text>
+                </View>
+              </View>
+              <Feather name={isRTL ? "chevron-left" : "chevron-right"} size={19} color={colors.textTertiary} />
+            </Pressable>
+          </View>
+        ) : null}
+
         <View style={[styles.contactCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Pressable
             onPress={() => router.push("/(tabs)/settings/contact" as any)}

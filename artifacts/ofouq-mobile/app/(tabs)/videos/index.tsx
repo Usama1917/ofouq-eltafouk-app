@@ -209,6 +209,20 @@ export default function VideosScreen() {
           flexGrow: 1,
         }}
         renderItem={({ item, index }) => <YearCard item={item} index={index} />}
+        ListHeaderComponent={
+          <Pressable
+            onPress={() => router.push("/(tabs)/videos/search")}
+            style={({ pressed }) => [
+              styles.searchBar,
+              { backgroundColor: colors.card, borderColor: colors.border, flexDirection: rowDirection, direction, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Feather name="search" size={18} color={colors.textTertiary} />
+            <Text style={[styles.searchBarText, { color: colors.textTertiary, textAlign, writingDirection: direction }]}>
+              {isRTL ? "دوّر على درس…" : "Search for a lesson…"}
+            </Text>
+          </Pressable>
+        }
         ListEmptyComponent={
           <View style={[styles.stateCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {isLoading ? (
@@ -299,6 +313,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 25,
     textAlign: "right",
+  },
+  searchBar: {
+    height: 48,
+    borderRadius: 15,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 4,
+  },
+  searchBarText: {
+    flex: 1,
+    ...FONT.regular,
+    fontSize: 14.5,
   },
   yearCard: {
     minHeight: 124,

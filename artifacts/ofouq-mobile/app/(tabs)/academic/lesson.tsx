@@ -23,6 +23,8 @@ import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AcademicVideoPlayer, AcademicVideoSegment } from "@/components/AcademicVideoPlayer";
+import { LessonNotes } from "@/components/LessonNotes";
+import { BookmarkStar } from "@/components/BookmarkStar";
 import { AutoFitTitle } from "@/components/AutoFitTitle";
 import { LessonSummaryCard } from "@/components/LessonSummaryCard";
 import { QuizLessonCard } from "@/components/QuizLessonCard";
@@ -164,6 +166,10 @@ export default function LessonDetailScreen() {
   const celebratedRef = useRef(false);
   const burstAnim = useRef(new Animated.Value(0)).current;
   const [showBurst, setShowBurst] = useState(false);
+  // v2 Phase 4 — notes: track the latest watched second (for "add note here"), and a
+  // seek target that remounts the player at a note's timestamp when tapped.
+  const lastPositionRef = useRef(0);
+  const [noteSeek, setNoteSeek] = useState<{ at: number; k: number } | null>(null);
 
   const triggerPointsBurst = useCallback(() => {
     setShowBurst(true);
@@ -178,6 +184,7 @@ export default function LessonDetailScreen() {
 
   const reportLessonProgress = useCallback(
     (progress: { currentTime: number; duration: number; watchedSeconds?: number }) => {
+      lastPositionRef.current = Math.max(0, Math.floor(progress.currentTime));
       if (!token || !lesson?.id) return;
       void apiFetch<{ completed?: boolean }>(`/api/academic/lessons/${lesson.id}/progress`, {
         method: "POST",
@@ -298,6 +305,11 @@ export default function LessonDetailScreen() {
                 {strings.academic.lessons}
               </Text>
             </Pressable>
+            {lesson?.id && user?.role === "student" ? (
+              <View style={[styles.starButton, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <BookmarkStar lessonId={lesson.id} size={22} />
+              </View>
+            ) : null}
           </View>
 
           <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
@@ -372,7 +384,7 @@ export default function LessonDetailScreen() {
             {lesson.video ? (
               <>
                 <AcademicVideoPlayer
-                  key={`${lesson.id}:${initialSeekSeconds}:${resumeFromNotification ?? ""}:${notificationId ?? ""}`}
+                  key={`${lesson.id}:${initialSeekSeconds}:${resumeFromNotification ?? ""}:${notificationId ?? ""}:${noteSeek?.k ?? ""}`}
                   videoUrl={lesson.video.videoUrl}
                   videoType={lesson.video.videoType}
                   title={localizeAcademicText(lesson.video.title, language, lesson.video.titleEn)}
@@ -405,13 +417,19 @@ export default function LessonDetailScreen() {
                           />
                         </View>
                       ) : null}
+                      {/* v2 Phase 4 — timestamped notes under the video. */}
+                      <LessonNotes
+                        lessonId={lesson.id}
+                        getCurrentSeconds={() => lastPositionRef.current}
+                        onSeek={(s) => setNoteSeek((prev) => ({ at: s, k: (prev?.k ?? 0) + 1 }))}
+                      />
                     </>
                   }
                   watermarkText={user
                     ? `${localizeAcademicText(user.name, language).trim().split(/\s+/)[0]} · ${toEnglishDigits(user.phone || user.email)}`
                     : undefined}
-                  initialSeekSeconds={initialSeekSeconds}
-                  autoPlayOnLoad={shouldAutoResume}
+                  initialSeekSeconds={noteSeek ? noteSeek.at : initialSeekSeconds}
+                  autoPlayOnLoad={noteSeek ? true : shouldAutoResume}
                   onProgressUpdate={reportLessonProgress}
                 />
               </>
@@ -469,8 +487,18 @@ const styles = StyleSheet.create({
   },
   backCornerRow: {
     width: "100%",
-    alignItems: "flex-start",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     direction: "ltr",
+  },
+  starButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   backButton: {
     minHeight: 40,

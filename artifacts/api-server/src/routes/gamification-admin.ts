@@ -22,6 +22,7 @@ const router: IRouter = Router();
 // lesson, resume-lesson) — all owner-editable from the "الرسائل المؤتمتة" screen.
 const MESSAGE_ORDER = [
   "evening_reminder",
+  "study_reminder",
   "goal_congrats",
   "points_milestone",
   "subscription_pending",
