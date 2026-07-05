@@ -1396,6 +1396,153 @@ router.get("/academic/subscriptions/me", async (req, res) => {
   }
 });
 
+// v2 Phase 3 — personalized home feed: the "continue where you left off" card + a smart
+// mix of suggestions ("مقترح ليك"). EVERYTHING is scoped to the student's ACTIVE
+// subscriptions (nothing locked/foreign is surfaced). Progress uses REAL watch coverage
+// (dragging the scrubber never counts), same as watch-history.
+router.get("/me/home-feed", async (req, res) => {
+  try {
+    const student = await requireStudent(req, res);
+    if (!student) return;
+
+    const subs = await db
+      .select({ subjectId: subjectSubscriptionsTable.subjectId })
+      .from(subjectSubscriptionsTable)
+      .where(and(eq(subjectSubscriptionsTable.studentId, student.id), eq(subjectSubscriptionsTable.status, "active")));
+    const subjectIds = [...new Set(subs.map((s) => s.subjectId))];
+    if (subjectIds.length === 0) {
+      res.json({ continueLesson: null, startJourney: null, suggestions: [] });
+      return;
+    }
+
+    // Every watchable lesson (published lesson + unit + subject + year + video) in the
+    // student's subscribed subjects, with their progress. Ordered by the natural
+    // curriculum sequence so "next lesson in the chapter" is just the next row.
+    const rows = await db
+      .select({
+        subjectId: subjectsTable.id,
+        subjectName: subjectsTable.name,
+        subjectNameEn: subjectsTable.nameEn,
+        unitLabel: subjectsTable.unitLabel,
+        yearId: academicYearsTable.id,
+        yearName: academicYearsTable.name,
+        yearNameEn: academicYearsTable.nameEn,
+        unitId: unitsTable.id,
+        unitName: unitsTable.name,
+        unitNameEn: unitsTable.nameEn,
+        lessonId: lessonsTable.id,
+        lessonTitle: lessonsTable.title,
+        lessonTitleEn: lessonsTable.titleEn,
+        lessonCreatedAt: lessonsTable.createdAt,
+        videoId: videosTable.id,
+        thumbnailUrl: videosTable.thumbnailUrl,
+        posterUrl: videosTable.posterUrl,
+        instructor: videosTable.instructor,
+        videoDuration: videosTable.duration,
+        currentSeconds: lessonWatchProgressTable.currentSeconds,
+        watchedRealSeconds: lessonWatchProgressTable.watchedSeconds,
+        progressDuration: lessonWatchProgressTable.durationSeconds,
+        completed: lessonWatchProgressTable.completed,
+        lastWatchedAt: lessonWatchProgressTable.lastWatchedAt,
+      })
+      .from(lessonsTable)
+      .innerJoin(unitsTable, and(eq(lessonsTable.unitId, unitsTable.id), eq(unitsTable.isPublished, true)))
+      .innerJoin(subjectsTable, and(eq(unitsTable.subjectId, subjectsTable.id), eq(subjectsTable.isPublished, true)))
+      .innerJoin(academicYearsTable, and(eq(subjectsTable.yearId, academicYearsTable.id), eq(academicYearsTable.isPublished, true)))
+      .innerJoin(videosTable, and(eq(lessonsTable.videoId, videosTable.id), eq(videosTable.publishStatus, "published")))
+      .leftJoin(
+        lessonWatchProgressTable,
+        and(eq(lessonWatchProgressTable.lessonId, lessonsTable.id), eq(lessonWatchProgressTable.studentId, student.id)),
+      )
+      .where(and(inArray(unitsTable.subjectId, subjectIds), eq(lessonsTable.isPublished, true)))
+      .orderBy(asc(subjectsTable.orderIndex), asc(unitsTable.orderIndex), asc(lessonsTable.orderIndex), asc(lessonsTable.id));
+
+    const items = rows.map((r) => {
+      const duration = Math.max(toSeconds(r.videoDuration, 0), toSeconds(r.progressDuration, 0));
+      const cap = duration > 0 ? duration : Number.MAX_SAFE_INTEGER;
+      const currentSeconds = Math.min(toSeconds(r.currentSeconds, 0), cap);
+      const realWatched = Math.min(toSeconds(r.watchedRealSeconds, 0), cap);
+      const progressRatio = duration > 0 ? Math.min(1, realWatched / duration) : 0;
+      const completed = Boolean(r.completed) || progressRatio >= 0.9;
+      const started = realWatched > 0 || Boolean(r.lastWatchedAt);
+      const lastWatchedMs = r.lastWatchedAt ? r.lastWatchedAt.getTime() : 0;
+      const createdMs = r.lessonCreatedAt ? r.lessonCreatedAt.getTime() : 0;
+      return { r, duration, currentSeconds, progressRatio, completed, started, inProgress: started && !completed, lastWatchedMs, createdMs };
+    });
+
+    type Item = (typeof items)[number];
+    const toCard = (it: Item) => ({
+      lessonId: it.r.lessonId,
+      lessonTitle: it.r.lessonTitle,
+      lessonTitleEn: it.r.lessonTitleEn,
+      unitId: it.r.unitId,
+      unitName: it.r.unitName,
+      unitNameEn: it.r.unitNameEn,
+      unitLabel: it.r.unitLabel,
+      subjectId: it.r.subjectId,
+      subjectName: it.r.subjectName,
+      subjectNameEn: it.r.subjectNameEn,
+      yearId: it.r.yearId,
+      yearName: it.r.yearName,
+      yearNameEn: it.r.yearNameEn,
+      videoId: it.r.videoId,
+      thumbnailUrl: it.r.thumbnailUrl,
+      posterUrl: it.r.posterUrl,
+      instructor: it.r.instructor,
+      durationSeconds: it.duration,
+      currentSeconds: it.currentSeconds,
+      progressRatio: it.progressRatio,
+    });
+
+    const anyWatched = items.some((it) => it.started || it.completed);
+    const inProgress = items.filter((it) => it.inProgress).sort((a, b) => b.lastWatchedMs - a.lastWatchedMs);
+
+    // "next up" = first not-started, not-completed lesson in each unit the student has
+    // already touched (in curriculum order). Drives both the continue card (when nothing
+    // is mid-watch) and the "next" suggestions.
+    const touchedUnits = new Set(items.filter((it) => it.started || it.completed).map((it) => it.r.unitId));
+    const seenUnit = new Set<number>();
+    const nextUp: Item[] = [];
+    for (const it of items) {
+      if (!touchedUnits.has(it.r.unitId) || it.started || it.completed || seenUnit.has(it.r.unitId)) continue;
+      seenUnit.add(it.r.unitId);
+      nextUp.push(it);
+    }
+
+    // Continue card: most-recent in-progress lesson; else (finished it / none mid-watch)
+    // the next lesson to do in a chapter they've started; else null (brand new → journey).
+    let continueItem: Item | null = inProgress[0] ?? null;
+    if (!continueItem && anyWatched) continueItem = nextUp[0] ?? null;
+    const startJourney = !anyWatched ? items[0] ?? null : null;
+
+    // Suggestions — smart mix, deduped, excluding the continue card:
+    //   1) other lessons still in progress, 2) the next lesson in chapters they started,
+    //   3) the newest lessons in their subjects they haven't started.
+    const used = new Set<number>();
+    if (continueItem) used.add(continueItem.r.lessonId);
+    if (startJourney) used.add(startJourney.r.lessonId);
+    const suggestions: Array<ReturnType<typeof toCard> & { reason: string }> = [];
+    const add = (it: Item | undefined, reason: string) => {
+      if (!it || used.has(it.r.lessonId) || suggestions.length >= 8) return;
+      used.add(it.r.lessonId);
+      suggestions.push({ ...toCard(it), reason });
+    };
+    for (const it of inProgress) add(it, "in_progress");
+    for (const it of nextUp) add(it, "next");
+    const newest = items.filter((it) => !it.started && !it.completed).sort((a, b) => b.createdMs - a.createdMs);
+    for (const it of newest) add(it, "new");
+
+    res.json({
+      continueLesson: continueItem ? toCard(continueItem) : null,
+      startJourney: startJourney ? toCard(startJourney) : null,
+      suggestions,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to build home feed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/academic/watch-history/me", async (req, res) => {
   try {
     const student = await requireStudent(req, res);

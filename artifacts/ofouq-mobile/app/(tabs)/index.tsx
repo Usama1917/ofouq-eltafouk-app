@@ -28,6 +28,9 @@ import { resolveMediaUrl } from "@/lib/media";
 import { fetchNotificationSummary, notificationsQueryKey } from "@/lib/notifications";
 import { fetchGamification, gamificationQueryKey } from "@/lib/gamification";
 import { GamificationStrip } from "@/components/GamificationStrip";
+import { ContinueLessonCard } from "@/components/ContinueLessonCard";
+import { SuggestionsSection } from "@/components/SuggestionsSection";
+import { fetchHomeFeed, homeFeedQueryKey } from "@/lib/homeFeed";
 import { useRefetchOnFocus } from "@/hooks/useRefetchOnFocus";
 
 type AcademicYear = {
@@ -192,6 +195,18 @@ export default function HomeScreen() {
   // (e.g. right after finishing a lesson) — points/streak update immediately.
   useRefetchOnFocus(refetchGamification);
 
+  // v2 Phase 3 — personalized home feed (continue card + suggestions). Students only.
+  const isStudent = Boolean(user && token && user.role === "student");
+  const { data: homeFeed, refetch: refetchHomeFeed } = useQuery({
+    queryKey: [...homeFeedQueryKey, token],
+    queryFn: () => fetchHomeFeed(token),
+    enabled: isStudent,
+  });
+  // Refresh the feed when returning to home (progress after watching a lesson).
+  useRefetchOnFocus(refetchHomeFeed);
+  const continueCard = homeFeed?.continueLesson ?? null;
+  const startCard = !continueCard ? homeFeed?.startJourney ?? null : null;
+
   const {
     data: years = [],
     isLoading,
@@ -303,6 +318,10 @@ export default function HomeScreen() {
             { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
           ]}
         >
+          {/* v2 Phase 3 — "continue where you left off" is the first thing on home. */}
+          {isStudent && continueCard ? <ContinueLessonCard item={continueCard} mode="continue" /> : null}
+          {isStudent && startCard ? <ContinueLessonCard item={startCard} mode="start" /> : null}
+
           <View style={[styles.hero, { backgroundColor: colors.card, borderColor: colors.border, direction }]}>
             <LinearGradient
               colors={["rgba(29,78,216,0.12)", "rgba(14,165,233,0.05)", "rgba(255,255,255,0)"]}
@@ -366,6 +385,13 @@ export default function HomeScreen() {
 
           {user?.role === "student" && gamification ? (
             <GamificationStrip summary={gamification} onPress={() => router.push("/leaderboard")} />
+          ) : null}
+
+          {/* v2 Phase 3 — "مقترح ليك" smart suggestions (subscribed subjects only). */}
+          {isStudent && homeFeed?.suggestions?.length ? (
+            <View style={{ marginTop: 20 }}>
+              <SuggestionsSection items={homeFeed.suggestions} />
+            </View>
           ) : null}
 
           <View style={[styles.sectionHeader, { flexDirection: rowDirection, direction }]}>
