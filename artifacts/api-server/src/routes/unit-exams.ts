@@ -44,32 +44,47 @@ const router: IRouter = Router();
 const MAX_QUESTIONS = 500;
 
 // Resolve access for a STUDENT: they need an active subscription to the chapter's
-// subject AND the chapter exam must be published. Admins/owners bypass both. Returns
-// the subjectId when allowed, or an { error, status } to send.
+// subject AND the requested exam must be published. Each exam opens independently, so
+// `examType` says which flag to check — omit it for card-level access (either exam
+// published is enough). Admins/owners bypass both. Returns the subjectId + the exam's
+// per-exam publish flags when allowed, or an { error, status } to send.
 async function resolveUnitAccess(
   req: any,
   unitId: number,
-): Promise<{ ok: true; userId: number; subjectId: number; privileged: boolean } | { ok: false; status: number; error: string }> {
+  examType?: "review" | "adaptive",
+): Promise<
+  | { ok: true; userId: number; subjectId: number; privileged: boolean; reviewPublished: boolean; adaptivePublished: boolean }
+  | { ok: false; status: number; error: string }
+> {
   const user = await getSessionUser(req);
   if (!user) return { ok: false, status: 401, error: "يجب تسجيل الدخول أولًا" };
 
   const subjectId = await getUnitSubjectId(unitId);
   if (subjectId == null) return { ok: false, status: 404, error: "الفصل غير موجود" };
 
-  const privileged = isPrivileged(user);
-  if (privileged) return { ok: true, userId: user.id, subjectId, privileged };
-
   const [exam] = await db
-    .select({ isPublished: unitExamsTable.isPublished })
+    .select({ reviewPublished: unitExamsTable.reviewPublished, adaptivePublished: unitExamsTable.adaptivePublished })
     .from(unitExamsTable)
     .where(eq(unitExamsTable.unitId, unitId))
     .limit(1);
-  if (!exam?.isPublished) return { ok: false, status: 403, error: "امتحان الفصل مش متاح دلوقتي." };
+  const reviewPublished = Boolean(exam?.reviewPublished);
+  const adaptivePublished = Boolean(exam?.adaptivePublished);
+
+  const privileged = isPrivileged(user);
+  if (privileged) return { ok: true, userId: user.id, subjectId, privileged, reviewPublished, adaptivePublished };
+
+  // Which flag gates this request: a specific exam, or "either" for the card itself.
+  const published =
+    examType === "review" ? reviewPublished : examType === "adaptive" ? adaptivePublished : reviewPublished || adaptivePublished;
+  if (!published) {
+    const label = examType === "review" ? "امتحان الاستدراك" : "تحديك الخاص";
+    return { ok: false, status: 403, error: `${label} مش متاح دلوقتي.` };
+  }
 
   const hasAccess = await userHasSubjectAccess(user.id, subjectId);
   if (!hasAccess) return { ok: false, status: 403, error: "امتحان الفصل متاح للمشتركين في المادة فقط." };
 
-  return { ok: true, userId: user.id, subjectId, privileged };
+  return { ok: true, userId: user.id, subjectId, privileged, reviewPublished, adaptivePublished };
 }
 
 // ───────────────────────────── Admin: manage a chapter exam ─────────────────────
@@ -108,8 +123,11 @@ router.put("/admin/units/:unitId/exam", async (req, res) => {
     const unitId = parseId(req.params.unitId);
     if (!unitId) return res.status(400).json({ error: "معرف الفصل غير صالح" });
 
-    // Config.
-    const isPublished = Boolean(req.body?.isPublished);
+    // Config — each exam opens/closes independently.
+    const reviewPublished = Boolean(req.body?.reviewPublished);
+    const adaptivePublished = Boolean(req.body?.adaptivePublished);
+    // Keep the legacy card-level flag consistent for any old reader (card shows if either).
+    const isPublished = reviewPublished || adaptivePublished;
     const rawCount = req.body?.adaptiveCount;
     let adaptiveCount: number | null = null;
     if (rawCount != null && String(rawCount).trim() !== "") {
@@ -120,14 +138,16 @@ router.put("/admin/units/:unitId/exam", async (req, res) => {
     const timerMinutes = Number.isInteger(rawTimer) && rawTimer >= 0 ? Math.min(rawTimer, 600) : 0;
     const rawPoints = Number.parseInt(String(req.body?.points ?? "30"), 10);
     const points = Number.isInteger(rawPoints) && rawPoints >= 0 ? Math.min(rawPoints, 1000) : 30;
+    const rawReviewPoints = Number.parseInt(String(req.body?.reviewPoints ?? "10"), 10);
+    const reviewPoints = Number.isInteger(rawReviewPoints) && rawReviewPoints >= 0 ? Math.min(rawReviewPoints, 1000) : 10;
 
     const now = new Date();
     await db
       .insert(unitExamsTable)
-      .values({ unitId, isPublished, adaptiveCount, timerMinutes, points, updatedAt: now })
+      .values({ unitId, isPublished, reviewPublished, adaptivePublished, adaptiveCount, timerMinutes, points, reviewPoints, updatedAt: now })
       .onConflictDoUpdate({
         target: unitExamsTable.unitId,
-        set: { isPublished, adaptiveCount, timerMinutes, points, updatedAt: now },
+        set: { isPublished, reviewPublished, adaptivePublished, adaptiveCount, timerMinutes, points, reviewPoints, updatedAt: now },
       });
 
     // Question bank — full sync (validate all before mutating).
@@ -171,7 +191,7 @@ router.put("/admin/units/:unitId/exam", async (req, res) => {
       .where(eq(unitExamQuestionsTable.unitId, unitId))
       .orderBy(asc(unitExamQuestionsTable.orderIndex), asc(unitExamQuestionsTable.id));
 
-    return res.json({ count: saved.length, questions: saved, isPublished, adaptiveCount, timerMinutes, points });
+    return res.json({ count: saved.length, questions: saved, reviewPublished, adaptivePublished, adaptiveCount, timerMinutes, points, reviewPoints });
   } catch (err) {
     req.log.error({ err }, "Failed to save chapter exam (admin)");
     return res.status(500).json({ error: "Internal server error" });
@@ -240,20 +260,24 @@ router.get("/units/:unitId/exam/info", async (req, res) => {
 
     const level = await getStudentSubjectLevel(access.userId, access.subjectId);
 
+    // Each exam shows only if IT is open (admins bypass) AND it actually has content.
+    const reviewOpen = access.privileged || access.reviewPublished;
+    const adaptiveOpen = access.privileged || access.adaptivePublished;
+
     return res.json({
       available: true,
       timerMinutes: exam?.timerMinutes ?? 0,
       points: exam?.points ?? POINTS.quizFull,
       level: level.level,
       review: {
-        available: review.questionIds.length > 0,
+        available: reviewOpen && review.questionIds.length > 0,
         count: review.questionIds.length,
         mistakeCount: review.mistakeCount,
         totalChapterQuestions: review.totalChapterQuestions,
         lastPercent: lastReview?.percent ?? null,
       },
       adaptive: {
-        available: bankSize > 0,
+        available: adaptiveOpen && bankSize > 0,
         count: Math.min(exam?.adaptiveCount ?? bankSize, bankSize),
         bankSize,
         lastPercent: lastAdaptive?.percent ?? null,
@@ -270,7 +294,7 @@ router.get("/units/:unitId/exam/review", async (req, res) => {
   try {
     const unitId = parseId(req.params.unitId);
     if (!unitId) return res.status(400).json({ error: "معرف الفصل غير صالح" });
-    const access = await resolveUnitAccess(req, unitId);
+    const access = await resolveUnitAccess(req, unitId, "review");
     if (!access.ok) return res.status(access.status).json({ error: access.error });
 
     const review = await buildMistakesReview(access.userId, unitId);
@@ -315,7 +339,7 @@ router.get("/units/:unitId/exam/adaptive", async (req, res) => {
   try {
     const unitId = parseId(req.params.unitId);
     if (!unitId) return res.status(400).json({ error: "معرف الفصل غير صالح" });
-    const access = await resolveUnitAccess(req, unitId);
+    const access = await resolveUnitAccess(req, unitId, "adaptive");
     if (!access.ok) return res.status(access.status).json({ error: access.error });
 
     const [exam] = await db.select().from(unitExamsTable).where(eq(unitExamsTable.unitId, unitId)).limit(1);
@@ -369,7 +393,7 @@ async function gradeAndSubmit(params: {
   examType: "review" | "adaptive";
 }) {
   const { req, res, unitId, examType } = params;
-  const access = await resolveUnitAccess(req, unitId);
+  const access = await resolveUnitAccess(req, unitId, examType);
   if (!access.ok) return res.status(access.status).json({ error: access.error });
 
   const rawAnswers = Array.isArray(req.body?.answers) ? req.body.answers : null;
@@ -452,9 +476,9 @@ async function gradeAndSubmit(params: {
   const isFirstAttempt = priorAttempts === 0;
 
   const [exam] = await db.select().from(unitExamsTable).where(eq(unitExamsTable.unitId, unitId)).limit(1);
-  // Adaptive (formal) exam is worth the configured points; the review (practice) is
-  // worth a lesson-quiz's points. Both first-attempt-only, as a % of the score.
-  const maxPoints = examType === "adaptive" ? exam?.points ?? 30 : POINTS.quizFull;
+  // Adaptive (formal) exam is worth its configured points; the review (practice) is
+  // worth its own (smaller) points. Both first-attempt-only, as a % of the score.
+  const maxPoints = examType === "adaptive" ? exam?.points ?? 30 : exam?.reviewPoints ?? POINTS.quizFull;
   const intendedPoints = isFirstAttempt ? Math.round((maxPoints * percent) / 100) : 0;
 
   const [attempt] = await db
@@ -495,7 +519,7 @@ async function gradeAndSubmit(params: {
   const activity = await recordExamActivity({
     userId: access.userId,
     sourceKey: `unit_exam_first:${unitId}:${examType}`,
-    description: examType === "adaptive" ? "امتحان الفصل" : "مراجعة أخطاء",
+    description: examType === "adaptive" ? "تحديك الخاص" : "امتحان الاستدراك",
     points: intendedPoints,
     maxPoints,
   });

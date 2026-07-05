@@ -22,16 +22,25 @@ export const unitExamsTable = pgTable(
     unitId: integer("unit_id")
       .notNull()
       .references(() => unitsTable.id, { onDelete: "cascade" }),
-    // Admin gate: the chapter-exam card only shows to students when this is true.
+    // LEGACY card-level gate. Kept for backward compatibility; the two per-exam flags
+    // below are the real gates now (each exam opens/closes independently). On save we
+    // set this to (reviewPublished || adaptivePublished) so old readers still work.
     isPublished: boolean("is_published").notNull().default(false),
+    // Per-exam admin gates — each exam of the card opens/closes on its own:
+    //   reviewPublished   → "راجع أخطاءك" (mistakes review, exam A)
+    //   adaptivePublished → "امتحان الفصل" (adaptive formal exam, exam B)
+    reviewPublished: boolean("review_published").notNull().default(false),
+    adaptivePublished: boolean("adaptive_published").notNull().default(false),
     // How many questions the ADAPTIVE exam (B) serves per attempt (sampled from the
     // bank below, weighted by the student's level). Null = serve the whole bank.
     adaptiveCount: integer("adaptive_count"),
     // Timer for the adaptive formal exam, in minutes. 0/null = no timer.
     timerMinutes: integer("timer_minutes").notNull().default(0),
-    // Points value of a full (100%) score on the chapter exam — bigger than a lesson
-    // quiz; credited on the first attempt only, as a percentage of this max.
+    // Points value of a full (100%) score on the ADAPTIVE exam (B) — bigger than a
+    // lesson quiz; credited on the first attempt only, as a percentage of this max.
     points: integer("points").notNull().default(30),
+    // Points value of a full (100%) score on the REVIEW exam (A). Practice, so smaller.
+    reviewPoints: integer("review_points").notNull().default(10),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -52,7 +52,14 @@ export function ChapterExamCard({ unitId, unitName }: { unitId: number; unitName
       params: {
         examKind: kind,
         unitId: String(unitId),
-        examTitle: kind === "unit-review" ? (en ? "Review your mistakes" : "راجع أخطاءك") : title,
+        examTitle:
+          kind === "unit-review"
+            ? en
+              ? "Catch-up exam"
+              : "امتحان الاستدراك"
+            : en
+              ? "Your own challenge"
+              : "تحديك الخاص",
       },
     } as any);
   };
@@ -75,13 +82,16 @@ export function ChapterExamCard({ unitId, unitName }: { unitId: number; unitName
 
       <View style={{ gap: 9, marginTop: 13 }}>
         {canReview ? (
-          <Pressable onPress={() => go("unit-review")} style={({ pressed }) => [styles.btn, styles.btnLight, { opacity: pressed ? 0.85 : 1, flexDirection: en ? "row" : "row-reverse" }]}>
+          <Pressable onPress={() => go("unit-review")} style={({ pressed }) => [styles.btn, styles.btnLight, { opacity: pressed ? 0.85 : 1, direction: "ltr", flexDirection: en ? "row" : "row-reverse" }]}>
             <Feather name="refresh-ccw" size={16} color="#4F46E5" />
             <View style={{ flex: 1 }}>
               <Text style={[styles.btnTitle, { color: "#312E81", textAlign: en ? "left" : "right", writingDirection: direction }]}>
-                {en ? "Review your mistakes" : "راجع أخطاءك"}
+                {en ? "Catch-up exam" : "امتحان الاستدراك"}
               </Text>
-              <Text style={[styles.btnMeta, { color: "#6366F1", textAlign: en ? "left" : "right", writingDirection: direction }]}>
+              <Text style={[styles.btnMeta, { color: "#4338CA", textAlign: en ? "left" : "right", writingDirection: direction }]}>
+                {en ? "We focused on the points that need another try." : "ركزنا لك على النقط اللي محتاجة محاولة تانية."}
+              </Text>
+              <Text style={[styles.btnStat, { color: "#6366F1", textAlign: en ? "left" : "right", writingDirection: direction }]}>
                 {en
                   ? `${toEnglishDigits(String(data.review.count))} questions · instant feedback`
                   : `${toEnglishDigits(String(data.review.count))} سؤال · تصحيح فوري`}
@@ -92,13 +102,16 @@ export function ChapterExamCard({ unitId, unitName }: { unitId: number; unitName
         ) : null}
 
         {canAdaptive ? (
-          <Pressable onPress={() => go("unit-adaptive")} style={({ pressed }) => [styles.btn, styles.btnSolid, { opacity: pressed ? 0.85 : 1, flexDirection: en ? "row" : "row-reverse" }]}>
+          <Pressable onPress={() => go("unit-adaptive")} style={({ pressed }) => [styles.btn, styles.btnSolid, { opacity: pressed ? 0.85 : 1, direction: "ltr", flexDirection: en ? "row" : "row-reverse" }]}>
             <Feather name="edit-3" size={16} color="#fff" />
             <View style={{ flex: 1 }}>
               <Text style={[styles.btnTitle, { color: "#fff", textAlign: en ? "left" : "right", writingDirection: direction }]}>
-                {en ? "Chapter exam" : "امتحان الفصل"}
+                {en ? "Your own challenge" : "تحديك الخاص"}
               </Text>
-              <Text style={[styles.btnMeta, { color: "#E0E7FF", textAlign: en ? "left" : "right", writingDirection: direction }]}>
+              <Text style={[styles.btnMeta, { color: "#EDE9FE", textAlign: en ? "left" : "right", writingDirection: direction }]}>
+                {en ? "Questions picked for your level." : "أسئلة اختيرت بناءً على مستواك."}
+              </Text>
+              <Text style={[styles.btnStat, { color: "#C7D2FE", textAlign: en ? "left" : "right", writingDirection: direction }]}>
                 {en
                   ? `${toEnglishDigits(String(data.adaptive.count))} questions${data.timerMinutes > 0 ? ` · ${toEnglishDigits(String(data.timerMinutes))} min` : ""} · +${toEnglishDigits(String(data.points))} pts`
                   : `${toEnglishDigits(String(data.adaptive.count))} سؤال${data.timerMinutes > 0 ? ` · ${toEnglishDigits(String(data.timerMinutes))} دقيقة` : ""} · +${toEnglishDigits(String(data.points))} نقطة`}
@@ -122,5 +135,6 @@ const styles = StyleSheet.create({
   btnLight: { backgroundColor: "rgba(255,255,255,0.94)" },
   btnSolid: { backgroundColor: "rgba(255,255,255,0.16)", borderWidth: 1, borderColor: "rgba(255,255,255,0.35)" },
   btnTitle: { ...FONT.bold, fontSize: 14, lineHeight: 20 },
-  btnMeta: { ...FONT.regular, fontSize: 11.5, lineHeight: 16, marginTop: 1 },
+  btnMeta: { ...FONT.regular, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
+  btnStat: { ...FONT.regular, fontSize: 10.5, lineHeight: 14, marginTop: 2, opacity: 0.95 },
 });

@@ -19,6 +19,7 @@ import {
   notificationsTable,
   lessonWatchProgressTable,
   adminAuditLogTable,
+  unitExamsTable,
 } from "@workspace/db";
 import { and, asc, count, desc, eq, gt, inArray, isNull, like, sql } from "drizzle-orm";
 import { sendPushNotificationToUser } from "../lib/push-notifications";
@@ -2945,9 +2946,27 @@ router.get("/admin/academic/years/:yearId/tree", async (req, res) => {
       lessonsByUnit.set(lesson.unitId, list);
     });
 
+    // v2 Phase 2 — chapter exams, so the grid can show an exam card beside each unit.
+    const exams = unitIds.length
+      ? await db
+          .select({
+            unitId: unitExamsTable.unitId,
+            reviewPublished: unitExamsTable.reviewPublished,
+            adaptivePublished: unitExamsTable.adaptivePublished,
+          })
+          .from(unitExamsTable)
+          .where(inArray(unitExamsTable.unitId, unitIds))
+      : [];
+    const examByUnit = new Map(exams.map((e) => [e.unitId, e]));
+
     const unitsBySubject = new Map<number, Array<(typeof units)[number] & { lessons: unknown[] }>>();
     units.forEach((unit) => {
-      const withLessons = { ...unit, lessons: lessonsByUnit.get(unit.id) ?? [] };
+      const exam = examByUnit.get(unit.id) ?? null;
+      const withLessons = {
+        ...unit,
+        lessons: lessonsByUnit.get(unit.id) ?? [],
+        exam: exam ? { reviewPublished: exam.reviewPublished, adaptivePublished: exam.adaptivePublished } : null,
+      };
       const list = unitsBySubject.get(unit.subjectId) ?? [];
       list.push(withLessons);
       unitsBySubject.set(unit.subjectId, list);

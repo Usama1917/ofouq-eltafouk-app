@@ -884,3 +884,99 @@
   top: 0;
   height: 3px;
 }
+
+/* Tree cards are whole-card click targets now (no inline buttons). */
+.acad-tree-clickable {
+  cursor: pointer;
+}
+.acad-tree-clickable:hover {
+  box-shadow: 0 6px 18px rgb(15 23 42 / 0.1);
+  transform: translateY(-1px);
+}
+.acad-tree-clickable:active {
+  transform: translateY(0);
+}
+
+/* The chapter-exam card that sits beside a unit card in the tree. Same shell as a
+   node card, a touch narrower, with an indigo tint so it reads as "the exam". */
+.acad-tree-exam {
+  position: relative;
+  width: 168px;
+  border-radius: 16px;
+  border: 1px solid hsl(238 60% 88%);
+  background: linear-gradient(180deg, hsl(238 100% 99%), hsl(250 100% 98%));
+  padding: 10px 12px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+  text-align: right;
+  overflow: hidden;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+/* Unit card + its exam card, side by side. Aligned to the top so both cards' tops
+   line up; the pair stays centered under the tree connector. */
+.acad-unit-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
+}
+/* Invisible right-side spacer, same width as the exam card, so the unit card stays
+   centered under the tree connector while the exam card sits on its left. Keep this
+   width equal to .acad-tree-exam's width (168px). */
+.acad-unit-spacer {
+  width: 168px;
+  flex-shrink: 0;
+  align-self: stretch;
+  pointer-events: none;
+}
+
+/* "Here it is" flash + gentle shake when you land on a card from the grid. */
+@keyframes acad-flash-shake {
+  0% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+    transform: translateX(0);
+  }
+  15% {
+    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.5);
+    transform: translateX(-4px);
+  }
+  30% {
+    transform: translateX(4px);
+  }
+  45% {
+    transform: translateX(-3px);
+  }
+  60% {
+    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.35);
+    transform: translateX(3px);
+  }
+  75% {
+    transform: translateX(-1px);
+  }
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+    transform: translateX(0);
+  }
+}
+.acad-flash {
+  animation: acad-flash-shake 1s ease-in-out;
+  border-color: hsl(var(--primary) / 0.6) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Respect reduced-motion: keep the highlight ring, drop the shake. */
+  @keyframes acad-flash-shake {
+    0% {
+      box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+    }
+    30% {
+      box-shadow: 0 0 0 4px hsl(var(--primary) / 0.5);
+    }
+    100% {
+      box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+    }
+  }
+  .acad-flash {
+    animation: acad-flash-shake 1s ease-in-out;
+  }
+}

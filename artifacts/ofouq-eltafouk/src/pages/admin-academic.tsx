@@ -513,6 +513,8 @@ function ItemCard({
   containerClassName,
   iconWrapperClassName,
   topAccentClassName,
+  highlight,
+  onHighlightEnd,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -529,9 +531,23 @@ function ItemCard({
   containerClassName?: string;
   iconWrapperClassName?: string;
   topAccentClassName?: string;
+  highlight?: boolean;
+  onHighlightEnd?: () => void;
 }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (highlight && rootRef.current) {
+      rootRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlight]);
   return (
-    <div className={`glass-card no-lift relative overflow-hidden p-4 min-h-[92px] flex items-center gap-3 ${!isPublished ? "opacity-75" : ""} ${containerClassName ?? ""}`}>
+    <div
+      ref={rootRef}
+      onAnimationEnd={() => {
+        if (highlight) onHighlightEnd?.();
+      }}
+      className={`glass-card no-lift relative overflow-hidden p-4 min-h-[92px] flex items-center gap-3 ${!isPublished ? "opacity-75" : ""} ${highlight ? "acad-flash" : ""} ${containerClassName ?? ""}`}
+    >
       {topAccentClassName ? <div className={`absolute inset-x-0 top-0 h-1 ${topAccentClassName}`} /> : null}
       <div className={`w-10 h-10 rounded-xl border bg-muted/50 flex items-center justify-center flex-shrink-0 ${iconWrapperClassName ?? ""}`}>{icon}</div>
       <div className="flex-1 min-w-0">
@@ -600,7 +616,8 @@ const NODE_KIND_PATH: Record<NodeKind, string> = {
   lesson: "lessons",
 };
 
-type UnitTreeNode = Unit & { lessons: Lesson[] };
+type UnitExamFlags = { reviewPublished: boolean; adaptivePublished: boolean } | null;
+type UnitTreeNode = Unit & { lessons: Lesson[]; exam?: UnitExamFlags };
 type SubjectTreeNode = Subject & { units: UnitTreeNode[] };
 type YearTreeData = { subjects: SubjectTreeNode[] };
 
@@ -626,9 +643,35 @@ type TreeActions = {
   togglePublish: (kind: NodeKind, id: number, next: boolean) => void;
   remove: (kind: NodeKind, id: number) => void;
   reorder: <T extends { id: number; orderIndex: number }>(kind: NodeKind, siblings: T[], index: number, dir: "up" | "down") => void;
+  // Clicking a tree node jumps to the normal cards view at that node's level and
+  // flashes it among its siblings.
+  gotoSubject: (subject: Subject, ctx: { yearId: number; yearName: string }) => void;
+  gotoUnit: (
+    unit: Unit,
+    ctx: { yearId: number; subjectId: number; subjectName: string; yearName: string; unitLabel: AcademicUnitLabel },
+  ) => void;
+  gotoLesson: (
+    lesson: Lesson,
+    ctx: {
+      yearId: number;
+      subjectId: number;
+      unitId: number;
+      unitName: string;
+      subjectName: string;
+      yearName: string;
+      unitLabel: AcademicUnitLabel;
+    },
+  ) => void;
+  gotoExam: (
+    unit: Unit,
+    ctx: { yearId: number; subjectId: number; subjectName: string; yearName: string; unitLabel: AcademicUnitLabel; unitName: string },
+  ) => void;
 };
 
-// Compact card for a single node inside the tree — mirrors ItemCard's actions.
+// Compact card for a single node inside the tree. No inline actions — the whole card
+// is a click target that jumps to that node in the normal cards view (kept as a plain
+// <div> onClick, NOT a <button>, so drag-to-pan still works on the card body; a drag
+// is cancelled before it fires a click by the tree's onClickCapture).
 function TreeNodeCard({
   icon,
   title,
@@ -637,11 +680,7 @@ function TreeNodeCard({
   accentClass,
   iconWrapperClass,
   badge,
-  onEdit,
-  onTogglePublish,
-  onDelete,
-  onMoveUp,
-  onMoveDown,
+  onClick,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -650,15 +689,10 @@ function TreeNodeCard({
   accentClass?: string;
   iconWrapperClass?: string;
   badge?: React.ReactNode;
-  onEdit: () => void;
-  onTogglePublish: () => void;
-  onDelete: () => void;
-  onMoveUp?: () => void;
-  onMoveDown?: () => void;
+  onClick?: () => void;
 }) {
-  const btn = "w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 transition-colors";
   return (
-    <div className={`acad-tree-card ${!isPublished ? "opacity-70" : ""}`}>
+    <div className={`acad-tree-card acad-tree-clickable ${!isPublished ? "opacity-70" : ""}`} onClick={onClick} title="اضغط للانتقال إليه">
       <span className={`acad-tree-accent ${accentClass ?? "bg-primary/40"}`} />
       <div className="flex items-center gap-2">
         <div className={`w-8 h-8 rounded-lg border bg-muted/50 flex items-center justify-center flex-shrink-0 ${iconWrapperClass ?? ""}`}>
@@ -669,42 +703,39 @@ function TreeNodeCard({
           {subtitle ? <p className="text-[11px] text-muted-foreground truncate">{subtitle}</p> : null}
         </div>
       </div>
-      <div className="flex items-center justify-between gap-1 mt-2.5">
-        <div className="flex items-center gap-1 min-w-0">
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${isPublished ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
-            {isPublished ? "منشور" : "مسودة"}
-          </span>
-          {badge}
+      <div className="flex items-center gap-1 mt-2.5 min-w-0">
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${isPublished ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+          {isPublished ? "منشور" : "مسودة"}
+        </span>
+        {badge}
+      </div>
+    </div>
+  );
+}
+
+// The chapter-exam card that sits beside a unit in the tree (only when the unit has an
+// exam). Clicking it opens that chapter's exam settings.
+function TreeExamCard({ reviewOpen, adaptiveOpen, onClick }: { reviewOpen: boolean; adaptiveOpen: boolean; onClick?: () => void }) {
+  const pill = (label: string, open: boolean) => (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${open ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+      {label}
+    </span>
+  );
+  return (
+    <div className="acad-tree-exam acad-tree-clickable" onClick={onClick} title="اضغط لإعدادات الامتحان">
+      <span className="acad-tree-accent bg-indigo-400/70" />
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-indigo-100 text-indigo-600">
+          <Award className="w-4 h-4" />
         </div>
-        <div className="flex items-center gap-0.5">
-          {onMoveUp ? (
-            <button onClick={onMoveUp} className={`${btn} bg-muted hover:bg-muted/80`}>
-              <ArrowUp className="w-3 h-3" />
-            </button>
-          ) : null}
-          {onMoveDown ? (
-            <button onClick={onMoveDown} className={`${btn} bg-muted hover:bg-muted/80`}>
-              <ArrowDown className="w-3 h-3" />
-            </button>
-          ) : null}
-          <button onClick={onEdit} className={`${btn} bg-primary/10 text-primary hover:bg-primary/20`}>
-            <Pencil className="w-3 h-3" />
-          </button>
-          <button
-            onClick={onTogglePublish}
-            className={`${btn} ${isPublished ? "bg-emerald-100 text-emerald-600" : "bg-gray-100 text-gray-500"}`}
-          >
-            {isPublished ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-          </button>
-          <button
-            onClick={() => {
-              if (confirm("هل أنت متأكد من الحذف؟")) onDelete();
-            }}
-            className={`${btn} bg-red-100 text-red-600 hover:bg-red-200`}
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
+        <div className="min-w-0 flex-1">
+          <h4 className="font-bold text-[13px] text-foreground truncate leading-tight">الامتحان</h4>
+          <p className="text-[11px] text-muted-foreground truncate">استدراك + تحدي</p>
         </div>
+      </div>
+      <div className="flex items-center gap-1 mt-2.5 min-w-0">
+        {pill("استدراك", reviewOpen)}
+        {pill("تحدي", adaptiveOpen)}
       </div>
     </div>
   );
@@ -893,7 +924,7 @@ function YearTreeCard({
                   onClickCapture={dragScroll.onClickCapture}
                 >
                   <ul>
-                    {subjects.map((subject, si) => (
+                    {subjects.map((subject) => (
                       <li key={subject.id}>
                         <TreeNodeCard
                           icon={<span className="text-lg leading-none">{subject.icon || "📚"}</span>}
@@ -906,39 +937,54 @@ function YearTreeCard({
                               {getUnitLabelCopy(subject.unitLabel).plural}
                             </span>
                           }
-                          onEdit={() => actions.editSubject(subject, { yearId: year.id, yearName: year.name })}
-                          onTogglePublish={() => actions.togglePublish("subject", subject.id, !subject.isPublished)}
-                          onDelete={() => actions.remove("subject", subject.id)}
-                          onMoveUp={si > 0 ? () => actions.reorder("subject", subjects, si, "up") : undefined}
-                          onMoveDown={si < subjects.length - 1 ? () => actions.reorder("subject", subjects, si, "down") : undefined}
+                          onClick={() => actions.gotoSubject(subject, { yearId: year.id, yearName: year.name })}
                         />
                         {subject.units.length ? (
                           <ul>
-                            {subject.units.map((unit, ui) => (
+                            {subject.units.map((unit) => (
                               <li key={unit.id}>
-                                <TreeNodeCard
-                                  icon={<Layers className="w-4 h-4 text-sky-500" />}
-                                  title={unit.name}
-                                  subtitle={unit.description}
-                                  isPublished={unit.isPublished}
-                                  accentClass="bg-sky-400/60"
-                                  onEdit={() =>
-                                    actions.editUnit(unit, {
-                                      yearId: year.id,
-                                      subjectId: subject.id,
-                                      subjectName: subject.name,
-                                      yearName: year.name,
-                                      unitLabel: normalizeUnitLabel(subject.unitLabel),
-                                    })
-                                  }
-                                  onTogglePublish={() => actions.togglePublish("unit", unit.id, !unit.isPublished)}
-                                  onDelete={() => actions.remove("unit", unit.id)}
-                                  onMoveUp={ui > 0 ? () => actions.reorder("unit", subject.units, ui, "up") : undefined}
-                                  onMoveDown={ui < subject.units.length - 1 ? () => actions.reorder("unit", subject.units, ui, "down") : undefined}
-                                />
+                                {/* Unit card stays centered under the connector; the exam
+                                    card sits on its left. An equal-width spacer on the right
+                                    keeps the unit card dead-centre (so the tree line still
+                                    hits it, not the pair). */}
+                                <div className="acad-unit-row">
+                                  {unit.exam ? <div className="acad-unit-spacer" aria-hidden="true" /> : null}
+                                  <TreeNodeCard
+                                    icon={<Layers className="w-4 h-4 text-sky-500" />}
+                                    title={unit.name}
+                                    subtitle={unit.description}
+                                    isPublished={unit.isPublished}
+                                    accentClass="bg-sky-400/60"
+                                    onClick={() =>
+                                      actions.gotoUnit(unit, {
+                                        yearId: year.id,
+                                        subjectId: subject.id,
+                                        subjectName: subject.name,
+                                        yearName: year.name,
+                                        unitLabel: normalizeUnitLabel(subject.unitLabel),
+                                      })
+                                    }
+                                  />
+                                  {unit.exam ? (
+                                    <TreeExamCard
+                                      reviewOpen={unit.exam.reviewPublished}
+                                      adaptiveOpen={unit.exam.adaptivePublished}
+                                      onClick={() =>
+                                        actions.gotoExam(unit, {
+                                          yearId: year.id,
+                                          subjectId: subject.id,
+                                          subjectName: subject.name,
+                                          yearName: year.name,
+                                          unitLabel: normalizeUnitLabel(subject.unitLabel),
+                                          unitName: unit.name,
+                                        })
+                                      }
+                                    />
+                                  ) : null}
+                                </div>
                                 {unit.lessons.length ? (
                                   <ul>
-                                    {unit.lessons.map((lesson, di) => (
+                                    {unit.lessons.map((lesson) => (
                                       <li key={lesson.id}>
                                         <TreeNodeCard
                                           icon={<PlayCircle className="w-4 h-4 text-emerald-500" />}
@@ -946,8 +992,8 @@ function YearTreeCard({
                                           subtitle={lesson.video ? (lesson.video.videoType === "youtube" ? "YouTube" : "رفع") : "بلا فيديو"}
                                           isPublished={lesson.isPublished}
                                           accentClass="bg-emerald-400/60"
-                                          onEdit={() =>
-                                            actions.editLesson(lesson, {
+                                          onClick={() =>
+                                            actions.gotoLesson(lesson, {
                                               yearId: year.id,
                                               subjectId: subject.id,
                                               unitId: unit.id,
@@ -957,10 +1003,6 @@ function YearTreeCard({
                                               unitLabel: normalizeUnitLabel(subject.unitLabel),
                                             })
                                           }
-                                          onTogglePublish={() => actions.togglePublish("lesson", lesson.id, !lesson.isPublished)}
-                                          onDelete={() => actions.remove("lesson", lesson.id)}
-                                          onMoveUp={di > 0 ? () => actions.reorder("lesson", unit.lessons, di, "up") : undefined}
-                                          onMoveDown={di < unit.lessons.length - 1 ? () => actions.reorder("lesson", unit.lessons, di, "down") : undefined}
                                         />
                                       </li>
                                     ))}
@@ -1083,7 +1125,9 @@ export function AcademicTab() {
   const addToggleRef = useRef<HTMLButtonElement | null>(null);
 
   const current = crumbs[crumbs.length - 1];
-  const currentUnitCopy = getUnitLabelCopy(current.unitLabel);
+  // The unit-label term (فصل/وحدة/باب) lives on the units-level crumb; at the lessons
+  // level fall back to the nearest crumb that carries it so labels stay correct.
+  const currentUnitCopy = getUnitLabelCopy(current.unitLabel ?? [...crumbs].reverse().find((c) => c.unitLabel)?.unitLabel);
 
   const yearsQ = useQuery<AcademicYear[]>({
     queryKey: ["admin", "academic", "years"],
@@ -1108,6 +1152,22 @@ export function AcademicTab() {
     queryFn: () => apiFetch(token, `/admin/academic/units/${current.unitId}/lessons`),
     enabled: !!token && !!current.unitId,
   });
+
+  // v2 Phase 2 — does this chapter already have an exam row? Drives the "add exam"
+  // button (hidden once created) + the distinguished exam card at the bottom of the
+  // lessons list. `showExam` opens the exam-settings panel (create or edit).
+  const [showExam, setShowExam] = useState(false);
+  // When you click a node in the grid, we jump to the cards view at its level and
+  // briefly flash that card (a "here it is" highlight among its siblings).
+  const [flash, setFlash] = useState<{ kind: NodeKind; id: number } | null>(null);
+  const unitExamQ = useQuery<{ exam: { reviewPublished?: boolean; adaptivePublished?: boolean } | null }>({
+    queryKey: ["admin", "academic", "unit-exam", current.unitId],
+    queryFn: () => apiFetch(token, `/admin/units/${current.unitId}/exam`),
+    enabled: !!token && !!current.unitId && current.level === "lessons",
+  });
+  const examExists = !!unitExamQ.data?.exam;
+  const examReviewOpen = !!unitExamQ.data?.exam?.reviewPublished;
+  const examAdaptiveOpen = !!unitExamQ.data?.exam?.adaptivePublished;
 
   const years = useSorted(yearsQ.data ?? []);
   const subjects = useSorted(subjectsQ.data ?? []);
@@ -1816,6 +1876,50 @@ export function AcademicTab() {
     reorder: (kind, siblings, index, dir) => {
       void moveItem(siblings, index, dir, `/admin/academic/${NODE_KIND_PATH[kind]}/reorder`);
     },
+    gotoSubject: (subject, ctx) => {
+      setViewMode("cards");
+      setShowAdd(false);
+      setShowExam(false);
+      setCrumbs([
+        { level: "years", label: "السنوات الدراسية" },
+        { level: "subjects", label: ctx.yearName, yearId: ctx.yearId },
+      ]);
+      setFlash({ kind: "subject", id: subject.id });
+    },
+    gotoUnit: (unit, ctx) => {
+      setViewMode("cards");
+      setShowAdd(false);
+      setShowExam(false);
+      setCrumbs([
+        { level: "years", label: "السنوات الدراسية" },
+        { level: "subjects", label: ctx.yearName, yearId: ctx.yearId },
+        { level: "units", label: ctx.subjectName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitLabel: ctx.unitLabel },
+      ]);
+      setFlash({ kind: "unit", id: unit.id });
+    },
+    gotoLesson: (lesson, ctx) => {
+      setViewMode("cards");
+      setShowAdd(false);
+      setShowExam(false);
+      setCrumbs([
+        { level: "years", label: "السنوات الدراسية" },
+        { level: "subjects", label: ctx.yearName, yearId: ctx.yearId },
+        { level: "units", label: ctx.subjectName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitLabel: ctx.unitLabel },
+        { level: "lessons", label: ctx.unitName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitId: ctx.unitId, unitLabel: ctx.unitLabel },
+      ]);
+      setFlash({ kind: "lesson", id: lesson.id });
+    },
+    gotoExam: (unit, ctx) => {
+      setViewMode("cards");
+      setShowAdd(false);
+      setCrumbs([
+        { level: "years", label: "السنوات الدراسية" },
+        { level: "subjects", label: ctx.yearName, yearId: ctx.yearId },
+        { level: "units", label: ctx.subjectName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitLabel: ctx.unitLabel },
+        { level: "lessons", label: ctx.unitName, yearId: ctx.yearId, subjectId: ctx.subjectId, unitId: unit.id, unitLabel: ctx.unitLabel },
+      ]);
+      setShowExam(true);
+    },
   };
 
   return (
@@ -1835,6 +1939,7 @@ export function AcademicTab() {
                     onClick={() => {
                       setCrumbs((prev) => prev.slice(0, i + 1));
                       setShowAdd(false);
+                      setShowExam(false);
                     }}
                     className={`text-sm font-semibold ${i === crumbs.length - 1 ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
                   >
@@ -1870,34 +1975,56 @@ export function AcademicTab() {
             </button>
           </div>
 
-          <button
-            ref={addToggleRef}
-            onClick={() => {
-              setShowAdd((open) => {
-                const next = !open;
-                if (next) {
-                  if (viewMode === "grid") {
-                    // In grid mode the top "إضافة" always adds a year.
-                    setCrumbs([{ level: "years", label: "السنوات الدراسية" }]);
-                    resetYearForm();
-                  } else if (current.level === "years") {
-                    resetYearForm();
-                  } else if (current.level === "subjects") {
-                    resetSubjectForm();
-                  } else if (current.level === "units") {
-                    resetUnitForm();
-                  } else if (current.level === "lessons") {
-                    resetLessonForm();
+          {viewMode === "cards" && current.level === "lessons" && !examExists && !showExam ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (lessons.length === 0) return;
+                setShowAdd(false);
+                setShowExam(true);
+              }}
+              disabled={lessons.length === 0}
+              title={lessons.length === 0 ? `ضيف درس واحد على الأقل الأول عشان تقدر تضيف الامتحان` : undefined}
+              className="text-sm py-2 px-4 rounded-xl font-bold inline-flex items-center gap-1.5 border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Award className="w-4 h-4" />
+              إضافة امتحان {currentUnitCopy.singular}
+            </button>
+          ) : null}
+
+          {/* While the chapter-exam panel is open, the generic "إضافة" is hidden — the
+              panel has its own "رجوع" and there's nothing to add at that point. */}
+          {showExam ? null : (
+            <button
+              ref={addToggleRef}
+              onClick={() => {
+                setShowExam(false);
+                setShowAdd((open) => {
+                  const next = !open;
+                  if (next) {
+                    if (viewMode === "grid") {
+                      // In grid mode the top "إضافة" always adds a year.
+                      setCrumbs([{ level: "years", label: "السنوات الدراسية" }]);
+                      resetYearForm();
+                    } else if (current.level === "years") {
+                      resetYearForm();
+                    } else if (current.level === "subjects") {
+                      resetSubjectForm();
+                    } else if (current.level === "units") {
+                      resetUnitForm();
+                    } else if (current.level === "lessons") {
+                      resetLessonForm();
+                    }
                   }
-                }
-                return next;
-              });
-            }}
-            className="btn-primary text-sm py-2 px-4"
-          >
-            <Plus className="w-4 h-4" />
-            {showAdd ? "إغلاق" : "إضافة"}
-          </button>
+                  return next;
+                });
+              }}
+              className="btn-primary text-sm py-2 px-4"
+            >
+              <Plus className="w-4 h-4" />
+              {showAdd ? "إغلاق" : "إضافة"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -2154,15 +2281,6 @@ export function AcademicTab() {
                 >
                   {unitFormMode === "edit" ? `حفظ تعديل ${currentUnitCopy.singular}` : `حفظ ${currentUnitCopy.singular}`}
                 </button>
-
-                {unitFormMode === "edit" && editingUnitId ? (
-                  <div className="mt-4 pt-4 border-t border-white/50">
-                    <h3 className="font-bold text-foreground mb-2 flex items-center gap-2">
-                      <Award className="w-4 h-4 text-indigo-600" /> امتحان الفصل (المراجعة + المتكيّف)
-                    </h3>
-                    <ChapterExamManager unitId={editingUnitId} token={token} />
-                  </div>
-                ) : null}
               </>
             ) : null}
 
@@ -2681,6 +2799,8 @@ export function AcademicTab() {
             subjects.map((subject, index) => (
               <ItemCard
                 key={subject.id}
+                highlight={flash?.kind === "subject" && flash.id === subject.id}
+                onHighlightEnd={() => setFlash(null)}
                 icon={<span className="text-xl">{subject.icon || "📚"}</span>}
                 title={subject.name}
                 description={subject.description}
@@ -2729,6 +2849,8 @@ export function AcademicTab() {
             units.map((unit, index) => (
               <ItemCard
                 key={unit.id}
+                highlight={flash?.kind === "unit" && flash.id === unit.id}
+                onHighlightEnd={() => setFlash(null)}
                 icon={<Layers className="w-5 h-5 text-sky-500" />}
                 title={unit.name}
                 description={unit.description}
@@ -2748,15 +2870,42 @@ export function AcademicTab() {
                 onMoveUp={index > 0 ? () => moveItem(units, index, "up", "/admin/academic/units/reorder") : undefined}
                 onMoveDown={index < units.length - 1 ? () => moveItem(units, index, "down", "/admin/academic/units/reorder") : undefined}
                 onOpen={() => {
-                  setCrumbs((prev) => [...prev, { level: "lessons", label: unit.name, yearId: current.yearId, subjectId: current.subjectId, unitId: unit.id }]);
+                  setCrumbs((prev) => [...prev, { level: "lessons", label: unit.name, yearId: current.yearId, subjectId: current.subjectId, unitId: unit.id, unitLabel: current.unitLabel }]);
                   setShowAdd(false);
+                  setShowExam(false);
                 }}
               />
             ))
           )
         ) : null}
 
-        {current.level === "lessons" && !showAdd ? (
+        {/* v2 Phase 2 — the chapter-exam settings panel (both exams, each independent). */}
+        {current.level === "lessons" && showExam && current.unitId ? (
+          <div className="glass-card p-4 space-y-3 border-indigo-200/60">
+            <div className="flex items-center justify-between gap-2 flex-wrap border-b border-white/40 pb-2.5">
+              <h3 className="font-bold text-foreground flex items-center gap-2">
+                <Award className="w-4 h-4 text-indigo-600" /> امتحان {currentUnitCopy.singular}: {current.label}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowExam(false)}
+                className="flex items-center gap-1.5 text-sm font-bold text-muted-foreground hover:text-primary"
+              >
+                <ChevronRight className="w-4 h-4" /> رجوع لقائمة الدروس
+              </button>
+            </div>
+            <ChapterExamManager
+              unitId={current.unitId}
+              token={token}
+              unitLabelSingular={currentUnitCopy.singular}
+              onSaved={() => {
+                qc.invalidateQueries({ queryKey: ["admin", "academic", "unit-exam", current.unitId] });
+              }}
+            />
+          </div>
+        ) : null}
+
+        {current.level === "lessons" && !showAdd && !showExam ? (
           <>
             {lastSavedLesson ? (
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
@@ -2771,6 +2920,8 @@ export function AcademicTab() {
               lessons.map((lesson, index) => (
               <ItemCard
                 key={lesson.id}
+                highlight={flash?.kind === "lesson" && flash.id === lesson.id}
+                onHighlightEnd={() => setFlash(null)}
                 icon={<PlayCircle className="w-5 h-5 text-emerald-500" />}
                 title={lesson.title}
                 description={lesson.description}
@@ -2814,6 +2965,34 @@ export function AcademicTab() {
               />
               ))
             )}
+
+            {/* The distinguished chapter-exam card — always pinned at the bottom, once
+                the exam exists. Tap to open its settings (both exams). */}
+            {examExists ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAdd(false);
+                  setShowExam(true);
+                }}
+                className="w-full text-start rounded-2xl p-4 flex items-center gap-3 bg-gradient-to-l from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/20 hover:brightness-105 transition"
+              >
+                <span className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                  <Award className="w-5 h-5 text-white" />
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block font-bold text-[15px]">امتحان {currentUnitCopy.singular}</span>
+                  <span className="block text-[12px] text-indigo-100 mt-0.5">
+                    امتحان الاستدراك:{" "}
+                    <b className={examReviewOpen ? "text-emerald-200" : "text-indigo-200"}>{examReviewOpen ? "مفتوح" : "مقفول"}</b>
+                    {" · "}تحديك الخاص:{" "}
+                    <b className={examAdaptiveOpen ? "text-emerald-200" : "text-indigo-200"}>{examAdaptiveOpen ? "مفتوح" : "مقفول"}</b>
+                    {" · "}اضغط للإعدادات
+                  </span>
+                </span>
+                <ChevronLeft className="w-5 h-5 text-white/80 shrink-0" />
+              </button>
+            ) : null}
           </>
         ) : null}
         </>
