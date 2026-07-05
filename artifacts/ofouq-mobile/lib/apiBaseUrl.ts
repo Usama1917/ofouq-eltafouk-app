@@ -10,6 +10,14 @@ function isPreviewOrDevelopmentBuild() {
   return API_BUILD_PROFILE !== "production";
 }
 
+// The custom server-address override is only meant for PREVIEW/standalone builds (where
+// there's no Expo bundler host to infer the LAN API from). In a normal `expo start` DEV
+// session we ALWAYS derive the API host from the Expo host (getBaseUrl), so a stale
+// override — e.g. one set to yesterday's LAN IP — must never leak in and break data.
+function overrideIsHonored() {
+  return API_BUILD_PROFILE === "preview";
+}
+
 /**
  * A usable API override must point at a real host: localhost, a bare IPv4, or a
  * dotted domain. This rejects garbage like `exp` (from a mangled `exp://…` Expo URL),
@@ -64,11 +72,11 @@ export function normalizeApiBaseUrl(value: string) {
 }
 
 export function getCachedApiBaseUrlOverride() {
-  return isPreviewOrDevelopmentBuild() ? cachedOverride ?? null : null;
+  return overrideIsHonored() ? cachedOverride ?? null : null;
 }
 
 export async function loadApiBaseUrlOverride() {
-  if (!isPreviewOrDevelopmentBuild()) {
+  if (!overrideIsHonored()) {
     cachedOverride = null;
     return null;
   }
