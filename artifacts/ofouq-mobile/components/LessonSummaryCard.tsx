@@ -157,11 +157,11 @@ export function LessonSummaryCard({
         { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.96 : 1 },
       ]}
     >
-      {/* Header — always visible. Text right (RTL), arrow button left. */}
+      {/* Header — always visible. Text right (RTL), bare chevron left (no box). */}
       <View style={styles.header} onLayout={onHeaderLayout}>
         <View style={styles.headerToggle}>
           <Animated.View style={chevronStyle}>
-            <Feather name="chevron-down" size={20} color="#fff" />
+            <Feather name="chevron-down" size={22} color={COLORS.primary} />
           </Animated.View>
         </View>
         <Animated.View style={[styles.headerText, { alignItems: isRTL ? "flex-end" : "flex-start" }, headerTextStyle]}>
@@ -257,12 +257,12 @@ const styles = StyleSheet.create({
     minHeight: THUMB_H + PAD,
   },
   headerToggle: {
+    // Box removed — just centres the bare chevron in the same footprint so the
+    // header height and thumbnail geometry stay unchanged.
     width: 40,
     height: 40,
-    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: COLORS.primary,
   },
   headerText: { flex: 1 },
   title: { ...FONT.bold, fontSize: 14, textAlign: "right" },

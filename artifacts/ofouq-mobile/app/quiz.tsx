@@ -544,14 +544,21 @@ export default function QuizScreen() {
 
   // Back button pinned to the left, lesson title on the same row to the right, and an
   // optional strip (the progress bar in exam mode) hangs under them inside the header.
-  const Header = ({ title, children }: { title: string; children?: React.ReactNode }) => (
+  const Header = ({ title, children, centerTitle }: { title: string; children?: React.ReactNode; centerTitle?: boolean }) => (
     <View style={[styles.header, { paddingTop: insets.top + 12, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
       <View style={styles.headerRow}>
-        <Pressable onPress={() => router.back()} hitSlop={8} style={({ pressed }) => [styles.backBtn, { backgroundColor: pressed ? colors.surfaceSecondary : colors.card, borderColor: colors.border }]}>
+        <Pressable onPress={() => router.back()} hitSlop={8} style={({ pressed }) => [styles.backBtn, { backgroundColor: pressed ? colors.surfaceSecondary : colors.card, borderColor: colors.border, zIndex: 1 }]}>
           <Feather name="arrow-left" size={20} color={colors.textSecondary} />
           <Text style={[styles.backText, { color: colors.text }]}>{en ? "Lesson" : "الدرس"}</Text>
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.text, textAlign: isRTL ? "right" : "left", writingDirection: direction }]} numberOfLines={1}>{title}</Text>
+        {centerTitle ? (
+          // Absolutely centered in the bar (the back button sits on top on the start side).
+          <View pointerEvents="none" style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}>
+            <Text style={[styles.headerTitle, { flex: undefined, color: colors.text, textAlign: "center", writingDirection: direction }]} numberOfLines={1}>{title}</Text>
+          </View>
+        ) : (
+          <Text style={[styles.headerTitle, { color: colors.text, textAlign: isRTL ? "right" : "left", writingDirection: direction }]} numberOfLines={1}>{title}</Text>
+        )}
       </View>
       {children}
     </View>
@@ -604,7 +611,10 @@ export default function QuizScreen() {
     // then placed in a `direction:"ltr"` context (reviewCard style + the heading wrapper
     // below) so these PHYSICAL right/left/row-reverse values resolve deterministically,
     // immune to whether native forceRTL has been applied this session.
-    const revEn = result.language === "en";
+    // Align the review by the APP language (not the quiz's content language): an English
+    // app is fully LTR — "Review"/"Question N" sit on the far left — even when the quiz's
+    // stored content language is Arabic.
+    const revEn = en;
     const revAlign: "left" | "right" = revEn ? "left" : "right";
     const revDir: "ltr" | "rtl" = revEn ? "ltr" : "rtl";
     const revRow: "row" | "row-reverse" = revEn ? "row" : "row-reverse";
@@ -619,7 +629,7 @@ export default function QuizScreen() {
           </Animated.View>
         ) : null}
 
-        <Header title={en ? "Result" : "النتيجة"} />
+        <Header title={en ? "Result" : "النتيجة"} centerTitle />
         <ScrollView contentContainerStyle={{ padding: HPAD, paddingBottom: insets.bottom + 40, gap: 14 }}>
           <View style={[styles.resultCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={[styles.scoreCircle, { borderColor: band.color }]}>

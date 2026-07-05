@@ -154,7 +154,11 @@ export default function RewardsScreen() {
       {/* Header */}
       <View style={{ paddingTop: insets.top + 12, paddingBottom: 8, paddingHorizontal: 16 }}>
         <View style={styles.headerRow}>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>🏅 {isEn ? "Points & Streak" : "النقاط والستريك"}</Text>
+          {/* Emoji trails the title per language: left in Arabic, right in English. */}
+          <View style={[styles.headerTitleRow, { flexDirection: isEn ? "row" : "row-reverse" }]}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>{isEn ? "Points & Streak" : "النقاط والستريك"}</Text>
+            <Text style={styles.headerTitle}>🏅</Text>
+          </View>
           <Pressable
             onPress={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)/settings"))}
             style={[styles.backBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
@@ -290,7 +294,9 @@ export default function RewardsScreen() {
                 borderColor: colors.border,
                 width: rulesAnim.interpolate({ inputRange: [0, 1], outputRange: [40, fullWidth] }),
                 height: rulesAnim.interpolate({ inputRange: [0, 1], outputRange: [40, Math.max(rulesContentH, 40)] }),
-                borderRadius: 14,
+                // Starts as the circular "i" button (r=20) and grows into the card,
+                // keeping the morph seamless now that the button is a full circle.
+                borderRadius: 20,
               },
             ]}
           >
@@ -331,6 +337,7 @@ export default function RewardsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   headerRow: { height: 40, alignItems: "center", justifyContent: "center" },
+  headerTitleRow: { alignItems: "center", gap: 6, direction: "ltr" },
   headerTitle: { ...FONT.bold, fontSize: 18 },
   infoBtn: {
     position: "absolute",
@@ -338,7 +345,8 @@ const styles = StyleSheet.create({
     top: 0,
     width: 40,
     height: 40,
-    borderRadius: 14,
+    // Full circle, same diameter as the back button on the left.
+    borderRadius: 20,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -367,7 +375,7 @@ const styles = StyleSheet.create({
     top: 0,
     width: 40,
     height: 40,
-    borderRadius: 14,
+    borderRadius: 20,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",

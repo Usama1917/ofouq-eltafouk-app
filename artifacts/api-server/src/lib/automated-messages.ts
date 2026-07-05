@@ -7,8 +7,8 @@
 // keep working out of the box. Every send is anchored to a notification campaign (for
 // the delivery report) via notification-delivery.ts.
 
-import { db, usersTable, automatedMessagesTable, notificationCampaignsTable } from "@workspace/db";
-import { and, eq, gte } from "drizzle-orm";
+import { db, usersTable, automatedMessagesTable, notificationCampaignsTable, studentOnboardingResponsesTable } from "@workspace/db";
+import { and, eq, gte, ne, isNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { cairoDay, previousDay, recordLessonActivity, type ActivityResult } from "./gamification";
 import { getOrCreateDailyCampaign, deliverToUser } from "./notification-delivery";
@@ -52,6 +52,21 @@ const DEFAULTS: MessageConfig[] = [
     icon: null,
     color: null,
     config: { minStreak: 1 },
+  },
+  {
+    key: "study_reminder",
+    enabled: true,
+    titleAr: "وقت المذاكرة! 📚",
+    bodyAr: "يلا نذاكر شوية النهارده ونكمّل تقدّمك 💪",
+    titleEn: "Study time! 📚",
+    bodyEn: "Let's study a bit today and keep your progress going 💪",
+    // sendHour null = per-student: fired at each student's onboarding "preferred study
+    // time" (morning/afternoon/evening/night → an hour), only if they haven't studied yet.
+    sendHour: null,
+    tone: "primary",
+    icon: null,
+    color: null,
+    config: null,
   },
   {
     key: "goal_congrats",
@@ -448,30 +463,112 @@ export async function runEveningReminderSweep(): Promise<{ targeted: number; sen
   return { targeted: targets.length, sent };
 }
 
+// ---- Scheduled message: per-student study reminder -------------------------
+
+// Onboarding "preferred study time" bucket → a Cairo hour to nudge at. Unknown / null /
+// "not_sure" fall back to the evening.
+const STUDY_HOUR_BY_BUCKET: Record<string, number> = { morning: 8, afternoon: 15, evening: 19, night: 21 };
+function studyHourForBucket(bucket: string | null | undefined): number {
+  return (bucket && STUDY_HOUR_BY_BUCKET[bucket]) || 19;
+}
+
+/**
+ * Send the study reminder to every student whose preferred study hour == `hour` and who
+ * HASN'T been active today. Idempotent per (day, hour) via campaign + per-user dedupeKey.
+ */
+export async function runStudyReminderSweep(hour: number): Promise<{ targeted: number; sent: number }> {
+  const cfg = await getMessageConfig("study_reminder");
+  if (!cfg || !cfg.enabled) return { targeted: 0, sent: 0 };
+
+  const day = cairoDay();
+  // Active students who haven't studied today (last active day is null or not today).
+  const candidates = await db
+    .select({ id: usersTable.id, language: usersTable.language, bucket: studentOnboardingResponsesTable.preferredStudyTime })
+    .from(usersTable)
+    .leftJoin(studentOnboardingResponsesTable, eq(studentOnboardingResponsesTable.userId, usersTable.id))
+    .where(
+      and(
+        eq(usersTable.role, "student"),
+        eq(usersTable.status, "active"),
+        or(isNull(usersTable.lastActiveDay), ne(usersTable.lastActiveDay, day)),
+      ),
+    );
+  // Keep only students whose preferred hour matches the current hour.
+  const targets = candidates.filter((c) => studyHourForBucket(c.bucket) === hour);
+  if (targets.length === 0) return { targeted: 0, sent: 0 };
+
+  const campaignId = await getOrCreateDailyCampaign({
+    sourceKey: `study_reminder:${day}:${hour}`,
+    title: cfg.titleAr,
+    body: cfg.bodyAr,
+    audienceSummary: "طلاب في وقت مذاكرتهم المفضّل ولسه ماذاكروش",
+  });
+
+  let sent = 0;
+  for (const t of targets) {
+    const { title, body } = resolveText(cfg, t.language, {});
+    const r = await deliverToUser({
+      campaignId,
+      userId: t.id,
+      type: "study_reminder",
+      title,
+      body,
+      tone: cfg.tone,
+      data: { kind: "study_reminder", route: "units", icon: cfg.icon ?? undefined, color: cfg.color ?? undefined },
+      dedupeKey: `auto:study_reminder:${day}:${hour}:${t.id}`,
+    }).catch((err) => {
+      logger.warn({ err, userId: t.id }, "study_reminder delivery failed");
+      return { inserted: false, pushSent: false };
+    });
+    if (r.inserted) sent++;
+  }
+  return { targeted: targets.length, sent };
+}
+
 // ---- Background worker ------------------------------------------------------
 
 const POLL_INTERVAL_MS = 15 * 60 * 1000; // every 15 min; fires once when the hour matches
 let workerStarted = false;
 
+async function alreadyRan(sourceKey: string): Promise<boolean> {
+  const existing = await db
+    .select({ id: notificationCampaignsTable.id })
+    .from(notificationCampaignsTable)
+    .where(eq(notificationCampaignsTable.sourceKey, sourceKey))
+    .limit(1);
+  return existing.length > 0;
+}
+
+async function eveningReminderTick(): Promise<void> {
+  const cfg = await getMessageConfig("evening_reminder");
+  if (!cfg || !cfg.enabled || cfg.sendHour == null) return;
+  if (cairoHour() !== cfg.sendHour) return;
+  const day = cairoDay();
+  if (await alreadyRan(`evening_reminder:${day}`)) return;
+  const result = await runEveningReminderSweep();
+  if (result.sent > 0) logger.info({ ...result, day }, "Evening streak reminder sent");
+}
+
+async function studyReminderTick(): Promise<void> {
+  const cfg = await getMessageConfig("study_reminder");
+  if (!cfg || !cfg.enabled) return;
+  const hour = cairoHour();
+  const day = cairoDay();
+  if (await alreadyRan(`study_reminder:${day}:${hour}`)) return;
+  const result = await runStudyReminderSweep(hour);
+  if (result.sent > 0) logger.info({ ...result, day, hour }, "Study reminder sent");
+}
+
 async function automationTick(): Promise<void> {
   try {
-    const cfg = await getMessageConfig("evening_reminder");
-    if (!cfg || !cfg.enabled || cfg.sendHour == null) return;
-    if (cairoHour() !== cfg.sendHour) return;
-
-    const day = cairoDay();
-    // Already sent today? (survives restarts — the campaign row is the marker.)
-    const existing = await db
-      .select({ id: notificationCampaignsTable.id })
-      .from(notificationCampaignsTable)
-      .where(eq(notificationCampaignsTable.sourceKey, `evening_reminder:${day}`))
-      .limit(1);
-    if (existing.length > 0) return;
-
-    const result = await runEveningReminderSweep();
-    if (result.sent > 0) logger.info({ ...result, day }, "Evening streak reminder sent");
+    await eveningReminderTick();
   } catch (err) {
-    logger.warn({ err }, "Gamification automation tick failed");
+    logger.warn({ err }, "Evening reminder tick failed");
+  }
+  try {
+    await studyReminderTick();
+  } catch (err) {
+    logger.warn({ err }, "Study reminder tick failed");
   }
 }
 

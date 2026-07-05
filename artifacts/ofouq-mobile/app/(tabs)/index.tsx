@@ -23,11 +23,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import { apiFetch } from "@/lib/api";
-import { formatNumber, toEnglishDigits } from "@/lib/format";
+import { toEnglishDigits } from "@/lib/format";
 import { resolveMediaUrl } from "@/lib/media";
 import { fetchNotificationSummary, notificationsQueryKey } from "@/lib/notifications";
 import { fetchGamification, gamificationQueryKey } from "@/lib/gamification";
 import { GamificationStrip } from "@/components/GamificationStrip";
+import { ContinueLessonCard } from "@/components/ContinueLessonCard";
+import { SuggestionsSection } from "@/components/SuggestionsSection";
+import { fetchHomeFeed, homeFeedQueryKey } from "@/lib/homeFeed";
 import { useRefetchOnFocus } from "@/hooks/useRefetchOnFocus";
 
 type AcademicYear = {
@@ -192,6 +195,18 @@ export default function HomeScreen() {
   // (e.g. right after finishing a lesson) — points/streak update immediately.
   useRefetchOnFocus(refetchGamification);
 
+  // v2 Phase 3 — personalized home feed (continue card + suggestions). Students only.
+  const isStudent = Boolean(user && token && user.role === "student");
+  const { data: homeFeed, refetch: refetchHomeFeed } = useQuery({
+    queryKey: [...homeFeedQueryKey, token],
+    queryFn: () => fetchHomeFeed(token),
+    enabled: isStudent,
+  });
+  // Refresh the feed when returning to home (progress after watching a lesson).
+  useRefetchOnFocus(refetchHomeFeed);
+  const continueCard = homeFeed?.continueLesson ?? null;
+  const startCard = !continueCard ? homeFeed?.startJourney ?? null : null;
+
   const {
     data: years = [],
     isLoading,
@@ -342,30 +357,30 @@ export default function HomeScreen() {
                 </Text>
                 <Feather name={isRTL ? "arrow-left" : "arrow-right"} size={17} color="#fff" />
               </Pressable>
-
-              <View
-                style={[
-                  styles.statCard,
-                  { backgroundColor: colors.surface, borderColor: colors.border, flexDirection: rowDirection, direction },
-                ]}
-              >
-                <View style={[styles.statIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
-                  <Feather name="video" size={21} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
-                </View>
-                <View style={[styles.statTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-                  <Text style={[styles.statValue, { color: colors.text, textAlign, writingDirection: direction }]}>
-                    {isLoading ? "..." : formatNumber(years.length)}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                    {strings.home.availableLessons}
-                  </Text>
-                </View>
-              </View>
             </View>
           </View>
 
           {user?.role === "student" && gamification ? (
             <GamificationStrip summary={gamification} onPress={() => router.push("/leaderboard")} />
+          ) : null}
+
+          {/* v2 Phase 3 — "continue where you left off", right under the streak/points strip. */}
+          {isStudent && continueCard ? (
+            <View style={{ marginTop: 16 }}>
+              <ContinueLessonCard item={continueCard} mode="continue" />
+            </View>
+          ) : null}
+          {isStudent && startCard ? (
+            <View style={{ marginTop: 16 }}>
+              <ContinueLessonCard item={startCard} mode="start" />
+            </View>
+          ) : null}
+
+          {/* v2 Phase 3 — "مقترح ليك" smart suggestions (subscribed subjects only). */}
+          {isStudent && homeFeed?.suggestions?.length ? (
+            <View style={{ marginTop: 20 }}>
+              <SuggestionsSection items={homeFeed.suggestions} />
+            </View>
           ) : null}
 
           <View style={[styles.sectionHeader, { flexDirection: rowDirection, direction }]}>
@@ -613,40 +628,6 @@ const styles = StyleSheet.create({
     ...FONT.bold,
     color: "#fff",
     fontSize: 15,
-  },
-  statCard: {
-    borderRadius: 22,
-    borderWidth: 1,
-    padding: 16,
-    minHeight: 112,
-    alignItems: "center",
-    justifyContent: "flex-start",
-    gap: 14,
-  },
-  statTextBlock: { flexShrink: 1, minWidth: 0 },
-  statIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: COLORS.primary + "18",
-    backgroundColor: COLORS.primary + "12",
-  },
-  statLabel: {
-    ...FONT.semiBold,
-    fontSize: 12,
-    lineHeight: 20,
-    textAlign: "right",
-  },
-  statValue: {
-    ...FONT.bold,
-    fontSize: 34,
-    lineHeight: 48,
-    marginBottom: -8,
-    textAlign: "right",
-    transform: [{ translateY: 4 }],
   },
   sectionHeader: {
     flexDirection: "row",

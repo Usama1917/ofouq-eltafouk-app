@@ -20,6 +20,7 @@ import gamificationAdminRouter from "./gamification-admin";
 import moderationRouter from "./moderation";
 import quizRouter from "./quiz";
 import unitExamsRouter from "./unit-exams";
+import engagementRouter from "./engagement";
 
 const router: IRouter = Router();
 
@@ -44,5 +45,6 @@ router.use(gamificationAdminRouter);
 router.use(moderationRouter);
 router.use(quizRouter);
 router.use(unitExamsRouter);
+router.use(engagementRouter);
 
 export default router;

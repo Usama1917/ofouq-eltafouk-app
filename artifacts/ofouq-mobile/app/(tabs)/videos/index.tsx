@@ -21,6 +21,7 @@ import { usePreferences } from "@/contexts/PreferencesContext";
 import { useRefetchOnFocus } from "@/hooks/useRefetchOnFocus";
 import { apiFetch } from "@/lib/api";
 import { localizeAcademicText } from "@/lib/academicContentLocalization";
+import { SearchButton } from "@/components/SearchButton";
 
 type AcademicYear = {
   id: number;
@@ -181,17 +182,22 @@ export default function VideosScreen() {
             },
           ]}
         />
-        <View style={[styles.topBarContent, { paddingHorizontal: 18, flexDirection: rowDirection, direction }]}>
-          <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
-            <Ionicons name="school-outline" size={26} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
-          </View>
-          <View style={[styles.titleTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-            <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
-              {strings.videos.title}
-            </Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-              {strings.videos.subtitle}
-            </Text>
+        {/* direction:"ltr" neutralises forceRTL; the search button is pinned to the
+            physical LEFT (no back button on this tab root), title on the right. */}
+        <View style={[styles.topBarContent, { paddingHorizontal: 18, direction: "ltr", flexDirection: "row", alignItems: "center", gap: 12 }]}>
+          <SearchButton />
+          <View style={{ direction: "ltr", flexDirection: isRTL ? "row-reverse" : "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+            <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+              <Ionicons name="school-outline" size={22} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+            </View>
+            <View style={[styles.titleTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start", flex: 1, minWidth: 0 }]}>
+              <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]} numberOfLines={1}>
+                {strings.videos.title}
+              </Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
+                {strings.videos.subtitle}
+              </Text>
+            </View>
           </View>
         </View>
       </View>
@@ -290,8 +296,8 @@ const styles = StyleSheet.create({
   titleTextBlock: { flex: 1, alignItems: "flex-end" },
   title: {
     ...FONT.bold,
-    fontSize: 27,
-    lineHeight: 38,
+    fontSize: 21,
+    lineHeight: 29,
     textAlign: "right",
   },
   subtitle: {

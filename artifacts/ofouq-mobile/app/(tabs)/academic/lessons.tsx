@@ -17,6 +17,7 @@ import { FONT } from "@/constants/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AutoFitTitle } from "@/components/AutoFitTitle";
+import { SearchButton } from "@/components/SearchButton";
 import { ChapterExamCard } from "@/components/ChapterExamCard";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
@@ -170,7 +171,8 @@ export default function LessonsScreen() {
           ]}
         />
         <View style={[styles.topBarContent, { paddingHorizontal: 18 }]}>
-          <View style={styles.backCornerRow}>
+          {/* Back button: pinned to the physical LEFT, on its own row at the top. */}
+          <View style={[styles.backCornerRow, { direction: "ltr", alignItems: "flex-start" }]}>
             <Pressable
               onPress={backToUnits}
               hitSlop={8}
@@ -190,22 +192,26 @@ export default function LessonsScreen() {
             </Pressable>
           </View>
 
-          <View style={[styles.titleRow, { flexDirection: rowDirection, direction }]}>
-            <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
-              <Ionicons name="play-circle-outline" size={26} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
-            </View>
-            <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-              <AutoFitTitle
-                style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}
-                maxFontSize={28}
-                minFontSize={18}
-                maxLines={2}
-              >
-                {displayTitle}
-              </AutoFitTitle>
-              <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                {strings.academic.chooseLesson}
-              </Text>
+          {/* Row below: search on the LEFT (under back), title + its icon on the RIGHT. */}
+          <View style={{ direction: "ltr", flexDirection: "row", alignItems: "center", gap: 12, marginTop: 10 }}>
+            <SearchButton />
+            <View style={[styles.titleRow, { flex: 1, flexDirection: rowDirection, direction }]}>
+              <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
+                <Ionicons name="play-circle-outline" size={26} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+              </View>
+              <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                <AutoFitTitle
+                  style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}
+                  maxFontSize={21}
+                  minFontSize={16}
+                  maxLines={2}
+                >
+                  {displayTitle}
+                </AutoFitTitle>
+                <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                  {strings.academic.chooseLesson}
+                </Text>
+              </View>
             </View>
           </View>
         </View>
@@ -399,8 +405,8 @@ const styles = StyleSheet.create({
   titleBlock: { flex: 1, alignItems: "flex-end" },
   title: {
     ...FONT.bold,
-    fontSize: 28,
-    lineHeight: 40,
+    fontSize: 21,
+    lineHeight: 30,
     textAlign: "right",
   },
   subtitle: {
