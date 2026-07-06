@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, 
   Flag, Megaphone, Plus, Edit, Trash2, Eye, Check, X, ArrowUp, ArrowDown,
   TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap, ImagePlus, TicketPercent, Truck, Send, ChevronDown,
-  Sun, Moon, Bot, Search, Info, Phone, MapPin, BookMarked, Activity, Bell, Smartphone, Mail, CalendarClock, ShieldCheck, ShieldAlert, AlertTriangle, SlidersHorizontal
+  Sun, Moon, Bot, Search, Info, Phone, MapPin, BookMarked, Activity, Bell, Smartphone, Mail, CalendarClock, ShieldCheck, ShieldAlert, AlertTriangle, SlidersHorizontal, ShoppingCart
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
@@ -26,13 +26,15 @@ import { AcademicTab } from "./admin-academic";
 import AutomatedMessagesTab from "./admin/automated-messages-tab";
 import NotificationReportTab from "./admin/notification-report-tab";
 import MoralReviewsTab from "./admin/moral-reviews-tab";
+import OrdersTab from "./admin/orders-tab";
+import ProductsTab from "./admin/products-tab";
 import { NotificationIconPicker } from "@/components/notification-icon-picker";
 import { NotificationColorPicker } from "@/components/notification-color-picker";
 import { useNotificationColors } from "@/lib/notification-colors";
 import { toEnglishDigits } from "@/lib/format";
 import { toast } from "sonner";
 
-type Tab = "dashboard" | "users" | "books" | "posts" | "reports" | "banners" | "academic" | "subscriptionRequests" | "supportMessages" | "broadcastMessages" | "materials" | "moralReviews";
+type Tab = "dashboard" | "users" | "books" | "posts" | "reports" | "banners" | "academic" | "subscriptionRequests" | "supportMessages" | "broadcastMessages" | "materials" | "moralReviews" | "orders" | "products";
 type TabMotionCustom = { direction: number; reduceMotion: boolean };
 type Material = { id: number; name: string; classification?: string; sortOrder?: number; createdAt?: string };
 type SubjectInsightItem = {
@@ -210,6 +212,8 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "supportMessages", label: "رسائل المستخدمين", icon: MessageSquare },
   { id: "broadcastMessages", label: "إرسال الإشعارات", icon: Send },
   { id: "moralReviews", label: "مراجعات أخلاقية", icon: ShieldAlert },
+  { id: "orders", label: "الطلبات", icon: ShoppingCart },
+  { id: "products", label: "المنتجات والشحن", icon: BookOpen },
   { id: "books", label: "الكتب", icon: BookOpen },
   { id: "posts", label: "المنشورات", icon: MessageSquare },
   { id: "reports", label: "التقارير", icon: Flag },
@@ -229,6 +233,8 @@ const TAB_TRANSITION_ORDER: Tab[] = [
   "supportMessages",
   "broadcastMessages",
   "materials",
+  "orders",
+  "products",
   "books",
   "posts",
   "reports",
@@ -5385,6 +5391,8 @@ export default function AdminPanel() {
     ),
     materials: <MaterialsTab />,
     moralReviews: <MoralReviewsTab />,
+    orders: <OrdersTab />,
+    products: <ProductsTab />,
     books: <BooksTab />,
     posts: <PostsTab />,
     reports: <ReportsTab />,

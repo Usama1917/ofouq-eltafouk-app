@@ -2084,6 +2084,11 @@ router.post("/admin/books", async (req, res) => {
         sortOrder: nextSortOrder,
         freeShipping: Boolean(body.freeShipping),
         available: body.available === undefined ? true : Boolean(body.available),
+        // v2 Phase 5 — store fields.
+        stockQuantity: Number.parseInt(String(body.stockQuantity ?? 0), 10) || 0,
+        imageUrls: Array.isArray(body.imageUrls) ? body.imageUrls.filter((u: unknown) => typeof u === "string") : null,
+        weightGrams: body.weightGrams != null && body.weightGrams !== "" ? Number.parseInt(String(body.weightGrams), 10) || null : null,
+        unlocksSubjectId: body.unlocksSubjectId ? Number.parseInt(String(body.unlocksSubjectId), 10) || null : null,
       })
       .returning();
     res.status(201).json(book);
@@ -2123,6 +2128,14 @@ router.put("/admin/books/:id", async (req, res) => {
     if (body.sortOrder !== undefined) {
       updateData.sortOrder = Number.parseInt(String(body.sortOrder), 10) || 0;
     }
+    // v2 Phase 5 — store fields.
+    if (body.stockQuantity !== undefined) updateData.stockQuantity = Number.parseInt(String(body.stockQuantity), 10) || 0;
+    if (body.imageUrls !== undefined)
+      updateData.imageUrls = Array.isArray(body.imageUrls) ? body.imageUrls.filter((u: unknown) => typeof u === "string") : null;
+    if (body.weightGrams !== undefined)
+      updateData.weightGrams = body.weightGrams === null || body.weightGrams === "" ? null : Number.parseInt(String(body.weightGrams), 10) || null;
+    if (body.unlocksSubjectId !== undefined)
+      updateData.unlocksSubjectId = body.unlocksSubjectId ? Number.parseInt(String(body.unlocksSubjectId), 10) || null : null;
 
     const [book] = await db.update(booksTable).set(updateData).where(eq(booksTable.id, id)).returning();
     if (!book) return res.status(404).json({ error: "Not found" });

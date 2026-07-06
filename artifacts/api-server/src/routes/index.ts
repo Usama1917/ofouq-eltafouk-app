@@ -21,6 +21,8 @@ import moderationRouter from "./moderation";
 import quizRouter from "./quiz";
 import unitExamsRouter from "./unit-exams";
 import engagementRouter from "./engagement";
+import shippingRouter from "./shipping";
+import storeRouter from "./store";
 
 const router: IRouter = Router();
 
@@ -46,5 +48,7 @@ router.use(moderationRouter);
 router.use(quizRouter);
 router.use(unitExamsRouter);
 router.use(engagementRouter);
+router.use(shippingRouter);
+router.use(storeRouter);
 
 export default router;

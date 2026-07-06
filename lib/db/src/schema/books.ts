@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, timestamp, index, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -16,6 +16,17 @@ export const booksTable = pgTable("books", {
   sortOrder: integer("sort_order").notNull().default(0),
   freeShipping: boolean("free_shipping").notNull().default(false),
   available: boolean("available").notNull().default(true),
+  // ── v2 Phase 5 — store (Amazon-style) additive columns ────────────────────
+  // Units in stock; the store hides / blocks checkout when this reaches 0.
+  stockQuantity: integer("stock_quantity").notNull().default(0),
+  // Extra product-gallery image URLs beyond `coverUrl` (nullable = none yet).
+  imageUrls: jsonb("image_urls").$type<string[]>(),
+  // Optional shipping weight in grams (feeds governorate shipping calc later).
+  weightGrams: integer("weight_grams"),
+  // The academic subject this book unlocks digitally once bought (nullable = a
+  // book with no digital content). Plain int (no FK) to avoid a cross-schema
+  // import cycle; the store joins it to `subjects` manually.
+  unlocksSubjectId: integer("unlocks_subject_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
