@@ -10,6 +10,14 @@ export const booksTable = pgTable("books", {
   category: text("category").notNull(),
   subject: text("subject").notNull().default("علوم"),
   coverUrl: text("cover_url"),
+  // v2 — store card art. The portrait (3:4) image shows in the 2-column grid;
+  // the landscape (16:9) image shows when a book sits alone on its row (full
+  // width). Dark variants are optional — the app falls back to the light image
+  // when a dark one is absent, and both fall back to `coverUrl` for old books.
+  coverPortraitUrl: text("cover_portrait_url"),
+  coverLandscapeUrl: text("cover_landscape_url"),
+  coverPortraitDarkUrl: text("cover_portrait_dark_url"),
+  coverLandscapeDarkUrl: text("cover_landscape_dark_url"),
   pointsPrice: integer("points_price").notNull().default(0),
   priceEgp: integer("price_egp").notNull().default(0),
   originalPriceEgp: integer("original_price_egp"),

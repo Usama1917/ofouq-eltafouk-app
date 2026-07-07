@@ -134,13 +134,6 @@ export default function ShippingTab() {
 
   return (
     <div className="space-y-5" dir="rtl">
-      <div>
-        <h1 className="font-display text-2xl font-black flex items-center gap-2">
-          <Truck className="w-6 h-6 text-primary" /> الشحن
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">إعدادات شحن الكتب حسب المحافظة (عن طريق البريد المصري «وصلها»).</p>
-      </div>
-
       {/* How shipping is calculated — explanation */}
       <div className="glass-card p-5 space-y-3 border-primary/20">
         <h3 className="font-display font-bold text-base flex items-center gap-2 text-primary">

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React from "react";
-import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -13,6 +13,9 @@ import { usePreferences } from "@/contexts/PreferencesContext";
 import { useRefetchOnFocus } from "@/hooks/useRefetchOnFocus";
 import { formatNumber } from "@/lib/format";
 import { cartKey, getCart, removeCartItem, updateCartItem, type CartLine } from "@/lib/store";
+
+// Extra bottom clearance so the fixed checkout bar clears the floating tab bar.
+const TAB_BAR_CLEARANCE = Platform.OS === "ios" ? 86 : 74;
 
 export default function CartScreen() {
   const { token } = useAuth();
@@ -41,9 +44,9 @@ export default function CartScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 6, flexDirection: row(en), direction: "ltr", borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 6, flexDirection: "row", direction: "ltr", borderBottomColor: colors.border }]}>
         <Pressable onPress={() => router.back()} style={[styles.circleBtn, { backgroundColor: colors.surfaceSecondary }]}>
-          <Feather name={en ? "arrow-left" : "arrow-right"} size={20} color={colors.text} />
+          <Feather name="arrow-left" size={20} color={colors.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.text }]}>{en ? "Cart" : "السلة"}</Text>
         <View style={{ width: 40 }} />
@@ -64,7 +67,7 @@ export default function CartScreen() {
           <FlatList
             data={items}
             keyExtractor={(i) => String(i.id)}
-            contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 120 }}
+            contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 200 }}
             renderItem={({ item }) => (
               <View style={[styles.item, { backgroundColor: colors.surface, flexDirection: row(en), direction: "ltr" }]}>
                 {item.coverUrl ? (
@@ -93,7 +96,7 @@ export default function CartScreen() {
               </View>
             )}
           />
-          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12, backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + TAB_BAR_CLEARANCE, backgroundColor: colors.surface, borderTopColor: colors.border }]}>
             <View style={[styles.totalRow, { flexDirection: row(en), direction: "ltr" }]}>
               <Text style={[styles.totalLabel, { color: colors.textSecondary }]}>{en ? "Subtotal" : "الإجمالي"}</Text>
               <Text style={[styles.totalValue, { color: colors.text }]}>{formatNumber(subtotal)} {en ? "EGP" : "ج"}</Text>

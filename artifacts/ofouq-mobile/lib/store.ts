@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { resolveMediaUrl } from "@/lib/media";
 
 // v2 Phase 5 — bookstore. Feature-lib mirroring lib/engagement.ts: every fn takes
 // the bearer `token` first; the SCREEN passes useAuth().token in. Writes are plain
@@ -12,6 +13,12 @@ export type StoreBook = {
   category: string;
   subject: string;
   coverUrl: string | null;
+  // v2 — orientation-specific card art. Landscape (16:9) for a full-width card,
+  // portrait (3:4) for a grid card; dark variants optional (fall back to light).
+  coverPortraitUrl: string | null;
+  coverLandscapeUrl: string | null;
+  coverPortraitDarkUrl: string | null;
+  coverLandscapeDarkUrl: string | null;
   priceEgp: number;
   originalPriceEgp: number | null;
   freeShipping: boolean;
@@ -20,6 +27,31 @@ export type StoreBook = {
   unlocksSubjectId: number | null;
   favorite?: boolean;
 };
+
+// Pick the best cover for a slot. `landscape` = full-width card, else grid card;
+// `dark` prefers the dark variant when present. Everything falls back down to
+// the other orientation and finally `coverUrl`, so old books still show art.
+export function pickBookCover(
+  book: Pick<StoreBook, "coverUrl" | "coverPortraitUrl" | "coverLandscapeUrl" | "coverPortraitDarkUrl" | "coverLandscapeDarkUrl">,
+  opts: { landscape: boolean; dark: boolean },
+): string | null {
+  if (opts.landscape) {
+    return (
+      (opts.dark ? book.coverLandscapeDarkUrl : null) ||
+      book.coverLandscapeUrl ||
+      book.coverPortraitUrl ||
+      book.coverUrl ||
+      null
+    );
+  }
+  return (
+    (opts.dark ? book.coverPortraitDarkUrl : null) ||
+    book.coverPortraitUrl ||
+    book.coverLandscapeUrl ||
+    book.coverUrl ||
+    null
+  );
+}
 
 export type StoreBookDetail = StoreBook & {
   unlocksSubject: { id: number; name: string } | null;
@@ -47,6 +79,34 @@ export type WishlistBook = {
   priceEgp: number;
   stockQuantity: number;
 };
+
+function resolveImageUrls(urls: string[] | null) {
+  if (!urls) return urls;
+  return urls.map((url) => resolveMediaUrl(url)).filter((url): url is string => Boolean(url));
+}
+
+function resolveCoverUrl<T extends { coverUrl: string | null }>(item: T): T {
+  return { ...item, coverUrl: resolveMediaUrl(item.coverUrl) };
+}
+
+function resolveBookMedia<T extends StoreBook>(book: T): T {
+  return {
+    ...book,
+    coverUrl: resolveMediaUrl(book.coverUrl),
+    coverPortraitUrl: resolveMediaUrl(book.coverPortraitUrl),
+    coverLandscapeUrl: resolveMediaUrl(book.coverLandscapeUrl),
+    coverPortraitDarkUrl: resolveMediaUrl(book.coverPortraitDarkUrl),
+    coverLandscapeDarkUrl: resolveMediaUrl(book.coverLandscapeDarkUrl),
+    imageUrls: resolveImageUrls(book.imageUrls),
+  };
+}
+
+function resolveBookDetailMedia(book: StoreBookDetail): StoreBookDetail {
+  return {
+    ...resolveBookMedia(book),
+    related: book.related.map(resolveBookMedia),
+  };
+}
 
 export type StoreAddress = {
   id: number;
@@ -116,15 +176,20 @@ export function listBooks(token: string | null, opts?: { subjectId?: number; yea
   if (opts?.yearId) p.set("yearId", String(opts.yearId));
   if (opts?.q) p.set("q", opts.q);
   const qs = p.toString();
-  return apiFetch<StoreBook[]>(`/api/store/books${qs ? `?${qs}` : ""}`, { token });
+  return apiFetch<StoreBook[]>(`/api/store/books${qs ? `?${qs}` : ""}`, { token }).then((books) =>
+    books.map(resolveBookMedia),
+  );
 }
 export function getBook(token: string | null, id: number | string) {
-  return apiFetch<StoreBookDetail>(`/api/store/books/${id}`, { token });
+  return apiFetch<StoreBookDetail>(`/api/store/books/${id}`, { token }).then(resolveBookDetailMedia);
 }
 
 // ── cart ─────────────────────────────────────────────────────────────────────
 export function getCart(token: string | null) {
-  return apiFetch<CartData>("/api/store/cart", { token });
+  return apiFetch<CartData>("/api/store/cart", { token }).then((cart) => ({
+    ...cart,
+    items: cart.items.map(resolveCoverUrl),
+  }));
 }
 export function addToCart(token: string | null, bookId: number, quantity = 1) {
   return apiFetch<CartData>("/api/store/cart", { method: "POST", token, body: JSON.stringify({ bookId, quantity }) });
@@ -177,7 +242,7 @@ export function cancelOrder(token: string | null, id: number | string) {
 
 // ── wishlist ─────────────────────────────────────────────────────────────────
 export function getWishlist(token: string | null) {
-  return apiFetch<WishlistBook[]>("/api/store/wishlist", { token });
+  return apiFetch<WishlistBook[]>("/api/store/wishlist", { token }).then((books) => books.map(resolveCoverUrl));
 }
 export function addWishlist(token: string | null, bookId: number) {
   return apiFetch<{ ok: boolean; favorite: boolean }>(`/api/store/wishlist/${bookId}`, { method: "POST", token });

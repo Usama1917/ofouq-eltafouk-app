@@ -3364,19 +3364,28 @@ function NotificationsHubTab(props: {
   ];
   return (
     <div className="space-y-5">
-      <div className="flex gap-2 flex-wrap">
+      <div>
+        <h2 className="text-xl font-display font-bold">إرسال الإشعارات للمستخدمين</h2>
+        <p className="text-sm text-muted-foreground mt-1">فلتر الجمهور، اكتب الرسالة، واختر لينك أو وصول سريع داخل التطبيق.</p>
+      </div>
+
+      <div className="flex gap-1.5 rounded-2xl bg-muted p-1.5 w-fit">
         {subTabs.map((t) => {
-          const Icon = t.icon;
           const active = sub === t.id;
           return (
             <button
               key={t.id}
               onClick={() => setSub(t.id)}
-              className={`flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
-                active ? "bg-primary text-white shadow" : "bg-muted/60 text-muted-foreground hover:bg-muted"
-              }`}
+              className={`relative rounded-xl px-5 py-2 text-sm font-bold transition-colors ${active ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
             >
-              <Icon className="w-4 h-4" /> {t.label}
+              {active && (
+                <motion.span
+                  layoutId="notifications-subtab-pill"
+                  transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                  className="absolute inset-0 rounded-xl bg-background shadow-sm"
+                />
+              )}
+              <span className="relative z-10">{t.label}</span>
             </button>
           );
         })}
@@ -3680,11 +3689,7 @@ function BroadcastMessagesTab({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-display font-bold">إرسال الإشعارات للمستخدمين</h2>
-          <p className="text-sm text-muted-foreground mt-1">فلتر الجمهور، اكتب الرسالة، واختر لينك أو وصول سريع داخل التطبيق.</p>
-        </div>
+      <div className="flex justify-end">
         <button
           onClick={() => void loadPreview()}
           className="px-4 py-2 rounded-xl border border-border text-sm font-semibold hover:bg-muted transition-all disabled:opacity-50"

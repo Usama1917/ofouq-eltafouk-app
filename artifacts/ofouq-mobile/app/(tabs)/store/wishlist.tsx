@@ -38,9 +38,9 @@ export default function WishlistScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 6, flexDirection: row(en), direction: "ltr", borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 6, flexDirection: "row", direction: "ltr", borderBottomColor: colors.border }]}>
         <Pressable onPress={() => router.back()} style={[styles.circleBtn, { backgroundColor: colors.surfaceSecondary }]}>
-          <Feather name={en ? "arrow-left" : "arrow-right"} size={20} color={colors.text} />
+          <Feather name="arrow-left" size={20} color={colors.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.text }]}>{en ? "Wishlist" : "المفضّلة"}</Text>
         <View style={{ width: 40 }} />

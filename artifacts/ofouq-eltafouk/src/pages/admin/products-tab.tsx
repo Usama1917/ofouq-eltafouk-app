@@ -21,6 +21,10 @@ type Book = {
   subject: string;
   category: string;
   coverUrl: string | null;
+  coverPortraitUrl: string | null;
+  coverLandscapeUrl: string | null;
+  coverPortraitDarkUrl: string | null;
+  coverLandscapeDarkUrl: string | null;
   priceEgp: number;
   originalPriceEgp: number | null;
   stockQuantity: number;
@@ -47,12 +51,15 @@ type Form = {
   title: string; subject: string; description: string;
   priceEgp: string; originalPriceEgp: string; stockQuantity: string; weightGrams: string;
   unlocksSubjectId: string; coverUrl: string | null; imageUrls: string[];
+  coverPortraitUrl: string | null; coverLandscapeUrl: string | null;
+  coverPortraitDarkUrl: string | null; coverLandscapeDarkUrl: string | null;
   available: boolean; freeShipping: boolean;
 };
 
 const emptyForm: Form = {
   title: "", subject: "", description: "", priceEgp: "", originalPriceEgp: "",
   stockQuantity: "0", weightGrams: "", unlocksSubjectId: "", coverUrl: null, imageUrls: [],
+  coverPortraitUrl: null, coverLandscapeUrl: null, coverPortraitDarkUrl: null, coverLandscapeDarkUrl: null,
   available: true, freeShipping: false,
 };
 
@@ -65,6 +72,7 @@ export default function ProductsTab() {
   const [editing, setEditing] = useState<{ id: number | null; form: Form } | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [showImgInfo, setShowImgInfo] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [nc, setNc] = useState({ code: "", type: "percent", value: "", usageLimit: "", expiresAt: "" });
@@ -103,6 +111,8 @@ export default function ProductsTab() {
         priceEgp: String(b.priceEgp ?? 0), originalPriceEgp: b.originalPriceEgp ? String(b.originalPriceEgp) : "",
         stockQuantity: String(b.stockQuantity ?? 0), weightGrams: b.weightGrams ? String(b.weightGrams) : "",
         unlocksSubjectId: b.unlocksSubjectId ? String(b.unlocksSubjectId) : "", coverUrl: b.coverUrl,
+        coverPortraitUrl: b.coverPortraitUrl, coverLandscapeUrl: b.coverLandscapeUrl,
+        coverPortraitDarkUrl: b.coverPortraitDarkUrl, coverLandscapeDarkUrl: b.coverLandscapeDarkUrl,
         imageUrls: b.imageUrls ?? [], available: b.available, freeShipping: b.freeShipping,
       },
     });
@@ -117,13 +127,16 @@ export default function ProductsTab() {
     const data = await res.json();
     return data.url ?? null;
   }
-  async function onPickCover(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onPickField(
+    field: "coverPortraitUrl" | "coverLandscapeUrl" | "coverPortraitDarkUrl" | "coverLandscapeDarkUrl",
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
     try {
       const url = await uploadImage(file);
-      if (url) patch({ coverUrl: url });
+      if (url) patch({ [field]: url } as Partial<Form>);
     } finally { setUploading(false); e.target.value = ""; }
   }
   async function onPickGallery(e: React.ChangeEvent<HTMLInputElement>) {
@@ -141,12 +154,15 @@ export default function ProductsTab() {
     if (!editing) return;
     const f = editing.form;
     if (!f.title.trim()) { setError("اكتب اسم الكتاب"); return; }
+    if (!f.coverLandscapeUrl || !f.coverPortraitUrl) { setError("لازم ترفع الصورتين: العرضية (لوحده) والطولية (في الشبكة)"); return; }
     setSaving(true);
     setError("");
     try {
       const body = {
         title: f.title.trim(), subject: f.subject.trim() || "علوم",
-        description: f.description, coverUrl: f.coverUrl,
+        description: f.description, coverUrl: f.coverPortraitUrl ?? f.coverUrl,
+        coverPortraitUrl: f.coverPortraitUrl, coverLandscapeUrl: f.coverLandscapeUrl,
+        coverPortraitDarkUrl: f.coverPortraitDarkUrl, coverLandscapeDarkUrl: f.coverLandscapeDarkUrl,
         priceEgp: Number(f.priceEgp) || 0, originalPriceEgp: f.originalPriceEgp ? Number(f.originalPriceEgp) : Number(f.priceEgp) || 0,
         stockQuantity: Number(f.stockQuantity) || 0, weightGrams: f.weightGrams ? Number(f.weightGrams) : null,
         unlocksSubjectId: f.unlocksSubjectId ? Number(f.unlocksSubjectId) : null, imageUrls: f.imageUrls,
@@ -225,8 +241,8 @@ export default function ProductsTab() {
   return (
     <div className="space-y-5" dir="rtl">
       <div>
-        <h1 className="font-display text-2xl font-black flex items-center gap-2"><BookOpen className="w-6 h-6 text-primary" /> المنتجات</h1>
-        <p className="text-sm text-muted-foreground mt-1">كتب المتجر وإعداداته.</p>
+        <h1 className="font-display text-2xl font-black flex items-center gap-2"><BookOpen className="w-6 h-6 text-primary" /> المنتجات والشحن</h1>
+        <p className="text-sm text-muted-foreground mt-1">كتب المتجر والشحن والإعدادات</p>
       </div>
 
       {/* Sub-tabs with a sliding highlight pill */}
@@ -396,15 +412,29 @@ export default function ProductsTab() {
               <button onClick={() => setEditing(null)} className="p-2 rounded-xl hover:bg-foreground/5"><X className="w-5 h-5" /></button>
             </div>
 
-            {/* Cover */}
-            <div className="flex items-center gap-3">
-              <div className="w-20 h-28 rounded-xl bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
-                {editing.form.coverUrl ? <img src={imgSrc(editing.form.coverUrl)} alt="" className="w-full h-full object-cover" /> : <ImagePlus className="w-7 h-7 text-primary/50" />}
+            {/* Cover art: landscape (full-width) + portrait (grid) — both required; dark variants optional */}
+            <div className="space-y-3 rounded-2xl border border-border p-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-black">صور الكتاب</span>
+                <div className="relative">
+                  <button type="button" onClick={() => setShowImgInfo((v) => !v)} className="w-5 h-5 rounded-full border border-primary/40 text-primary text-xs font-black flex items-center justify-center hover:bg-primary/10" title="نسب الصور">i</button>
+                  {showImgInfo ? (
+                    <div className="absolute z-10 top-6 right-0 w-72 rounded-xl border border-border bg-background p-3 text-xs shadow-xl space-y-1.5">
+                      <p className="font-bold">نسب الصور المطلوبة:</p>
+                      <p>• <b>عرضية</b> — نسبة <b dir="ltr">16:9</b> (مثال <span dir="ltr">1280×720</span>). بتظهر لما الكتاب يكون لوحده في السطر وياخد العرض الكامل.</p>
+                      <p>• <b>طولية</b> — نسبة <b dir="ltr">3:4</b> (مثال <span dir="ltr">1080×1440</span>). بتظهر لما الكتاب يكون جنب كتاب تاني في شبكة عمودين.</p>
+                      <p className="text-muted-foreground pt-1">صور الوضع الداكن اختيارية — لو مرفعتهاش بيستخدم نفس الصورة العادية.</p>
+                    </div>
+                  ) : null}
+                </div>
               </div>
-              <label className="text-xs py-2 px-3 rounded-xl border border-primary/30 bg-primary/5 font-bold text-primary flex items-center gap-1.5 cursor-pointer hover:bg-primary/10">
-                <Upload className="w-3.5 h-3.5" /> {uploading ? "جاري الرفع..." : "صورة الغلاف"}
-                <input type="file" accept="image/*" hidden onChange={onPickCover} />
-              </label>
+              <ImageSlot label="عرضية (لوحده)" hint="نسبة 16:9 — تظهر بالعرض الكامل" url={editing.form.coverLandscapeUrl} aspect="landscape" required uploading={uploading} onPick={(e) => onPickField("coverLandscapeUrl", e)} onClear={() => patch({ coverLandscapeUrl: null })} />
+              <ImageSlot label="طولية (في الشبكة)" hint="نسبة 3:4 — تظهر جنب كتاب تاني" url={editing.form.coverPortraitUrl} aspect="portrait" required uploading={uploading} onPick={(e) => onPickField("coverPortraitUrl", e)} onClear={() => patch({ coverPortraitUrl: null })} />
+              <div className="border-t border-border/60 pt-3 space-y-3">
+                <p className="text-xs font-bold text-muted-foreground">نسخ الوضع الداكن (اختياري)</p>
+                <ImageSlot label="عرضية — داكن" url={editing.form.coverLandscapeDarkUrl} aspect="landscape" uploading={uploading} onPick={(e) => onPickField("coverLandscapeDarkUrl", e)} onClear={() => patch({ coverLandscapeDarkUrl: null })} />
+                <ImageSlot label="طولية — داكن" url={editing.form.coverPortraitDarkUrl} aspect="portrait" uploading={uploading} onPick={(e) => onPickField("coverPortraitDarkUrl", e)} onClear={() => patch({ coverPortraitDarkUrl: null })} />
+              </div>
             </div>
 
             <Field label="اسم الكتاب"><input value={editing.form.title} onChange={(e) => patch({ title: e.target.value })} dir="rtl" className={inputCls} /></Field>
@@ -464,5 +494,37 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="text-xs font-bold text-muted-foreground">{label}</span>
       {children}
     </label>
+  );
+}
+
+// One upload slot. Preview box mirrors the target aspect (portrait 3:4 / landscape 16:9)
+// so the owner can eyeball whether their image fits before saving.
+function ImageSlot({
+  label, hint, url, aspect, required, uploading, onPick, onClear,
+}: {
+  label: string; hint?: string; url: string | null; aspect: "portrait" | "landscape";
+  required?: boolean; uploading: boolean;
+  onPick: (e: React.ChangeEvent<HTMLInputElement>) => void; onClear: () => void;
+}) {
+  const box = aspect === "portrait" ? "w-[84px] h-28" : "w-40 h-[90px]";
+  const missing = Boolean(required) && !url;
+  return (
+    <div className="flex items-center gap-3">
+      <div className={`${box} rounded-xl bg-primary/10 flex items-center justify-center overflow-hidden shrink-0 relative border ${missing ? "border-red-400/70" : "border-transparent"}`}>
+        {url ? <img src={imgSrc(url)} alt="" className="w-full h-full object-cover" /> : <ImagePlus className="w-6 h-6 text-primary/50" />}
+        {url ? <button type="button" onClick={onClear} className="absolute top-0 left-0 bg-black/60 rounded-br-lg p-0.5"><X className="w-3 h-3 text-white" /></button> : null}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-bold flex items-center gap-1">
+          {label}
+          {required ? <span className="text-red-500">*</span> : <span className="text-xs text-muted-foreground font-semibold">(اختياري)</span>}
+        </div>
+        {hint ? <div className="text-xs text-muted-foreground mt-0.5">{hint}</div> : null}
+        <label className="mt-1.5 inline-flex text-xs py-1.5 px-3 rounded-xl border border-primary/30 bg-primary/5 font-bold text-primary items-center gap-1.5 cursor-pointer hover:bg-primary/10">
+          <Upload className="w-3.5 h-3.5" /> {uploading ? "جاري الرفع..." : url ? "تغيير الصورة" : "رفع صورة"}
+          <input type="file" accept="image/*" hidden onChange={onPick} />
+        </label>
+      </div>
+    </div>
   );
 }

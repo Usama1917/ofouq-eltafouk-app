@@ -1760,6 +1760,8 @@ const CONTROLLABLE_TABS = new Set([
   "supportMessages",
   "broadcastMessages",
   "moralReviews",
+  "orders",
+  "products",
 ]);
 
 // Owner-only: read which pages are currently hidden from this admin.
@@ -2078,6 +2080,11 @@ router.post("/admin/books", async (req, res) => {
         category: subject,
         subject,
         coverUrl: body.coverUrl,
+        // v2 — portrait (grid) + landscape (full-width) card art, + optional dark variants.
+        coverPortraitUrl: typeof body.coverPortraitUrl === "string" ? body.coverPortraitUrl : null,
+        coverLandscapeUrl: typeof body.coverLandscapeUrl === "string" ? body.coverLandscapeUrl : null,
+        coverPortraitDarkUrl: typeof body.coverPortraitDarkUrl === "string" ? body.coverPortraitDarkUrl : null,
+        coverLandscapeDarkUrl: typeof body.coverLandscapeDarkUrl === "string" ? body.coverLandscapeDarkUrl : null,
         pointsPrice: priceEgp,
         priceEgp,
         originalPriceEgp,
@@ -2107,6 +2114,10 @@ router.put("/admin/books/:id", async (req, res) => {
     if (body.title !== undefined) updateData.title = body.title;
     if (body.description !== undefined) updateData.description = body.description;
     if (body.coverUrl !== undefined) updateData.coverUrl = body.coverUrl;
+    if (body.coverPortraitUrl !== undefined) updateData.coverPortraitUrl = typeof body.coverPortraitUrl === "string" ? body.coverPortraitUrl : null;
+    if (body.coverLandscapeUrl !== undefined) updateData.coverLandscapeUrl = typeof body.coverLandscapeUrl === "string" ? body.coverLandscapeUrl : null;
+    if (body.coverPortraitDarkUrl !== undefined) updateData.coverPortraitDarkUrl = typeof body.coverPortraitDarkUrl === "string" ? body.coverPortraitDarkUrl : null;
+    if (body.coverLandscapeDarkUrl !== undefined) updateData.coverLandscapeDarkUrl = typeof body.coverLandscapeDarkUrl === "string" ? body.coverLandscapeDarkUrl : null;
     if (body.available !== undefined) updateData.available = Boolean(body.available);
     if (body.freeShipping !== undefined) updateData.freeShipping = Boolean(body.freeShipping);
 

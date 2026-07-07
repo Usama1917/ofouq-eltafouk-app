@@ -17,6 +17,7 @@ import {
   cartKey,
   getCart,
   listBooks,
+  pickBookCover,
   removeWishlist,
   storeBooksKey,
   wishlistKey,
@@ -143,8 +144,8 @@ export default function StoreCatalogScreen() {
               <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{en ? "No books" : "مفيش كتب"}</Text>
             </View>
           }
-          renderItem={({ item }) => (
-            <BookCard book={item} colors={colors} isDark={resolvedScheme === "dark"} en={en} isRTL={isRTL} onFav={() => toggleFav(item)} />
+          renderItem={({ item, index }) => (
+            <BookCard book={item} index={index} count={filtered.length} colors={colors} isDark={resolvedScheme === "dark"} en={en} isRTL={isRTL} onFav={() => toggleFav(item)} />
           )}
         />
       )}
@@ -154,6 +155,8 @@ export default function StoreCatalogScreen() {
 
 function BookCard({
   book,
+  index,
+  count,
   colors,
   isDark,
   en,
@@ -161,6 +164,8 @@ function BookCard({
   onFav,
 }: {
   book: StoreBook;
+  index: number;
+  count: number;
   colors: typeof COLORS.light;
   isDark: boolean;
   en: boolean;
@@ -169,16 +174,21 @@ function BookCard({
 }) {
   const out = book.stockQuantity <= 0;
   const discounted = book.originalPriceEgp && book.originalPriceEgp > book.priceEgp;
+  // A lone last item at an even index sits alone on its row → FlatList stretches
+  // it full-width, so use the landscape (16:9) art; otherwise it's a grid card (3:4).
+  const fullWidth = index === count - 1 && index % 2 === 0;
+  const cover = pickBookCover(book, { landscape: fullWidth, dark: isDark });
+  const aspectRatio = fullWidth ? 16 / 9 : 3 / 4;
   return (
     <Pressable
       onPress={() => router.push({ pathname: "/(tabs)/store/book", params: { bookId: String(book.id) } })}
       style={[styles.card, { backgroundColor: colors.surface }]}
     >
       <View style={styles.coverWrap}>
-        {book.coverUrl ? (
-          <Image source={{ uri: book.coverUrl }} style={styles.cover} resizeMode="cover" />
+        {cover ? (
+          <Image source={{ uri: cover }} style={[styles.cover, { aspectRatio }]} resizeMode="cover" />
         ) : (
-          <LinearGradient colors={[COLORS.primary + "22", COLORS.primary + "0A"]} style={styles.cover}>
+          <LinearGradient colors={[COLORS.primary + "22", COLORS.primary + "0A"]} style={[styles.cover, { aspectRatio }]}>
             <Feather name="book-open" size={30} color={COLORS.primary} />
           </LinearGradient>
         )}
@@ -226,7 +236,7 @@ const styles = StyleSheet.create({
   emptyText: { ...FONT.regular, fontSize: 15 },
   card: { flex: 1, borderRadius: 18, overflow: "hidden", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 },
   coverWrap: { position: "relative" },
-  cover: { height: 150, width: "100%", alignItems: "center", justifyContent: "center" },
+  cover: { width: "100%", alignItems: "center", justifyContent: "center" },
   favBtn: { position: "absolute", top: 8, left: 8, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   outBadge: { position: "absolute", bottom: 8, right: 8, backgroundColor: COLORS.error, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   outText: { ...FONT.bold, fontSize: 10, color: "#fff" },

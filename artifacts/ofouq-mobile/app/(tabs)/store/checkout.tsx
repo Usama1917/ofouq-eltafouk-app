@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -24,6 +24,9 @@ import {
   shippingQuoteKey,
   storeBooksKey,
 } from "@/lib/store";
+
+// Extra bottom clearance so the fixed place-order bar clears the floating tab bar.
+const TAB_BAR_CLEARANCE = Platform.OS === "ios" ? 86 : 74;
 
 export default function CheckoutScreen() {
   const { token } = useAuth();
@@ -134,15 +137,15 @@ export default function CheckoutScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 6, flexDirection: row(en), direction: "ltr", borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 6, flexDirection: "row", direction: "ltr", borderBottomColor: colors.border }]}>
         <Pressable onPress={() => router.back()} style={[styles.circleBtn, { backgroundColor: colors.surfaceSecondary }]}>
-          <Feather name={en ? "arrow-left" : "arrow-right"} size={20} color={colors.text} />
+          <Feather name="arrow-left" size={20} color={colors.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.text }]}>{en ? "Checkout" : "إتمام الطلب"}</Text>
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 18, paddingBottom: insets.bottom + 130 }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ padding: 20, gap: 18, paddingBottom: insets.bottom + 200 }} keyboardShouldPersistTaps="handled">
         {/* Address */}
         <View style={{ gap: 10 }}>
           <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Shipping address" : "عنوان الشحن"}</Text>
@@ -198,7 +201,7 @@ export default function CheckoutScreen() {
         {error ? <Text style={[styles.errorText, { textAlign: ta }]}>{error}</Text> : null}
       </ScrollView>
 
-      <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12, backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+      <View style={[styles.bottomBar, { paddingBottom: insets.bottom + TAB_BAR_CLEARANCE, backgroundColor: colors.surface, borderTopColor: colors.border }]}>
         <Pressable onPress={placeOrder} disabled={placing} style={[styles.placeBtn, { opacity: placing ? 0.7 : 1 }]}>
           {placing ? <ActivityIndicator color="#fff" /> : <Text style={styles.placeText}>{en ? `Place order · ${formatNumber(total)} EGP` : `أكّد الطلب · ${formatNumber(total)} ج`}</Text>}
         </Pressable>

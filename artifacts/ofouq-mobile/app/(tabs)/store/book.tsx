@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useState } from "react";
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -16,11 +16,15 @@ import {
   addWishlist,
   cartKey,
   getBook,
+  pickBookCover,
   removeWishlist,
   storeBookKey,
   storeBooksKey,
   wishlistKey,
 } from "@/lib/store";
+
+// Extra bottom clearance so the fixed action bar clears the floating tab bar.
+const TAB_BAR_CLEARANCE = Platform.OS === "ios" ? 86 : 74;
 
 export default function BookDetailScreen() {
   const { bookId } = useLocalSearchParams<{ bookId: string }>();
@@ -37,6 +41,8 @@ export default function BookDetailScreen() {
   const row = (e: boolean): "row" | "row-reverse" => (e ? "row" : "row-reverse");
   const ta = isRTL ? "right" : "left";
   const out = (book?.stockQuantity ?? 0) <= 0;
+  // Detail page is full-width → landscape (16:9) hero, theme-aware with fallback.
+  const heroCover = book ? pickBookCover(book, { landscape: true, dark: isDark }) : null;
 
   async function onAdd() {
     if (!token || !book || out) return;
@@ -72,9 +78,9 @@ export default function BookDetailScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 6, flexDirection: row(en), direction: "ltr", borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 6, flexDirection: "row", direction: "ltr", borderBottomColor: colors.border }]}>
         <Pressable onPress={() => router.back()} style={[styles.circleBtn, { backgroundColor: colors.surfaceSecondary }]}>
-          <Feather name={en ? "arrow-left" : "arrow-right"} size={20} color={colors.text} />
+          <Feather name="arrow-left" size={20} color={colors.text} />
         </Pressable>
         <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.text }]}>{en ? "Book" : "الكتاب"}</Text>
         <Pressable onPress={toggleFav} style={[styles.circleBtn, { backgroundColor: colors.surfaceSecondary }]}>
@@ -86,11 +92,11 @@ export default function BookDetailScreen() {
         <View style={styles.center}><ActivityIndicator color={COLORS.primary} /></View>
       ) : (
         <>
-          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 16 }}>
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 160, gap: 16 }}>
             {/* Cover */}
             <View style={styles.coverBox}>
-              {book.coverUrl ? (
-                <Image source={{ uri: book.coverUrl }} style={styles.cover} resizeMode="cover" />
+              {heroCover ? (
+                <Image source={{ uri: heroCover }} style={styles.cover} resizeMode="cover" />
               ) : (
                 <LinearGradient colors={[COLORS.primary + "22", COLORS.primary + "0A"]} style={styles.cover}>
                   <Feather name="book-open" size={56} color={COLORS.primary} />
@@ -168,7 +174,7 @@ export default function BookDetailScreen() {
           </ScrollView>
 
           {/* Bottom add-to-cart bar */}
-          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12, backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + TAB_BAR_CLEARANCE, backgroundColor: colors.surface, borderTopColor: colors.border }]}>
             <Pressable
               onPress={onAdd}
               disabled={out || adding}
@@ -193,7 +199,7 @@ const styles = StyleSheet.create({
   headerTitle: { ...FONT.bold, fontSize: 17, flex: 1, textAlign: "center", marginHorizontal: 8 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   coverBox: { alignItems: "center" },
-  cover: { width: 170, height: 240, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  cover: { width: "100%", aspectRatio: 16 / 9, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   thumb: { width: 64, height: 64, borderRadius: 10 },
   title: { ...FONT.bold, fontSize: 22 },
   author: { ...FONT.regular, fontSize: 15 },
