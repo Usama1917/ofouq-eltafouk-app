@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { BookOpen, Plus, Save, Trash2, X, Upload, Settings, ImagePlus, TicketPercent } from "lucide-react";
+import { BookOpen, Plus, Save, Trash2, X, Upload, Settings, ImagePlus, TicketPercent, Eye } from "lucide-react";
 import ShippingTab from "./shipping-tab";
+import StoreLayoutDialog from "./store-layout-dialog";
 
 const dateFmt = new Intl.DateTimeFormat("ar-EG-u-nu-latn", { dateStyle: "medium" });
 
@@ -78,6 +79,7 @@ export default function ProductsTab() {
   const [nc, setNc] = useState({ code: "", type: "percent", value: "", usageLimit: "", expiresAt: "" });
   const [addingCoupon, setAddingCoupon] = useState(false);
   const [view, setView] = useState<"products" | "settings" | "shipping">("products");
+  const [showLayout, setShowLayout] = useState(false);
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
@@ -372,9 +374,11 @@ export default function ProductsTab() {
       {/* Products */}
       {view === "products" ? (
       <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <button onClick={() => setShowLayout(true)} className="text-sm py-2 px-4 rounded-2xl border border-primary/40 bg-primary/5 text-primary font-bold flex items-center gap-1.5 hover:bg-primary/10 transition"><Eye className="w-4 h-4" /> العرض</button>
         <button onClick={openNew} className="btn-primary text-sm py-2 px-4 flex items-center gap-1.5"><Plus className="w-4 h-4" /> كتاب جديد</button>
       </div>
+      {showLayout ? <StoreLayoutDialog onClose={() => setShowLayout(false)} /> : null}
       {books.length === 0 ? (
         <div className="glass-card p-10 text-center text-sm font-bold text-muted-foreground"><BookOpen className="w-10 h-10 mx-auto mb-3 opacity-40" /> مفيش كتب — أضف أول كتاب</div>
       ) : (
@@ -406,7 +410,7 @@ export default function ProductsTab() {
       {/* Editor modal */}
       {editing ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setEditing(null)}>
-          <div dir="rtl" onClick={(e) => e.stopPropagation()} className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl bg-background p-6 shadow-2xl space-y-4">
+          <div dir="rtl" onClick={(e) => e.stopPropagation()} className="w-full max-w-6xl max-h-[90vh] overflow-y-auto rounded-3xl bg-background p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-lg font-black">{editing.id ? "تعديل كتاب" : "كتاب جديد"}</h2>
               <button onClick={() => setEditing(null)} className="p-2 rounded-xl hover:bg-foreground/5"><X className="w-5 h-5" /></button>
@@ -428,12 +432,20 @@ export default function ProductsTab() {
                   ) : null}
                 </div>
               </div>
-              <ImageSlot label="عرضية (لوحده)" hint="نسبة 16:9 — تظهر بالعرض الكامل" url={editing.form.coverLandscapeUrl} aspect="landscape" required uploading={uploading} onPick={(e) => onPickField("coverLandscapeUrl", e)} onClear={() => patch({ coverLandscapeUrl: null })} />
-              <ImageSlot label="طولية (في الشبكة)" hint="نسبة 3:4 — تظهر جنب كتاب تاني" url={editing.form.coverPortraitUrl} aspect="portrait" required uploading={uploading} onPick={(e) => onPickField("coverPortraitUrl", e)} onClear={() => patch({ coverPortraitUrl: null })} />
-              <div className="border-t border-border/60 pt-3 space-y-3">
-                <p className="text-xs font-bold text-muted-foreground">نسخ الوضع الداكن (اختياري)</p>
-                <ImageSlot label="عرضية — داكن" url={editing.form.coverLandscapeDarkUrl} aspect="landscape" uploading={uploading} onPick={(e) => onPickField("coverLandscapeDarkUrl", e)} onClear={() => patch({ coverLandscapeDarkUrl: null })} />
-                <ImageSlot label="طولية — داكن" url={editing.form.coverPortraitDarkUrl} aspect="portrait" uploading={uploading} onPick={(e) => onPickField("coverPortraitDarkUrl", e)} onClear={() => patch({ coverPortraitDarkUrl: null })} />
+              {/* column captions: light (right) · dark (left) — desktop only */}
+              <div className="hidden md:flex gap-4 text-xs font-bold text-muted-foreground pt-1">
+                <span className="flex-1">الوضع الفاتح</span>
+                <span className="flex-1">الوضع الداكن (اختياري)</span>
+              </div>
+              {/* Landscape: light + its dark variant on one row */}
+              <div className="flex flex-col md:flex-row gap-4">
+                <ImageSlot label="عرضية (لوحده)" hint="نسبة 16:9 — بالعرض الكامل" url={editing.form.coverLandscapeUrl} aspect="landscape" required uploading={uploading} onPick={(e) => onPickField("coverLandscapeUrl", e)} onClear={() => patch({ coverLandscapeUrl: null })} />
+                <ImageSlot label="عرضية — داكن" hint="نفس النسبة — اختياري" url={editing.form.coverLandscapeDarkUrl} aspect="landscape" uploading={uploading} onPick={(e) => onPickField("coverLandscapeDarkUrl", e)} onClear={() => patch({ coverLandscapeDarkUrl: null })} />
+              </div>
+              {/* Portrait: light + its dark variant on one row */}
+              <div className="flex flex-col md:flex-row gap-4">
+                <ImageSlot label="طولية (في الشبكة)" hint="نسبة 3:4 — جنب كتاب تاني" url={editing.form.coverPortraitUrl} aspect="portrait" required uploading={uploading} onPick={(e) => onPickField("coverPortraitUrl", e)} onClear={() => patch({ coverPortraitUrl: null })} />
+                <ImageSlot label="طولية — داكن" hint="نفس النسبة — اختياري" url={editing.form.coverPortraitDarkUrl} aspect="portrait" uploading={uploading} onPick={(e) => onPickField("coverPortraitDarkUrl", e)} onClear={() => patch({ coverPortraitDarkUrl: null })} />
               </div>
             </div>
 
@@ -509,7 +521,7 @@ function ImageSlot({
   const box = aspect === "portrait" ? "w-[84px] h-28" : "w-40 h-[90px]";
   const missing = Boolean(required) && !url;
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex-1 min-w-0 flex items-center gap-3">
       <div className={`${box} rounded-xl bg-primary/10 flex items-center justify-center overflow-hidden shrink-0 relative border ${missing ? "border-red-400/70" : "border-transparent"}`}>
         {url ? <img src={imgSrc(url)} alt="" className="w-full h-full object-cover" /> : <ImagePlus className="w-6 h-6 text-primary/50" />}
         {url ? <button type="button" onClick={onClear} className="absolute top-0 left-0 bg-black/60 rounded-br-lg p-0.5"><X className="w-3 h-3 text-white" /></button> : null}

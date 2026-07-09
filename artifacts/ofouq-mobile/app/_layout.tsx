@@ -7,7 +7,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import React, { useEffect } from "react";
-import { AppState, type AppStateStatus, I18nManager, Platform, StyleSheet, Text, TextInput } from "react-native";
+import { AppState, type AppStateStatus, I18nManager, Text, TextInput } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -59,59 +59,53 @@ function applyDefaultFont(Component: FontComponent) {
 applyDefaultFont(Text as unknown as FontComponent);
 applyDefaultFont(TextInput as unknown as FontComponent);
 
-// ── Foundational RTL ──────────────────────────────────────────────────────────
-// Patch the global <Text>/<TextInput> render so EVERY text in the app defaults to
-// right alignment + RTL writing direction whenever the app language is Arabic,
-// unless the component sets its own textAlign (component styles still win). This
-// fixes the long-standing recurring issue of Arabic content rendering left-aligned.
-// English (LTR) is untouched. Reads getAppIsRTL() at render time so it follows the
-// resolved app language even before a native reload applies forceRTL.
+// ── Foundational RTL (root fix) ───────────────────────────────────────────────
+// EVERY Arabic <Text>/<TextInput> must default to right alignment + RTL writing
+// direction. This used to be done by monkey-patching `Text.render`, but on React
+// Native 0.81 / React 19 `Text` (and `TextInput`) is a plain FUNCTION component with
+// no `.render`, so that patch silently did nothing — Arabic text rendered LEFT unless
+// a component ALSO set `writingDirection` itself. That's the recurring "Arabic labels
+// stuck on the left" bug (e.g. checkout field headings): the ones that looked right
+// only worked because they happened to set writingDirection; the rest fell back to
+// left.
+//
+// Root fix: intercept element creation and prepend an OVERRIDABLE RTL base style to
+// every <Text>/<TextInput> while the language is Arabic. The base is FIRST in the style
+// array, so any explicit textAlign/writingDirection a component sets still wins — we
+// only supply the default that was missing. We patch the automatic JSX runtime
+// (jsx/jsxs, used in production), the dev runtime (jsxDEV), and React.createElement
+// (classic), covering every render path. getAppIsRTL() is read at call time, so it
+// follows the resolved language even before a native reload. English (LTR) is untouched.
 const RTL_BASE_TEXT_STYLE = { textAlign: "right", writingDirection: "rtl" } as const;
 
-// ── English-on-Android font scaling ───────────────────────────────────────────
-// On Android, English (Latin) text is rendered with the bundled Arabic font,
-// whose Latin glyphs come out oversized — most noticeably on headers/titles.
-// Scale font metrics down a touch, larger sizes more than small body text, so
-// the whole UI reads balanced in English. Arabic and iOS are left untouched.
-const IS_ANDROID = Platform.OS === "android";
-function englishAndroidFontScale(size: number) {
-  if (size >= 26) return 0.84;
-  if (size >= 20) return 0.88;
-  if (size >= 16) return 0.92;
-  return 0.95;
+function injectRtlBaseProps(type: unknown, props: any) {
+  if (!props || (type !== Text && type !== TextInput) || !getAppIsRTL()) return props;
+  const style = props.style;
+  return { ...props, style: style != null ? [RTL_BASE_TEXT_STYLE, style] : RTL_BASE_TEXT_STYLE };
 }
 
-function applyRtlBaseStyle(Component: any) {
-  if (!Component || Component.__rtlBasePatched) return;
-  const baseRender = Component.render;
-  if (typeof baseRender !== "function") return;
-  Component.render = function rtlPatchedRender(props: any, ref: any) {
-    const style = props && props.style;
-    if (getAppIsRTL()) {
-      const nextStyle = style != null ? [RTL_BASE_TEXT_STYLE, style] : RTL_BASE_TEXT_STYLE;
-      return baseRender.call(this, { ...props, style: nextStyle }, ref);
-    }
-    if (IS_ANDROID) {
-      const flat = StyleSheet.flatten(style) as { fontSize?: number; lineHeight?: number } | undefined;
-      if (flat && typeof flat.fontSize === "number") {
-        const factor = englishAndroidFontScale(flat.fontSize);
-        const scaled: { fontSize: number; lineHeight?: number } = {
-          fontSize: Math.round(flat.fontSize * factor * 2) / 2,
-        };
-        if (typeof flat.lineHeight === "number") {
-          scaled.lineHeight = Math.round(flat.lineHeight * factor);
-        }
-        const nextStyle = style != null ? [style, scaled] : scaled;
-        return baseRender.call(this, { ...props, style: nextStyle }, ref);
-      }
-    }
-    return baseRender.call(this, props, ref);
+function patchJsxFactory(mod: any, key: string) {
+  const orig = mod?.[key];
+  if (typeof orig !== "function" || orig.__ofqRtlPatched) return;
+  const patched = function patchedJsx(this: unknown, type: unknown, props: any, ...rest: unknown[]) {
+    return orig.call(this, type, injectRtlBaseProps(type, props), ...rest);
   };
-  Component.__rtlBasePatched = true;
+  patched.__ofqRtlPatched = true;
+  try {
+    mod[key] = patched;
+  } catch {
+    // Some runtimes freeze module exports; the other patched entry points still apply.
+  }
 }
 
-applyRtlBaseStyle(Text);
-applyRtlBaseStyle(TextInput);
+patchJsxFactory(require("react/jsx-runtime"), "jsx");
+patchJsxFactory(require("react/jsx-runtime"), "jsxs");
+try {
+  patchJsxFactory(require("react/jsx-dev-runtime"), "jsxDEV");
+} catch {
+  // jsx-dev-runtime is development-only; ignore when it is absent.
+}
+patchJsxFactory(React, "createElement");
 
 function RootLayoutNav() {
   const { colors, resolvedScheme } = usePreferences();

@@ -15,7 +15,8 @@ import { formatNumber } from "@/lib/format";
 import { cartKey, getCart, removeCartItem, updateCartItem, type CartLine } from "@/lib/store";
 
 // Extra bottom clearance so the fixed checkout bar clears the floating tab bar.
-const TAB_BAR_CLEARANCE = Platform.OS === "ios" ? 86 : 74;
+// Lowered a touch so the button sits closer to the tab bar (owner request).
+const TAB_BAR_CLEARANCE = Platform.OS === "ios" ? 70 : 60;
 
 export default function CartScreen() {
   const { token } = useAuth();
@@ -80,15 +81,19 @@ export default function CartScreen() {
                 <View style={{ flex: 1, gap: 4 }}>
                   <Text numberOfLines={2} style={[styles.itemTitle, { color: colors.text, textAlign: ta }]}>{item.title}</Text>
                   <Text style={[styles.itemPrice, { color: COLORS.primary, textAlign: ta }]}>{formatNumber(item.priceEgp)} {en ? "EGP" : "ج"}</Text>
-                  <View style={[styles.qtyRow, { flexDirection: row(en), direction: "ltr" }]}>
-                    <Pressable onPress={() => setQty(item, item.quantity - 1)} style={[styles.qtyBtn, { borderColor: colors.border }]}>
-                      <Feather name="minus" size={14} color={colors.text} />
-                    </Pressable>
-                    <Text style={[styles.qtyText, { color: colors.text }]}>{formatNumber(item.quantity)}</Text>
-                    <Pressable onPress={() => setQty(item, item.quantity + 1)} disabled={item.quantity >= item.stockQuantity} style={[styles.qtyBtn, { borderColor: colors.border, opacity: item.quantity >= item.stockQuantity ? 0.4 : 1 }]}>
-                      <Feather name="plus" size={14} color={colors.text} />
-                    </Pressable>
-                    <Pressable onPress={() => setQty(item, 0)} hitSlop={8} style={{ marginInlineStart: "auto" }}>
+                  <View style={[styles.qtyRow, { flexDirection: row(en), direction: "ltr", justifyContent: "space-between" }]}>
+                    {/* Stepper stays grouped on the reading side; space-between pushes the
+                        trash button to the far end — far LEFT in Arabic (owner request). */}
+                    <View style={{ flexDirection: row(en), alignItems: "center", gap: 12 }}>
+                      <Pressable onPress={() => setQty(item, item.quantity - 1)} style={[styles.qtyBtn, { borderColor: colors.border }]}>
+                        <Feather name="minus" size={14} color={colors.text} />
+                      </Pressable>
+                      <Text style={[styles.qtyText, { color: colors.text }]}>{formatNumber(item.quantity)}</Text>
+                      <Pressable onPress={() => setQty(item, item.quantity + 1)} disabled={item.quantity >= item.stockQuantity} style={[styles.qtyBtn, { borderColor: colors.border, opacity: item.quantity >= item.stockQuantity ? 0.4 : 1 }]}>
+                        <Feather name="plus" size={14} color={colors.text} />
+                      </Pressable>
+                    </View>
+                    <Pressable onPress={() => setQty(item, 0)} hitSlop={8}>
                       <Feather name="trash-2" size={18} color={COLORS.error} />
                     </Pressable>
                   </View>

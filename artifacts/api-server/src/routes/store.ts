@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, asc, desc, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import {
   db,
   booksTable,
@@ -67,6 +67,36 @@ async function getStoreSettings() {
   await db.insert(storeSettingsTable).values({}).onConflictDoNothing();
   const [row] = await db.select().from(storeSettingsTable).orderBy(asc(storeSettingsTable.id)).limit(1);
   return row;
+}
+
+type LayoutRow = { type: "normal" | "carousel"; title?: string; books: number[] };
+// Normalise stored / incoming layout to typed rows. Accepts the current
+// {type,title?,books} shape AND legacy number[] rows (→ normal). Drops invalid/empty
+// rows and dupes; a normal row is capped at 2 books (it only ever shows 2).
+function normalizeLayout(raw: unknown): LayoutRow[] {
+  if (!Array.isArray(raw)) return [];
+  const rows: LayoutRow[] = [];
+  for (const r of raw) {
+    let type: "normal" | "carousel" = "normal";
+    let src: unknown[] = [];
+    let title: string | undefined;
+    if (Array.isArray(r)) {
+      src = r;
+    } else if (r && typeof r === "object" && Array.isArray((r as { books?: unknown }).books)) {
+      type = (r as { type?: unknown }).type === "carousel" ? "carousel" : "normal";
+      src = (r as { books: unknown[] }).books;
+      const t = (r as { title?: unknown }).title;
+      if (typeof t === "string" && t.trim()) title = t.trim().slice(0, 40);
+    } else {
+      continue;
+    }
+    let books = Array.from(
+      new Set(src.map((v) => Number.parseInt(String(v), 10)).filter((n) => Number.isInteger(n) && n > 0)),
+    );
+    if (type === "normal") books = books.slice(0, 2);
+    if (books.length) rows.push(title ? { type, title, books } : { type, books });
+  }
+  return rows;
 }
 
 // Shipping cost for a destination governorate + total parcel weight, using the
@@ -206,6 +236,19 @@ router.get("/store/books/:id", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Store book detail error");
     res.status(500).json({ error: "تعذّر تحميل الكتاب" });
+  }
+});
+
+// Owner-curated catalog layout (ordered rows of book ids). null = default grid.
+router.get("/store/layout", async (req, res) => {
+  try {
+    const studentId = await requireStudentId(req, res);
+    if (studentId == null) return;
+    const settings = await getStoreSettings();
+    res.json({ layout: settings.catalogLayout ? normalizeLayout(settings.catalogLayout) : null });
+  } catch (err) {
+    req.log.error({ err }, "Store layout load error");
+    res.status(500).json({ error: "تعذّر تحميل الترتيب" });
   }
 });
 
@@ -819,6 +862,48 @@ router.put("/admin/store/settings", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Store settings save error");
     res.status(500).json({ error: "تعذّر حفظ الإعدادات" });
+  }
+});
+
+// ── Catalog layout: owner arranges in-stock books into display rows ───────────
+router.get("/admin/store/layout", async (req, res) => {
+  try {
+    const settings = await getStoreSettings();
+    const books = await db
+      .select({
+        id: booksTable.id,
+        title: booksTable.title,
+        coverUrl: booksTable.coverUrl,
+        coverPortraitUrl: booksTable.coverPortraitUrl,
+        coverLandscapeUrl: booksTable.coverLandscapeUrl,
+        priceEgp: booksTable.priceEgp,
+        originalPriceEgp: booksTable.originalPriceEgp,
+        stockQuantity: booksTable.stockQuantity,
+        available: booksTable.available,
+      })
+      .from(booksTable)
+      .where(and(eq(booksTable.available, true), gt(booksTable.stockQuantity, 0)))
+      .orderBy(desc(booksTable.sortOrder), desc(booksTable.id));
+    res.json({ layout: settings.catalogLayout ? normalizeLayout(settings.catalogLayout) : null, books });
+  } catch (err) {
+    req.log.error({ err }, "Store layout admin load error");
+    res.status(500).json({ error: "تعذّر تحميل بيانات العرض" });
+  }
+});
+
+router.put("/admin/store/layout", async (req, res) => {
+  try {
+    const layout = normalizeLayout(req.body?.layout);
+    const current = await getStoreSettings();
+    const [saved] = await db
+      .update(storeSettingsTable)
+      .set({ catalogLayout: layout, updatedAt: new Date() })
+      .where(eq(storeSettingsTable.id, current.id))
+      .returning();
+    res.json({ layout: saved.catalogLayout ?? [] });
+  } catch (err) {
+    req.log.error({ err }, "Store layout save error");
+    res.status(500).json({ error: "تعذّر حفظ الترتيب" });
   }
 });
 

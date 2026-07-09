@@ -24,12 +24,13 @@ import {
 } from "@/lib/store";
 
 // Extra bottom clearance so the fixed action bar clears the floating tab bar.
-const TAB_BAR_CLEARANCE = Platform.OS === "ios" ? 86 : 74;
+// Lowered a touch so the button sits closer to the tab bar (owner request).
+const TAB_BAR_CLEARANCE = Platform.OS === "ios" ? 70 : 60;
 
 export default function BookDetailScreen() {
   const { bookId } = useLocalSearchParams<{ bookId: string }>();
   const { token } = useAuth();
-  const { colors, resolvedScheme, language, isRTL } = usePreferences();
+  const { colors, resolvedScheme, language, isRTL, direction } = usePreferences();
   const en = language === "en";
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
@@ -113,9 +114,13 @@ export default function BookDetailScreen() {
               </ScrollView>
             ) : null}
 
-            <View style={{ gap: 6 }}>
-              <Text style={[styles.title, { color: colors.text, textAlign: ta }]}>{book.title}</Text>
-              <View style={[styles.priceRow, { flexDirection: row(en), direction: "ltr" }]}>
+            {/* Force a physical LTR box + align the block to the reading side
+                (flex-end = right in Arabic), so the title sits on the right in Arabic
+                regardless of the ambient RTL flag — matching the catalog card. The price
+                row is centered (alignSelf) under the title per the owner's request. */}
+            <View style={{ gap: 6, direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }}>
+              <Text style={[styles.title, { color: colors.text, textAlign: ta, writingDirection: direction }]}>{book.title}</Text>
+              <View style={[styles.priceRow, { flexDirection: row(en), direction: "ltr", alignSelf: "center" }]}>
                 <Text style={[styles.price, { color: COLORS.primary }]}>{formatNumber(book.priceEgp)} {en ? "EGP" : "ج"}</Text>
                 {book.originalPriceEgp && book.originalPriceEgp > book.priceEgp ? (
                   <Text style={[styles.oldPrice, { color: colors.textTertiary }]}>{formatNumber(book.originalPriceEgp)}</Text>
@@ -134,26 +139,32 @@ export default function BookDetailScreen() {
             ) : null}
 
             {out ? (
-              <View style={[styles.outBanner, { backgroundColor: COLORS.error + "15" }]}>
-                <Text style={[styles.outBannerText, { color: COLORS.error, textAlign: ta }]}>{en ? "Out of stock" : "الكتاب ده نفدت كميته حاليًا"}</Text>
+              <View style={[styles.outBanner, { backgroundColor: COLORS.error + "15", direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                <Text style={[styles.outBannerText, { color: COLORS.error, textAlign: ta, writingDirection: direction }]}>{en ? "Out of stock" : "الكتاب ده نفدت كميته حاليًا"}</Text>
               </View>
             ) : book.stockQuantity <= 5 ? (
-              <Text style={[styles.lowStock, { color: COLORS.warning, textAlign: ta }]}>
-                {en ? `Only ${book.stockQuantity} left` : `متبقّي ${formatNumber(book.stockQuantity)} نسخ بس`}
-              </Text>
+              <View style={{ direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }}>
+                <Text style={[styles.lowStock, { color: COLORS.warning, textAlign: ta, writingDirection: direction }]}>
+                  {en ? `Only ${book.stockQuantity} left` : `متبقّي ${formatNumber(book.stockQuantity)} نسخ بس`}
+                </Text>
+              </View>
             ) : null}
 
             {book.description ? (
-              <View style={{ gap: 6 }}>
-                <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "About the book" : "عن الكتاب"}</Text>
-                <Text style={[styles.desc, { color: colors.textSecondary, textAlign: ta }]}>{book.description}</Text>
+              <View style={{ gap: 6, direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }}>
+                <Text style={[styles.sectionH, { color: colors.text, textAlign: ta, writingDirection: direction }]}>{en ? "About the book" : "عن الكتاب"}</Text>
+                <Text style={[styles.desc, { color: colors.textSecondary, textAlign: ta, writingDirection: direction, width: "100%" }]}>{book.description}</Text>
               </View>
             ) : null}
 
             {/* Related */}
             {book.related.length > 0 ? (
               <View style={{ gap: 10 }}>
-                <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "You may also like" : "اشتروا كمان"}</Text>
+                {/* Heading wrapped so it aligns to the right in Arabic without shrinking
+                    the horizontal cards ScrollView below it. */}
+                <View style={{ direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }}>
+                  <Text style={[styles.sectionH, { color: colors.text, textAlign: ta, writingDirection: direction }]}>{en ? "You may also like" : "اشتروا كمان"}</Text>
+                </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, flexDirection: row(en) }}>
                   {book.related.map((r) => (
                     <Pressable
@@ -164,8 +175,8 @@ export default function BookDetailScreen() {
                       <LinearGradient colors={[COLORS.primary + "22", COLORS.primary + "0A"]} style={styles.relCover}>
                         <Feather name="book" size={22} color={COLORS.primary} />
                       </LinearGradient>
-                      <Text numberOfLines={2} style={[styles.relTitle, { color: colors.text, textAlign: ta }]}>{r.title}</Text>
-                      <Text style={[styles.relPrice, { color: COLORS.primary }]}>{formatNumber(r.priceEgp)} {en ? "EGP" : "ج"}</Text>
+                      <Text numberOfLines={2} style={[styles.relTitle, { color: colors.text, textAlign: ta, writingDirection: direction, width: "100%" }]}>{r.title}</Text>
+                      <Text style={[styles.relPrice, { color: COLORS.primary, textAlign: ta, width: "100%" }]}>{formatNumber(r.priceEgp)} {en ? "EGP" : "ج"}</Text>
                     </Pressable>
                   ))}
                 </ScrollView>

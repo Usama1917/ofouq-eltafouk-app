@@ -1177,23 +1177,38 @@ export function AcademicVideoPlayer({
     commitTimelinePosition(safeInitialSeek);
   }, [initialSeekSeconds, resolvedVideoUrl]);
 
-  // Auto-resume, opened from a "continue watching" push notification: jump into
-  // fullscreen + play at the saved second. CRITICAL: only fire AFTER the inline player
-  // has loaded once (`ready`). Firing it on mount — before the player was ever ready —
-  // reset `ready` to false with nothing to re-arm it, so fullscreen sat stuck on the
-  // loading overlay forever (the bug: "tap the notification → it just keeps loading").
-  // Waiting for `ready` mirrors the proven manual path (inline loads → then fullscreen).
-  // If `ready` never comes, the initial position is still applied inline above, so a
-  // single tap on play resumes from the exact same second.
+  // Auto-resume, opened from a "continue watching" notification: jump into fullscreen +
+  // play at the saved second, so tapping the notification lands the student straight on
+  // the video at the exact second they stopped (no extra "press play").
+  //
+  // YouTube and uploads reach fullscreen differently:
+  //   • YouTube — the inline player renders NO WebView (it mounts only in fullscreen), so
+  //     its `ready` NEVER fires inline. Gating on it would hang the resume forever (the
+  //     "notification opens the lesson but the video never plays" bug). Instead we defer
+  //     one tick so the inline layout commits, then open fullscreen exactly like the
+  //     manual play button does — the fullscreen WebView arms its own `ready` and the
+  //     pending-seek effect below seeks + plays. (openFullscreen re-arms `ready` itself,
+  //     which is why this no longer gets stuck on the loading overlay.)
+  //   • Upload — it DOES have an inline <Video>, so wait for its `ready` first (confirms
+  //     the source loaded before we jump to fullscreen), then open fullscreen the same way.
   useEffect(() => {
     const target = Math.max(0, Math.floor(Number(initialSeekSeconds) || 0));
     if (!autoPlayOnLoad || target <= 0 || autoPlayInitialSeekAppliedRef.current) return;
-    if (!ready) return;
 
+    if (isYouTube) {
+      const timer = setTimeout(() => {
+        autoPlayInitialSeekAppliedRef.current = true;
+        initialSeekSecondsRef.current = null;
+        openFullscreen({ autoPlay: true, seekToSeconds: target });
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+
+    if (!ready) return;
     autoPlayInitialSeekAppliedRef.current = true;
     initialSeekSecondsRef.current = null;
     openFullscreen({ autoPlay: true, seekToSeconds: target });
-  }, [autoPlayOnLoad, initialSeekSeconds, resolvedVideoUrl, ready]);
+  }, [autoPlayOnLoad, initialSeekSeconds, isYouTube, resolvedVideoUrl, ready]);
 
   useEffect(() => {
     const interval = setInterval(emitProgressUpdate, 15000);

@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, boolean, timestamp, index, unique } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, boolean, timestamp, index, unique, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -192,6 +192,12 @@ export const storeSettingsTable = pgTable("store_settings", {
   pointsPerEgpUnit: integer("points_per_egp_unit").notNull().default(10),
   // Books at/below this stock count show up in the admin low-stock alert.
   lowStockThreshold: integer("low_stock_threshold").notNull().default(5),
+  // Owner-curated catalog display: an ordered list of rows. A "normal" row shows
+  // 1–2 book cards statically (1 → full-width landscape, 2 → side-by-side portrait);
+  // a "carousel" row holds any number of books, shows 2 at a time and auto-rotates.
+  // null = no custom layout (mobile falls back to a default grid). Legacy rows saved
+  // as a plain number[] are read as { type: "normal", books }.
+  catalogLayout: jsonb("catalog_layout").$type<{ type: "normal" | "carousel"; title?: string; books: number[] }[]>(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

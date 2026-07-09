@@ -168,6 +168,14 @@ export const ordersKey = ["store", "orders"] as const;
 export const orderKey = (id: number | string) => ["store", "order", String(id)] as const;
 export const wishlistKey = ["store", "wishlist"] as const;
 export const shippingQuoteKey = ["store", "shipping-quote"] as const;
+export const storeLayoutKey = ["store", "layout"] as const;
+
+// Owner-curated display rows. A normal row shows 1–2 books; a carousel row holds
+// any number and auto-rotates 2 at a time. null = no custom layout.
+export type LayoutRow = { type: "normal" | "carousel"; title?: string; books: number[] };
+export function getStoreLayout(token: string | null) {
+  return apiFetch<{ layout: LayoutRow[] | null }>("/api/store/layout", { token });
+}
 
 // ── catalog ──────────────────────────────────────────────────────────────────
 export function listBooks(token: string | null, opts?: { subjectId?: number; yearId?: number; q?: string }) {

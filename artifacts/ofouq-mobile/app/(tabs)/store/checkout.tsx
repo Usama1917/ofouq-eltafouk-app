@@ -26,7 +26,8 @@ import {
 } from "@/lib/store";
 
 // Extra bottom clearance so the fixed place-order bar clears the floating tab bar.
-const TAB_BAR_CLEARANCE = Platform.OS === "ios" ? 86 : 74;
+// Lowered a touch so the confirm button sits closer to the tab bar (owner request).
+const TAB_BAR_CLEARANCE = Platform.OS === "ios" ? 70 : 60;
 
 export default function CheckoutScreen() {
   const { token } = useAuth();
