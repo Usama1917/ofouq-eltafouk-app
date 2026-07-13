@@ -35,12 +35,14 @@ const isArabicText = (s: string) => AR_RE.test(s ?? "");
 // The category-chip row uses a FIXED height, never an onLayout measurement: a
 // horizontal FlatList lays its content out asynchronously, so the first onLayout
 // fires before the chips are measured and reports a too-small height — which the
-// animated wrapper then clips to a thin strip. CHIPS_TOTAL_H = chip + top/bottom gaps.
+// animated wrapper then clips to a thin strip. The gap ABOVE the chips lives on the
+// search box (marginBottom) so it survives when the chips collapse on scroll-down —
+// that leaves a small breathing gap under the search bar. CHIPS_TOTAL_H = chip + bottom gap.
 const CHIP_H = 36;
 const CHIPS_GAP = 12;
-const CHIPS_TOTAL_H = CHIP_H + CHIPS_GAP * 2;
+const CHIPS_TOTAL_H = CHIP_H + CHIPS_GAP;
 
-type DisplayRow = { type: "normal" | "carousel"; title?: string; books: StoreBook[] };
+type DisplayRow = { type: "normal" | "carousel"; title?: string; titleEn?: string; books: StoreBook[] };
 
 // Split a flat list into rows of `size` (the default 2-per-row grid).
 function chunk(list: StoreBook[], size: number): StoreBook[][] {
@@ -70,7 +72,7 @@ function buildCatalogRows(filtered: StoreBook[], all: StoreBook[], layout: Layou
       const b = byId.get(id);
       if (b && !rowSeen.has(id)) { rowSeen.add(id); placed.add(id); cards.push(b); }
     }
-    if (cards.length) rows.push({ type: r.type === "carousel" ? "carousel" : "normal", title: r.title, books: cards });
+    if (cards.length) rows.push({ type: r.type === "carousel" ? "carousel" : "normal", title: r.title, titleEn: r.titleEn, books: cards });
   }
   const rest = all.filter((b) => !placed.has(b.id));
   for (const books of chunk(rest, maxCols)) rows.push({ type: "normal", books });
@@ -163,6 +165,14 @@ export default function StoreCatalogScreen() {
     }
   }
 
+  // In light mode surfaceSecondary (#EEF2FF) is almost identical to the page
+  // background (#F0F4FF), so the search box / category chips / header buttons melt
+  // into the background and their shapes disappear. Give them a solid (card-white)
+  // fill + a visible border in light mode only; dark mode already reads fine.
+  const isLight = resolvedScheme === "light";
+  const controlBg = isLight ? colors.surface : colors.surfaceSecondary;
+  const controlBorder = isLight ? "rgba(30,58,138,0.20)" : "transparent";
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       {/* Header */}
@@ -171,13 +181,13 @@ export default function StoreCatalogScreen() {
           {en ? "Store" : "المتجر"}
         </Text>
         <View style={{ flexDirection: row(en), gap: 10, direction: "ltr" }}>
-          <Pressable onPress={() => router.push("/(tabs)/store/wishlist")} style={[styles.iconBtn, { backgroundColor: colors.surfaceSecondary }]}>
+          <Pressable onPress={() => router.push("/(tabs)/store/wishlist")} style={[styles.iconBtn, { backgroundColor: controlBg, borderWidth: 1, borderColor: controlBorder }]}>
             <Ionicons name="heart-outline" size={20} color={colors.text} />
           </Pressable>
-          <Pressable onPress={() => router.push("/(tabs)/store/orders")} style={[styles.iconBtn, { backgroundColor: colors.surfaceSecondary }]}>
+          <Pressable onPress={() => router.push("/(tabs)/store/orders")} style={[styles.iconBtn, { backgroundColor: controlBg, borderWidth: 1, borderColor: controlBorder }]}>
             <Feather name="package" size={19} color={colors.text} />
           </Pressable>
-          <Pressable onPress={() => router.push("/(tabs)/store/cart")} style={[styles.iconBtn, { backgroundColor: colors.surfaceSecondary }]}>
+          <Pressable onPress={() => router.push("/(tabs)/store/cart")} style={[styles.iconBtn, { backgroundColor: controlBg, borderWidth: 1, borderColor: controlBorder }]}>
             <Feather name="shopping-cart" size={19} color={colors.text} />
             {cartCount > 0 ? (
               <View style={styles.badge}>
@@ -189,7 +199,7 @@ export default function StoreCatalogScreen() {
       </View>
 
       {/* Search */}
-      <View style={[styles.searchBox, { backgroundColor: colors.surfaceSecondary, flexDirection: row(en), direction: "ltr" }]}>
+      <View style={[styles.searchBox, { backgroundColor: controlBg, borderWidth: 1, borderColor: controlBorder, flexDirection: row(en), direction: "ltr" }]}>
         <Feather name="search" size={16} color={colors.textSecondary} />
         <TextInput
           style={[styles.searchInput, { color: colors.text, textAlign: isRTL ? "right" : "left", writingDirection: direction }]}
@@ -221,7 +231,7 @@ export default function StoreCatalogScreen() {
               return (
                 <Pressable
                   onPress={() => setCategory(item)}
-                  style={[styles.chip, { backgroundColor: active ? COLORS.primary : colors.surfaceSecondary }]}
+                  style={[styles.chip, { backgroundColor: active ? COLORS.primary : controlBg, borderWidth: 1, borderColor: active ? "transparent" : controlBorder }]}
                 >
                   <Text style={[styles.chipText, { color: active ? "#fff" : colors.textSecondary }]}>
                     {item || (en ? "All" : "الكل")}
@@ -252,8 +262,19 @@ export default function StoreCatalogScreen() {
             </View>
           }
           renderItem={({ item: r }) => {
-            const heading = r.title ? (
-              <Text numberOfLines={1} style={[styles.rowTitle, { color: colors.text, textAlign: isRTL ? "right" : "left" }]}>{r.title}</Text>
+            // Pick the title in the device's language (fall back to the other side if empty),
+            // then align by the shown text's OWN script — Arabic → right, English → left.
+            // Aligning by content (like book titles do) keeps an Arabic title right-aligned no
+            // matter which app language is active — see [[mobile-text-alignment-isrtl]].
+            const headingText = en ? r.titleEn || r.title : r.title || r.titleEn;
+            const headingAr = isArabicText(headingText ?? "");
+            // PHYSICAL placement (repo pattern, see [[mobile-rtl-direction-ltr]]): a row with
+            // direction:"ltr" makes flex-end the literal right edge on EVERY device state —
+            // immune to I18nManager/native-RTL flag combos that can remap textAlign.
+            const heading = headingText ? (
+              <View style={{ flexDirection: "row", direction: "ltr", justifyContent: headingAr ? "flex-end" : "flex-start" }}>
+                <Text numberOfLines={1} style={[styles.rowTitle, { color: colors.text, textAlign: headingAr ? "right" : "left", writingDirection: headingAr ? "rtl" : "ltr" }]}>{headingText}</Text>
+              </View>
             ) : null;
             if (r.type === "carousel") {
               const cardW = (contentW - 12) / 2; // 2 visible at a time
@@ -372,55 +393,79 @@ function BookCard({
 // is a slow 1-second glide, and the row loops SEAMLESSLY: the first two cards are cloned
 // onto the end so it can glide past the last book into look-alikes, then snap back to the
 // start instantly (invisibly) — no jarring scroll-all-the-way-back-to-the-first-book.
+// Auto-rotating "متحرك" row. Rebuilt as a SEAMLESS conveyor: the books are rendered
+// three times back-to-back and we keep the scroll offset inside the MIDDLE copy. Because
+// every copy is identical, snapping by one whole copy-width is invisible — so the row
+// drifts one card every 3s forever in a single direction and NEVER rewinds/jumps. Touch
+// it and it scrolls freely (native); 5s after you let go it resumes drifting on its own.
+const CAROUSEL_DRIFT = -1; // -1 = content moves left→right; flip to +1 for right→left
 function CarouselRow({ books, cardW, renderCard }: { books: StoreBook[]; cardW: number; renderCard: (b: StoreBook) => React.ReactNode }) {
   const scrollRef = useRef<ScrollView>(null);
-  const pos = useRef(0);
+  const offset = useRef(0);   // last known scroll x
   const paused = useRef(false);
+  const inited = useRef(false);
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Drive the scroll position from an Animated.Value so each step is a controllable
-  // 1-second glide (ScrollView's own `animated:true` is a fixed, fast snap we can't slow).
+  // Each glide is driven by an Animated.Value → scrollTo(animated:false) so we control its
+  // speed (ScrollView's own animated snap is a fixed, too-fast jump).
   const anim = useRef(new Animated.Value(0)).current;
-  const step = cardW + 12;
-  const canLoop = books.length > 2; // 2 are visible at once, so need >2 to rotate
-  const display = canLoop ? [...books, books[0], books[1]] : books;
+
+  const GAP = 12;
+  const step = cardW + GAP;
+  const canLoop = books.length > 2;                 // 2 show at once → need >2 to rotate
+  const data = canLoop ? Array.from({ length: 3 }, () => books).flat() : books;
+  const copyWidth = books.length * step;            // width of one full set of books
+  const startX = canLoop ? copyWidth : 0;           // start in the middle copy
+
+  // Keep x inside the middle copy. Snapping a whole copyWidth is invisible (copies are
+  // identical), so the loop is seamless — no rewind.
+  const recenter = () => {
+    if (!canLoop || copyWidth <= 0) return;
+    let x = offset.current;
+    while (x < copyWidth * 0.5) x += copyWidth;
+    while (x >= copyWidth * 1.5) x -= copyWidth;
+    if (x === offset.current) return;
+    offset.current = x;
+    anim.setValue(x);
+    scrollRef.current?.scrollTo({ x, animated: false });
+  };
 
   useEffect(() => {
     const id = anim.addListener(({ value }) => {
+      offset.current = value;
       scrollRef.current?.scrollTo({ x: value, animated: false });
     });
     return () => anim.removeListener(id);
   }, [anim]);
 
+  // Glide exactly one card every 3s, always the same direction, looping seamlessly.
   useEffect(() => {
     if (!canLoop) return;
     const t = setInterval(() => {
       if (paused.current) return;
-      const next = pos.current + 1;
-      pos.current = next;
+      recenter();
+      anim.setValue(offset.current);
       Animated.timing(anim, {
-        toValue: next * step,
-        duration: 1000,
+        toValue: offset.current + CAROUSEL_DRIFT * step,
+        duration: 850,
         easing: Easing.inOut(Easing.cubic),
         useNativeDriver: false, // value is read in JS to scroll, so no native driver
-      }).start(({ finished }) => {
-        // Landed on the first clone (a look-alike of book #1) → snap back to the real
-        // start instantly so the loop keeps moving forward with no visible rewind.
-        if (finished && next >= books.length) {
-          pos.current = 0;
-          anim.setValue(0);
-        }
-      });
+      }).start(({ finished }) => { if (finished) recenter(); });
     }, 3000);
     return () => { clearInterval(t); anim.stopAnimation(); };
-  }, [anim, books.length, canLoop, step]);
+  }, [canLoop, step, copyWidth]);
 
   useEffect(() => () => { if (resumeTimer.current) clearTimeout(resumeTimer.current); }, []);
 
-  const onInteractionEnd = (x: number) => {
-    pos.current = Math.max(0, Math.round(x / step));
-    anim.setValue(pos.current * step);
+  const pauseAuto = () => {
+    paused.current = true;
+    anim.stopAnimation();
     if (resumeTimer.current) clearTimeout(resumeTimer.current);
-    resumeTimer.current = setTimeout(() => { paused.current = false; }, 7000);
+  };
+  // After the finger lifts, wait 5s of stillness then let it drift on its own again.
+  const scheduleResume = () => {
+    recenter();
+    if (resumeTimer.current) clearTimeout(resumeTimer.current);
+    resumeTimer.current = setTimeout(() => { paused.current = false; }, 5000);
   };
 
   return (
@@ -429,12 +474,20 @@ function CarouselRow({ books, cardW, renderCard }: { books: StoreBook[]; cardW: 
       horizontal
       showsHorizontalScrollIndicator={false}
       scrollEventThrottle={16}
-      contentContainerStyle={{ gap: 12 }}
-      onScrollBeginDrag={() => { paused.current = true; anim.stopAnimation(); if (resumeTimer.current) clearTimeout(resumeTimer.current); }}
-      onScrollEndDrag={(e) => onInteractionEnd(e.nativeEvent.contentOffset.x)}
-      onMomentumScrollEnd={(e) => onInteractionEnd(e.nativeEvent.contentOffset.x)}
+      contentContainerStyle={{ gap: GAP }}
+      onContentSizeChange={(w) => {
+        if (!inited.current && canLoop && w >= startX) {
+          inited.current = true;
+          offset.current = startX;
+          scrollRef.current?.scrollTo({ x: startX, animated: false });
+        }
+      }}
+      onScroll={(e) => { offset.current = e.nativeEvent.contentOffset.x; }}
+      onScrollBeginDrag={pauseAuto}
+      onScrollEndDrag={scheduleResume}
+      onMomentumScrollEnd={scheduleResume}
     >
-      {display.map((b, i) => (
+      {data.map((b, i) => (
         <View key={`${b.id}-${i}`} style={{ width: cardW }}>{renderCard(b)}</View>
       ))}
     </ScrollView>
@@ -448,9 +501,9 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   badge: { position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: COLORS.error, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
   badgeText: { ...FONT.bold, fontSize: 9, color: "#fff" },
-  searchBox: { marginHorizontal: 20, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, alignItems: "center", gap: 8 },
+  searchBox: { marginHorizontal: 20, marginBottom: CHIPS_GAP, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, alignItems: "center", gap: 8 },
   searchInput: { flex: 1, ...FONT.regular, fontSize: 14 },
-  chipBar: { height: CHIP_H, marginTop: CHIPS_GAP, marginBottom: CHIPS_GAP, flexGrow: 0, direction: "ltr" },
+  chipBar: { height: CHIP_H, marginBottom: CHIPS_GAP, flexGrow: 0, direction: "ltr" },
   chip: { height: CHIP_H, borderRadius: 20, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" },
   chipText: { ...FONT.semiBold, fontSize: 13 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 50, gap: 12, minHeight: 200 },

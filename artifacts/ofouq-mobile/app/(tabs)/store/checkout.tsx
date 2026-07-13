@@ -77,6 +77,17 @@ export default function CheckoutScreen() {
   const shipping = freeShipping ? 0 : quote?.shippingEgp ?? 0;
   const total = Math.max(0, subtotal + shipping - discount);
 
+  // Required-field validation. Notes stays optional; a valid EG mobile = 11 digits
+  // starting with 01. `attempted` turns the empty-field outlines red only AFTER the
+  // first confirm tap, so the form isn't red on arrival.
+  const [attempted, setAttempted] = useState(false);
+  const validName = name.trim().length > 0;
+  const validPhone = /^01\d{9}$/.test(phone.replace(/\D/g, ""));
+  const validGov = !!gov;
+  const validCity = city.trim().length > 0;
+  const validStreet = street.trim().length > 0;
+  const formValid = validName && validPhone && validGov && validCity && validStreet;
+
   async function applyCoupon() {
     if (!token || !coupon.trim()) return;
     setCouponMsg("");
@@ -100,8 +111,13 @@ export default function CheckoutScreen() {
 
   async function placeOrder() {
     if (!token) return;
-    if (!name.trim() || !phone.trim() || !gov) {
-      setError(en ? "Fill name, phone and governorate" : "اكتب الاسم والتليفون والمحافظة");
+    setAttempted(true);
+    if (!validName || !validGov || !validCity || !validStreet) {
+      setError(en ? "Please fill in all the address fields" : "لازم تملأ كل حقول العنوان");
+      return;
+    }
+    if (!validPhone) {
+      setError(en ? "Enter a valid phone number (11 digits starting with 01)" : "اكتب رقم تليفون صحيح (١١ رقم يبدأ بـ ٠١)");
       return;
     }
     setError("");
@@ -125,14 +141,14 @@ export default function CheckoutScreen() {
     }
   }
 
-  const input = (value: string, setter: (v: string) => void, placeholder: string, keyboard?: "phone-pad") => (
+  const input = (value: string, setter: (v: string) => void, placeholder: string, keyboard?: "phone-pad", invalid?: boolean) => (
     <TextInput
       value={value}
       onChangeText={setter}
       placeholder={placeholder}
       placeholderTextColor={colors.textTertiary}
       keyboardType={keyboard}
-      style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.text, textAlign: ta, writingDirection: isRTL ? "rtl" : "ltr" }]}
+      style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.text, textAlign: ta, writingDirection: isRTL ? "rtl" : "ltr", borderWidth: invalid ? 1.5 : 0, borderColor: invalid ? COLORS.error : "transparent" }]}
     />
   );
 
@@ -149,21 +165,30 @@ export default function CheckoutScreen() {
       <ScrollView contentContainerStyle={{ padding: 20, gap: 18, paddingBottom: insets.bottom + 200 }} keyboardShouldPersistTaps="handled">
         {/* Address */}
         <View style={{ gap: 10 }}>
-          <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Shipping address" : "عنوان الشحن"}</Text>
-          {input(name, setName, en ? "Full name" : "الاسم بالكامل")}
-          {input(phone, setPhone, en ? "Phone" : "رقم التليفون", "phone-pad")}
-          <Pressable onPress={() => setGovPickerOpen(true)} style={[styles.input, { backgroundColor: colors.surfaceSecondary, flexDirection: row(en), direction: "ltr", alignItems: "center", justifyContent: "space-between" }]}>
+          {/* Physical alignment (direction:"ltr" + flex-end = literal right) so the label
+              sits right in Arabic / left in English on every device state. */}
+          <View style={{ flexDirection: "row", direction: "ltr", justifyContent: isRTL ? "flex-end" : "flex-start" }}>
+            <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Shipping address" : "عنوان الشحن"}</Text>
+          </View>
+          {input(name, setName, en ? "Full name" : "الاسم بالكامل", undefined, attempted && !validName)}
+          {input(phone, setPhone, en ? "Phone" : "رقم التليفون", "phone-pad", attempted && !validPhone)}
+          <Pressable
+            onPress={() => setGovPickerOpen(true)}
+            style={[styles.input, { backgroundColor: colors.surfaceSecondary, flexDirection: row(en), direction: "ltr", alignItems: "center", justifyContent: "space-between", borderWidth: attempted && !validGov ? 1.5 : 0, borderColor: attempted && !validGov ? COLORS.error : "transparent" }]}
+          >
             <Text style={[styles.govText, { color: gov ? colors.text : colors.textTertiary }]}>{gov || (en ? "Choose governorate" : "اختر المحافظة")}</Text>
             <Feather name="chevron-down" size={18} color={colors.textSecondary} />
           </Pressable>
-          {input(city, setCity, en ? "City / area" : "المدينة / المنطقة")}
-          {input(street, setStreet, en ? "Street & building" : "الشارع والعمارة")}
+          {input(city, setCity, en ? "City / area" : "المدينة / المنطقة", undefined, attempted && !validCity)}
+          {input(street, setStreet, en ? "Street & building" : "الشارع والعمارة", undefined, attempted && !validStreet)}
           {input(notes, setNotes, en ? "Notes for the courier (optional)" : "ملاحظات للمندوب (اختياري)")}
         </View>
 
         {/* Coupon */}
         <View style={{ gap: 8 }}>
-          <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Discount code" : "كود الخصم"}</Text>
+          <View style={{ flexDirection: "row", direction: "ltr", justifyContent: isRTL ? "flex-end" : "flex-start" }}>
+            <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Discount code" : "كود الخصم"}</Text>
+          </View>
           <View style={[styles.couponRow, { flexDirection: row(en), direction: "ltr" }]}>
             <TextInput
               value={coupon}
@@ -182,7 +207,9 @@ export default function CheckoutScreen() {
 
         {/* Payment */}
         <View style={{ gap: 8 }}>
-          <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Payment" : "طريقة الدفع"}</Text>
+          <View style={{ flexDirection: "row", direction: "ltr", justifyContent: isRTL ? "flex-end" : "flex-start" }}>
+            <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Payment" : "طريقة الدفع"}</Text>
+          </View>
           <View style={[styles.payOption, { borderColor: COLORS.primary, backgroundColor: COLORS.primary + "10", flexDirection: row(en), direction: "ltr" }]}>
             <Feather name="dollar-sign" size={18} color={COLORS.primary} />
             <Text style={[styles.payText, { color: colors.text }]}>{en ? "Cash on delivery" : "الدفع عند الاستلام"}</Text>
@@ -203,7 +230,7 @@ export default function CheckoutScreen() {
       </ScrollView>
 
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + TAB_BAR_CLEARANCE, backgroundColor: colors.surface, borderTopColor: colors.border }]}>
-        <Pressable onPress={placeOrder} disabled={placing} style={[styles.placeBtn, { opacity: placing ? 0.7 : 1 }]}>
+        <Pressable onPress={placeOrder} disabled={placing} style={[styles.placeBtn, { opacity: placing || !formValid ? 0.6 : 1 }]}>
           {placing ? <ActivityIndicator color="#fff" /> : <Text style={styles.placeText}>{en ? `Place order · ${formatNumber(total)} EGP` : `أكّد الطلب · ${formatNumber(total)} ج`}</Text>}
         </Pressable>
       </View>
@@ -223,10 +250,13 @@ export default function CheckoutScreen() {
                     setGov(item.value);
                     setGovPickerOpen(false);
                   }}
-                  style={[styles.govRow, { borderBottomColor: colors.border }]}
+                  style={[styles.govRow, { borderBottomColor: colors.border, direction: "ltr" }]}
                 >
+                  {/* Physical order: Arabic → ✓ near (not on) the left edge, name at the far
+                      right; English mirrored. direction:"ltr" pins it on every device. */}
+                  {isRTL && gov === item.value ? <Feather name="check" size={18} color={COLORS.primary} style={{ marginLeft: 10 }} /> : null}
                   <Text style={[styles.govRowText, { color: colors.text, textAlign: ta }]}>{en ? item.en : item.ar}</Text>
-                  {gov === item.value ? <Feather name="check" size={18} color={COLORS.primary} /> : null}
+                  {!isRTL && gov === item.value ? <Feather name="check" size={18} color={COLORS.primary} style={{ marginRight: 10 }} /> : null}
                 </Pressable>
               )}
             />

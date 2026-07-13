@@ -172,7 +172,7 @@ export const storeLayoutKey = ["store", "layout"] as const;
 
 // Owner-curated display rows. A normal row shows 1–2 books; a carousel row holds
 // any number and auto-rotates 2 at a time. null = no custom layout.
-export type LayoutRow = { type: "normal" | "carousel"; title?: string; books: number[] };
+export type LayoutRow = { type: "normal" | "carousel"; title?: string; titleEn?: string; books: number[] };
 export function getStoreLayout(token: string | null) {
   return apiFetch<{ layout: LayoutRow[] | null }>("/api/store/layout", { token });
 }

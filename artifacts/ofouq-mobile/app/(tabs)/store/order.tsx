@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { COLORS } from "@/constants/colors";
@@ -20,6 +20,9 @@ const STAGE_ICON: Record<string, keyof typeof Feather.glyphMap> = {
   out_for_delivery: "map-pin",
   delivered: "home",
 };
+
+// Same clearance as the book screen so the fixed cancel bar sits above the floating tab bar.
+const TAB_BAR_CLEARANCE = Platform.OS === "ios" ? 70 : 60;
 
 export default function OrderTrackingScreen() {
   const { orderId, justPlaced } = useLocalSearchParams<{ orderId: string; justPlaced?: string }>();
@@ -53,12 +56,13 @@ export default function OrderTrackingScreen() {
   }
 
   function confirmCancel() {
+    // Formal Arabic (فصحى) per the owner's request — not colloquial.
     Alert.alert(
       en ? "Cancel order?" : "إلغاء الطلب؟",
-      en ? "Are you sure you want to cancel this order?" : "متأكد إنك عايز تلغي الطلب ده؟",
+      en ? "Are you sure you want to cancel this order?" : "هل أنت متأكد من إلغاء هذا الطلب؟",
       [
-        { text: en ? "No" : "لأ", style: "cancel" },
-        { text: en ? "Yes, cancel" : "أيوه، ألغِ", style: "destructive", onPress: () => void doCancel() },
+        { text: en ? "No" : "لا", style: "cancel" },
+        { text: en ? "Yes, cancel" : "نعم، إلغاء", style: "destructive", onPress: () => void doCancel() },
       ],
     );
   }
@@ -76,19 +80,27 @@ export default function OrderTrackingScreen() {
       {isLoading || !order ? (
         <View style={styles.center}><ActivityIndicator color={COLORS.primary} /></View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 18, paddingBottom: insets.bottom + 40 }}>
-          {justPlaced === "1" ? (
-            <View style={[styles.successBanner, { backgroundColor: COLORS.success + "15" }]}>
-              <Feather name="check-circle" size={22} color={COLORS.success} />
+        <>
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 18, paddingBottom: insets.bottom + (canCancel ? 210 : 40) }}>
+          {/* Success banner — hidden entirely once the order is cancelled (owner request).
+              Physical order (direction:"ltr"): Arabic → the sentence hugs the ✓ on the
+              right; English mirrored. */}
+          {justPlaced === "1" && !cancelled ? (
+            <View style={[styles.successBanner, { backgroundColor: COLORS.success + "15", direction: "ltr" }]}>
+              {!isRTL ? <Feather name="check-circle" size={22} color={COLORS.success} /> : null}
               <Text style={[styles.successText, { color: COLORS.success, textAlign: ta }]}>
                 {en ? "Order placed! We'll deliver it soon." : "تم الطلب بنجاح! هنوصّلهولك قريب."}
               </Text>
+              {isRTL ? <Feather name="check-circle" size={22} color={COLORS.success} /> : null}
             </View>
           ) : null}
 
           {/* Timeline */}
           <View style={[styles.card, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Order tracking" : "تتبّع الطلب"}</Text>
+            {/* Physical alignment: title right in Arabic / left in English on every device. */}
+            <View style={{ flexDirection: "row", direction: "ltr", justifyContent: isRTL ? "flex-end" : "flex-start" }}>
+              <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Order tracking" : "تتبّع الطلب"}</Text>
+            </View>
             {cancelled ? (
               <View style={[styles.cancelledBox, { backgroundColor: COLORS.error + "12", flexDirection: row(en), direction: "ltr" }]}>
                 <Feather name="x-circle" size={20} color={COLORS.error} />
@@ -119,7 +131,9 @@ export default function OrderTrackingScreen() {
 
           {/* Items */}
           <View style={[styles.card, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Items" : "الكتب"}</Text>
+            <View style={{ flexDirection: "row", direction: "ltr", justifyContent: isRTL ? "flex-end" : "flex-start" }}>
+              <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Items" : "الكتب"}</Text>
+            </View>
             {order.items.map((it) => (
               <View key={it.id} style={[styles.itemRow, { flexDirection: row(en), direction: "ltr" }]}>
                 <Text style={[styles.itemName, { color: colors.text, textAlign: ta }]} numberOfLines={1}>{it.titleSnapshot}</Text>
@@ -135,18 +149,25 @@ export default function OrderTrackingScreen() {
 
           {/* Address */}
           <View style={[styles.card, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Delivery to" : "التوصيل إلى"}</Text>
-            <Text style={[styles.addrLine, { color: colors.text, textAlign: ta }]}>{order.recipientName}</Text>
-            <Text style={[styles.addrMuted, { color: colors.textSecondary, textAlign: ta }]}>{order.phone}</Text>
-            <Text style={[styles.addrMuted, { color: colors.textSecondary, textAlign: ta }]}>{[order.governorate, order.city, order.street].filter(Boolean).join("، ")}</Text>
+            {/* Title + details: physically right in Arabic / left in English. */}
+            <View style={{ direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start", gap: 8 }}>
+              <Text style={[styles.sectionH, { color: colors.text, textAlign: ta }]}>{en ? "Delivery to" : "التوصيل إلى"}</Text>
+              <Text style={[styles.addrLine, { color: colors.text, textAlign: ta }]}>{order.recipientName}</Text>
+              <Text style={[styles.addrMuted, { color: colors.textSecondary, textAlign: ta }]}>{order.phone}</Text>
+              <Text style={[styles.addrMuted, { color: colors.textSecondary, textAlign: ta }]}>{[order.governorate, order.city, order.street].filter(Boolean).join("، ")}</Text>
+            </View>
           </View>
 
-          {canCancel ? (
+        </ScrollView>
+        {/* Fixed full-width cancel bar above the floating tab bar (like the cart buttons). */}
+        {canCancel ? (
+          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + TAB_BAR_CLEARANCE, backgroundColor: colors.surface, borderTopColor: colors.border }]}>
             <Pressable onPress={confirmCancel} disabled={cancelling} style={[styles.cancelBtn, { borderColor: COLORS.error }]}>
               {cancelling ? <ActivityIndicator color={COLORS.error} /> : <Text style={[styles.cancelBtnText, { color: COLORS.error }]}>{en ? "Cancel order" : "إلغاء الطلب"}</Text>}
             </Pressable>
-          ) : null}
-        </ScrollView>
+          </View>
+        ) : null}
+        </>
       )}
     </View>
   );
@@ -188,6 +209,7 @@ const styles = StyleSheet.create({
   sumValueBold: { ...FONT.bold, fontSize: 17 },
   addrLine: { ...FONT.semiBold, fontSize: 15 },
   addrMuted: { ...FONT.regular, fontSize: 13 },
+  bottomBar: { position: "absolute", bottom: 0, left: 0, right: 0, paddingHorizontal: 20, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
   cancelBtn: { borderRadius: 14, borderWidth: 1.5, paddingVertical: 14, alignItems: "center" },
   cancelBtnText: { ...FONT.bold, fontSize: 15 },
 });

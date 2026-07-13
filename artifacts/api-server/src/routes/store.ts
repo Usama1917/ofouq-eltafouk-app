@@ -69,7 +69,7 @@ async function getStoreSettings() {
   return row;
 }
 
-type LayoutRow = { type: "normal" | "carousel"; title?: string; books: number[] };
+type LayoutRow = { type: "normal" | "carousel"; title?: string; titleEn?: string; books: number[] };
 // Normalise stored / incoming layout to typed rows. Accepts the current
 // {type,title?,books} shape AND legacy number[] rows (→ normal). Drops invalid/empty
 // rows and dupes; a normal row is capped at 2 books (it only ever shows 2).
@@ -80,6 +80,7 @@ function normalizeLayout(raw: unknown): LayoutRow[] {
     let type: "normal" | "carousel" = "normal";
     let src: unknown[] = [];
     let title: string | undefined;
+    let titleEn: string | undefined;
     if (Array.isArray(r)) {
       src = r;
     } else if (r && typeof r === "object" && Array.isArray((r as { books?: unknown }).books)) {
@@ -87,6 +88,8 @@ function normalizeLayout(raw: unknown): LayoutRow[] {
       src = (r as { books: unknown[] }).books;
       const t = (r as { title?: unknown }).title;
       if (typeof t === "string" && t.trim()) title = t.trim().slice(0, 40);
+      const te = (r as { titleEn?: unknown }).titleEn;
+      if (typeof te === "string" && te.trim()) titleEn = te.trim().slice(0, 40);
     } else {
       continue;
     }
@@ -94,7 +97,12 @@ function normalizeLayout(raw: unknown): LayoutRow[] {
       new Set(src.map((v) => Number.parseInt(String(v), 10)).filter((n) => Number.isInteger(n) && n > 0)),
     );
     if (type === "normal") books = books.slice(0, 2);
-    if (books.length) rows.push(title ? { type, title, books } : { type, books });
+    if (books.length) {
+      const row: LayoutRow = { type, books };
+      if (title) row.title = title;
+      if (titleEn) row.titleEn = titleEn;
+      rows.push(row);
+    }
   }
   return rows;
 }

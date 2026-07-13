@@ -22,7 +22,7 @@ type LBook = {
   available: boolean;
 };
 type RowType = "normal" | "carousel";
-type LayoutRow = { type: RowType; title?: string; books: number[] };
+type LayoutRow = { type: RowType; title?: string; titleEn?: string; books: number[] };
 
 // Device silhouettes (phone & iPad share the SAME 2-per-row layout — only the frame
 // size differs). The LEFT panel shows a read-only preview; editing is on the RIGHT.
@@ -54,13 +54,15 @@ function buildInitialRows(layout: unknown, books: LBook[]): LayoutRow[] {
       const type: RowType = !Array.isArray(r) && r?.type === "carousel" ? "carousel" : "normal";
       const rawTitle = !Array.isArray(r) && typeof r?.title === "string" ? (r.title as string) : undefined;
       const title = rawTitle && rawTitle.trim() ? rawTitle.trim() : undefined;
+      const rawTitleEn = !Array.isArray(r) && typeof r?.titleEn === "string" ? (r.titleEn as string) : undefined;
+      const titleEn = rawTitleEn && rawTitleEn.trim() ? rawTitleEn.trim() : undefined;
       const src: unknown[] = Array.isArray(r) ? r : Array.isArray(r?.books) ? r.books : [];
       const rowSeen = new Set<number>();
       const bookIds = src
         .map((v) => Number(v))
         .filter((n) => Number.isInteger(n) && valid.has(n) && !rowSeen.has(n) && (rowSeen.add(n), placed.add(n), true));
       const capped = type === "normal" ? bookIds.slice(0, MAX_NORMAL) : bookIds;
-      if (capped.length) rows.push({ type, title, books: capped });
+      if (capped.length) rows.push({ type, title, titleEn, books: capped });
     }
   }
   const missing = books.filter((b) => !placed.has(b.id)).map((b) => b.id);
@@ -85,7 +87,7 @@ function applyDrop(rows: LayoutRow[], dragId: number, src: DragSrc, drop: Drop):
   const sameRow = drop.kind !== "newRow" && drop.rowIndex === src.rowIndex;
   const isCopy = destIsCarousel && !sameRow;
 
-  const next: LayoutRow[] = rows.map((r) => ({ type: r.type, title: r.title, books: [...r.books] }));
+  const next: LayoutRow[] = rows.map((r) => ({ type: r.type, title: r.title, titleEn: r.titleEn, books: [...r.books] }));
 
   let insRow: number;
   let insIdx: number;
@@ -210,6 +212,10 @@ export default function StoreLayoutDialog({ onClose }: { onClose: () => void }) 
   }
   function setRowTitle(ri: number, title: string) {
     setRows((prev) => prev.map((r, i) => (i === ri ? { ...r, title: title.trimStart() || undefined } : r)));
+    setSaved(false);
+  }
+  function setRowTitleEn(ri: number, titleEn: string) {
+    setRows((prev) => prev.map((r, i) => (i === ri ? { ...r, titleEn: titleEn.trimStart() || undefined } : r)));
     setSaved(false);
   }
   function addEmptyRow(rowType: RowType) {
@@ -347,7 +353,7 @@ export default function StoreLayoutDialog({ onClose }: { onClose: () => void }) 
           const cols = Math.min(rowObj.books.length, MAX_NORMAL);
           return (
             <div key={ri} style={{ marginBottom: gap }}>
-              {rowObj.title ? <div style={{ color: P.text, fontWeight: 800, fontSize: Math.max(11, dev.frameW * 0.04), textAlign: "right", marginBottom: 5, paddingInlineEnd: 2 }}>{rowObj.title}</div> : null}
+              {rowObj.title || rowObj.titleEn ? <div style={{ color: P.text, fontWeight: 800, fontSize: Math.max(11, dev.frameW * 0.04), textAlign: "right", marginBottom: 5, paddingInlineEnd: 2 }}>{rowObj.title || rowObj.titleEn}</div> : null}
               <div style={{ display: "flex", flexDirection: "row-reverse", direction: "ltr", flexWrap: isCarousel ? "nowrap" : "wrap", overflowX: isCarousel ? "auto" : "visible", gap }}>
                 {rowObj.books.map((id) => {
                   const basis = isCarousel ? `${carouselCardW}px` : single ? "100%" : `calc((100% - ${(cols - 1) * gap}px) / ${cols})`;
@@ -399,13 +405,22 @@ export default function StoreLayoutDialog({ onClose }: { onClose: () => void }) 
                   <div key={ri} className="rounded-2xl border border-border p-3 bg-muted/20">
                     {/* header: name input (right) + type badge + move arrows */}
                     <div className="flex items-center gap-2 mb-2">
-                      <input
-                        value={rowObj.title ?? ""}
-                        onChange={(e) => setRowTitle(ri, e.target.value)}
-                        placeholder="اسم السطر (اختياري)"
-                        dir="rtl"
-                        className="flex-1 min-w-0 bg-transparent text-sm font-bold text-right outline-none placeholder:text-muted-foreground/60 placeholder:font-normal"
-                      />
+                      <div className="flex-1 min-w-0 flex flex-col">
+                        <input
+                          value={rowObj.title ?? ""}
+                          onChange={(e) => setRowTitle(ri, e.target.value)}
+                          placeholder="اسم السطر بالعربي (اختياري)"
+                          dir="rtl"
+                          className="w-full min-w-0 bg-transparent text-sm font-bold text-right outline-none placeholder:text-muted-foreground/60 placeholder:font-normal"
+                        />
+                        <input
+                          value={rowObj.titleEn ?? ""}
+                          onChange={(e) => setRowTitleEn(ri, e.target.value)}
+                          placeholder="Row name in English (optional)"
+                          dir="ltr"
+                          className="w-full min-w-0 bg-transparent text-xs font-semibold text-left text-muted-foreground outline-none placeholder:text-muted-foreground/50 placeholder:font-normal"
+                        />
+                      </div>
                       <span className={`shrink-0 flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full ${isCarousel ? "bg-primary text-white" : "bg-foreground/10 text-muted-foreground"}`}>
                         {isCarousel ? <RefreshCw className="w-3 h-3" /> : <LayoutGrid className="w-3 h-3" />}
                         {isCarousel ? `متحرك · ${rowObj.books.length}` : "عادي"}
@@ -445,7 +460,7 @@ export default function StoreLayoutDialog({ onClose }: { onClose: () => void }) 
               <div className="text-[11px] text-muted-foreground leading-relaxed pt-1 space-y-1">
                 <p>صف فيه كتاب = بعرض كامل · كتابين = جنب بعض. الحد الأقصى للصف العادي كتابين.</p>
                 <p><b>سطر متحرك</b> = يظهر ٢ ويتبدّلوا كل ٣ ثواني (والطالب يمرّره بإيده) — يستحمل أي عدد كتب.</p>
-                <p>عشان تعمل صف: <b>اضغط</b> «+ صف عادي» أو «+ صف متحرك» (أو اسحب عليه كتاب) → يتعمل صف تسحب فيه الكتب. رتّب الصفوف بالأسهم (▲ ▼) وامسح أي صف بسلة المهملات 🗑️. اكتب <b>اسم السطر</b> فوق كل صف (اختياري).</p>
+                <p>عشان تعمل صف: <b>اضغط</b> «+ صف عادي» أو «+ صف متحرك» (أو اسحب عليه كتاب) → يتعمل صف تسحب فيه الكتب. رتّب الصفوف بالأسهم (▲ ▼) وامسح أي صف بسلة المهملات 🗑️. اكتب <b>اسم السطر</b> فوق كل صف مرة بالعربي ومرة بالإنجليزي (اختياري) — الطالب اللي جهازه عربي يشوف الاسم العربي (على اليمين)، واللي جهازه إنجليزي يشوف الإنجليزي (على الشمال).</p>
                 <p>الصف <b>المتحرك بينسخ</b> الكتاب — يفضل في صفه العادي كمان، وتقدر تكرّر نفس الكتب في أكتر من صف متحرك. لحذف كتاب من صف متحرك اسحبه منه لأي صف عادي.</p>
               </div>
             </div>
