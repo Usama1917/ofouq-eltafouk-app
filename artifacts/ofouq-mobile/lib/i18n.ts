@@ -110,6 +110,7 @@ export const TRANSLATIONS = {
       notifications: "الإشعارات",
       profile: "حسابي",
       settings: "الإعدادات",
+      store: "المتجر",
     },
     notifications: {
       title: "الإشعارات",
@@ -542,6 +543,7 @@ export const TRANSLATIONS = {
       notifications: "Notifications",
       profile: "My Account",
       settings: "Settings",
+      store: "Store",
     },
     notifications: {
       title: "Notifications",

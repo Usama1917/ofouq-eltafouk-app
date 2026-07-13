@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, 
   Flag, Megaphone, Plus, Edit, Trash2, Eye, Check, X, ArrowUp, ArrowDown,
   TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap, ImagePlus, TicketPercent, Truck, Send, ChevronDown,
-  Sun, Moon, Bot, Search, Info, Phone, MapPin, BookMarked, Activity, Bell, Smartphone, Mail, CalendarClock, ShieldCheck, ShieldAlert, AlertTriangle, SlidersHorizontal
+  Sun, Moon, Bot, Search, Info, Phone, MapPin, BookMarked, Activity, Bell, Smartphone, Mail, CalendarClock, ShieldCheck, ShieldAlert, AlertTriangle, SlidersHorizontal, ShoppingCart
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
@@ -26,13 +26,15 @@ import { AcademicTab } from "./admin-academic";
 import AutomatedMessagesTab from "./admin/automated-messages-tab";
 import NotificationReportTab from "./admin/notification-report-tab";
 import MoralReviewsTab from "./admin/moral-reviews-tab";
+import OrdersTab from "./admin/orders-tab";
+import ProductsTab from "./admin/products-tab";
 import { NotificationIconPicker } from "@/components/notification-icon-picker";
 import { NotificationColorPicker } from "@/components/notification-color-picker";
 import { useNotificationColors } from "@/lib/notification-colors";
 import { toEnglishDigits } from "@/lib/format";
 import { toast } from "sonner";
 
-type Tab = "dashboard" | "users" | "books" | "posts" | "reports" | "banners" | "academic" | "subscriptionRequests" | "supportMessages" | "broadcastMessages" | "materials" | "moralReviews";
+type Tab = "dashboard" | "users" | "books" | "posts" | "reports" | "banners" | "academic" | "subscriptionRequests" | "supportMessages" | "broadcastMessages" | "materials" | "moralReviews" | "orders" | "products";
 type TabMotionCustom = { direction: number; reduceMotion: boolean };
 type Material = { id: number; name: string; classification?: string; sortOrder?: number; createdAt?: string };
 type SubjectInsightItem = {
@@ -210,6 +212,8 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "supportMessages", label: "رسائل المستخدمين", icon: MessageSquare },
   { id: "broadcastMessages", label: "إرسال الإشعارات", icon: Send },
   { id: "moralReviews", label: "مراجعات أخلاقية", icon: ShieldAlert },
+  { id: "orders", label: "الطلبات", icon: ShoppingCart },
+  { id: "products", label: "المنتجات والشحن", icon: BookOpen },
   { id: "books", label: "الكتب", icon: BookOpen },
   { id: "posts", label: "المنشورات", icon: MessageSquare },
   { id: "reports", label: "التقارير", icon: Flag },
@@ -229,6 +233,8 @@ const TAB_TRANSITION_ORDER: Tab[] = [
   "supportMessages",
   "broadcastMessages",
   "materials",
+  "orders",
+  "products",
   "books",
   "posts",
   "reports",
@@ -3358,19 +3364,28 @@ function NotificationsHubTab(props: {
   ];
   return (
     <div className="space-y-5">
-      <div className="flex gap-2 flex-wrap">
+      <div>
+        <h2 className="text-xl font-display font-bold">إرسال الإشعارات للمستخدمين</h2>
+        <p className="text-sm text-muted-foreground mt-1">فلتر الجمهور، اكتب الرسالة، واختر لينك أو وصول سريع داخل التطبيق.</p>
+      </div>
+
+      <div className="flex gap-1.5 rounded-2xl bg-muted p-1.5 w-fit">
         {subTabs.map((t) => {
-          const Icon = t.icon;
           const active = sub === t.id;
           return (
             <button
               key={t.id}
               onClick={() => setSub(t.id)}
-              className={`flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
-                active ? "bg-primary text-white shadow" : "bg-muted/60 text-muted-foreground hover:bg-muted"
-              }`}
+              className={`relative rounded-xl px-5 py-2 text-sm font-bold transition-colors ${active ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
             >
-              <Icon className="w-4 h-4" /> {t.label}
+              {active && (
+                <motion.span
+                  layoutId="notifications-subtab-pill"
+                  transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                  className="absolute inset-0 rounded-xl bg-background shadow-sm"
+                />
+              )}
+              <span className="relative z-10">{t.label}</span>
             </button>
           );
         })}
@@ -3674,11 +3689,7 @@ function BroadcastMessagesTab({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-display font-bold">إرسال الإشعارات للمستخدمين</h2>
-          <p className="text-sm text-muted-foreground mt-1">فلتر الجمهور، اكتب الرسالة، واختر لينك أو وصول سريع داخل التطبيق.</p>
-        </div>
+      <div className="flex justify-end">
         <button
           onClick={() => void loadPreview()}
           className="px-4 py-2 rounded-xl border border-border text-sm font-semibold hover:bg-muted transition-all disabled:opacity-50"
@@ -5385,6 +5396,8 @@ export default function AdminPanel() {
     ),
     materials: <MaterialsTab />,
     moralReviews: <MoralReviewsTab />,
+    orders: <OrdersTab />,
+    products: <ProductsTab />,
     books: <BooksTab />,
     posts: <PostsTab />,
     reports: <ReportsTab />,

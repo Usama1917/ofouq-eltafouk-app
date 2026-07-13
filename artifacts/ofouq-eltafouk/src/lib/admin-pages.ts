@@ -8,6 +8,8 @@ export const CONTROLLABLE_PAGES: { id: string; label: string }[] = [
   { id: "supportMessages", label: "رسائل المستخدمين" },
   { id: "broadcastMessages", label: "إرسال الإشعارات" },
   { id: "moralReviews", label: "مراجعات أخلاقية" },
+  { id: "orders", label: "الطلبات" },
+  { id: "products", label: "المنتجات والشحن" },
 ];
 
 export const pageLabel = (id: string): string => CONTROLLABLE_PAGES.find((p) => p.id === id)?.label ?? id;

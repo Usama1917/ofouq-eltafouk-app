@@ -1760,6 +1760,8 @@ const CONTROLLABLE_TABS = new Set([
   "supportMessages",
   "broadcastMessages",
   "moralReviews",
+  "orders",
+  "products",
 ]);
 
 // Owner-only: read which pages are currently hidden from this admin.
@@ -2078,12 +2080,22 @@ router.post("/admin/books", async (req, res) => {
         category: subject,
         subject,
         coverUrl: body.coverUrl,
+        // v2 — portrait (grid) + landscape (full-width) card art, + optional dark variants.
+        coverPortraitUrl: typeof body.coverPortraitUrl === "string" ? body.coverPortraitUrl : null,
+        coverLandscapeUrl: typeof body.coverLandscapeUrl === "string" ? body.coverLandscapeUrl : null,
+        coverPortraitDarkUrl: typeof body.coverPortraitDarkUrl === "string" ? body.coverPortraitDarkUrl : null,
+        coverLandscapeDarkUrl: typeof body.coverLandscapeDarkUrl === "string" ? body.coverLandscapeDarkUrl : null,
         pointsPrice: priceEgp,
         priceEgp,
         originalPriceEgp,
         sortOrder: nextSortOrder,
         freeShipping: Boolean(body.freeShipping),
         available: body.available === undefined ? true : Boolean(body.available),
+        // v2 Phase 5 — store fields.
+        stockQuantity: Number.parseInt(String(body.stockQuantity ?? 0), 10) || 0,
+        imageUrls: Array.isArray(body.imageUrls) ? body.imageUrls.filter((u: unknown) => typeof u === "string") : null,
+        weightGrams: body.weightGrams != null && body.weightGrams !== "" ? Number.parseInt(String(body.weightGrams), 10) || null : null,
+        unlocksSubjectId: body.unlocksSubjectId ? Number.parseInt(String(body.unlocksSubjectId), 10) || null : null,
       })
       .returning();
     res.status(201).json(book);
@@ -2102,6 +2114,10 @@ router.put("/admin/books/:id", async (req, res) => {
     if (body.title !== undefined) updateData.title = body.title;
     if (body.description !== undefined) updateData.description = body.description;
     if (body.coverUrl !== undefined) updateData.coverUrl = body.coverUrl;
+    if (body.coverPortraitUrl !== undefined) updateData.coverPortraitUrl = typeof body.coverPortraitUrl === "string" ? body.coverPortraitUrl : null;
+    if (body.coverLandscapeUrl !== undefined) updateData.coverLandscapeUrl = typeof body.coverLandscapeUrl === "string" ? body.coverLandscapeUrl : null;
+    if (body.coverPortraitDarkUrl !== undefined) updateData.coverPortraitDarkUrl = typeof body.coverPortraitDarkUrl === "string" ? body.coverPortraitDarkUrl : null;
+    if (body.coverLandscapeDarkUrl !== undefined) updateData.coverLandscapeDarkUrl = typeof body.coverLandscapeDarkUrl === "string" ? body.coverLandscapeDarkUrl : null;
     if (body.available !== undefined) updateData.available = Boolean(body.available);
     if (body.freeShipping !== undefined) updateData.freeShipping = Boolean(body.freeShipping);
 
@@ -2123,6 +2139,14 @@ router.put("/admin/books/:id", async (req, res) => {
     if (body.sortOrder !== undefined) {
       updateData.sortOrder = Number.parseInt(String(body.sortOrder), 10) || 0;
     }
+    // v2 Phase 5 — store fields.
+    if (body.stockQuantity !== undefined) updateData.stockQuantity = Number.parseInt(String(body.stockQuantity), 10) || 0;
+    if (body.imageUrls !== undefined)
+      updateData.imageUrls = Array.isArray(body.imageUrls) ? body.imageUrls.filter((u: unknown) => typeof u === "string") : null;
+    if (body.weightGrams !== undefined)
+      updateData.weightGrams = body.weightGrams === null || body.weightGrams === "" ? null : Number.parseInt(String(body.weightGrams), 10) || null;
+    if (body.unlocksSubjectId !== undefined)
+      updateData.unlocksSubjectId = body.unlocksSubjectId ? Number.parseInt(String(body.unlocksSubjectId), 10) || null : null;
 
     const [book] = await db.update(booksTable).set(updateData).where(eq(booksTable.id, id)).returning();
     if (!book) return res.status(404).json({ error: "Not found" });

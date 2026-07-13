@@ -30,6 +30,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "video", selected: "video.fill" }} />
         <Label>{strings.tabs.videos}</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="store">
+        <Icon sf={{ default: "cart", selected: "cart.fill" }} />
+        <Label>{strings.tabs.store}</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="notifications">
         <Icon sf={{ default: "bell", selected: "bell.fill" }} />
         <Label>{strings.tabs.notifications}</Label>
@@ -128,6 +132,18 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="profile"
         options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="store"
+        options={{
+          title: strings.tabs.store,
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="cart" tintColor={color} size={24} />
+            ) : (
+              <Feather name="shopping-bag" size={22} color={color} />
+            ),
+        }}
       />
       <Tabs.Screen
         name="notifications"
