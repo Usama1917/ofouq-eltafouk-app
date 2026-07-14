@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Ofouq Eltafouk (أفق التفوق)** — Arabic RTL education platform. One Express 5 + PostgreSQL (Drizzle) API serves two clients: `artifacts/ofouq-eltafouk` (React/Vite admin+owner web) and `artifacts/ofouq-mobile` (Expo SDK 54 student app). pnpm monorepo, Node 24. Target scale: 1,000–5,000 students watching lessons concurrently (videos on YouTube for now). Owner is non-technical — explain in plain Egyptian Arabic.
+**التفوق / Eltafouk** — Arabic RTL education platform. (App display name renamed 2026-07-14 from «أفق التفوق» → **«التفوق»** / EN **«Eltafouk»** across all user-facing strings; the repo folders `artifacts/ofouq-*` and store/Firebase identifiers `com.ofouqeltafouk.*` **intentionally keep the old `ofouq` identity — do NOT rename them**.) One Express 5 + PostgreSQL (Drizzle) API serves two clients: `artifacts/ofouq-eltafouk` (React/Vite admin+owner web) and `artifacts/ofouq-mobile` (Expo SDK 54 student app). pnpm monorepo, Node 24. Target scale: 1,000–5,000 students watching lessons concurrently (videos on YouTube for now). Owner is non-technical — explain in plain Egyptian Arabic.
 
 **Commands:** `pnpm run typecheck` before commits; `pnpm db:local:up` then `PORT=8080 pnpm --filter @workspace/api-server run dev`. Full local stack (Docker DB :55432, API :8080, Expo, web :18936) in `local-run-runbook` memory. **Whenever the owner asks to "run the project locally" (شغلي المشروع)**, bring up the whole stack and then always reply with the Expo Go link `exp://<current-LAN-IP>:8081` (e.g. `exp://192.168.0.20:8081`) — detect the LAN IP fresh every time (it's DHCP and CHANGES; runbook covers detection), never reuse a hardcoded IP.
 

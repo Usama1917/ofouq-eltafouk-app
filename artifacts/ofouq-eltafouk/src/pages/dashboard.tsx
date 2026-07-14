@@ -85,7 +85,7 @@ export default function Dashboard() {
 
             <div className="space-y-3">
               <h1 className="arabic-diacritics-safe text-4xl font-display font-black text-foreground md:text-5xl">
-                مرحبًا بك في <span className="text-primary">أفق التفوق</span>
+                مرحبًا بك في <span className="text-primary">التفوق</span>
               </h1>
               <p className="text-base font-medium leading-relaxed text-muted-foreground md:text-lg">
                 ابدأ رحلتك التعليمية من خلال الدروس المرئية المتاحة الآن.

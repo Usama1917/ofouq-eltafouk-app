@@ -333,9 +333,10 @@ export default function HomeScreen() {
 
             {/* direction:"ltr" wrapper so physical textAlign isn't swapped inside the RTL hero */}
             <View style={styles.heroTextBlock}>
-              <Text style={[styles.heroTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
-                {strings.home.welcomePrefix} <Text style={styles.heroTitleAccent}>{strings.common.appName}</Text>
-              </Text>
+              {/* Line 1 keeps its natural side (right in Arabic); the brand sits on its
+                  OWN centered line below — owner request. */}
+              <Text style={[styles.heroTitle, { color: colors.text, textAlign, writingDirection: direction }]}>{strings.home.welcomePrefix}</Text>
+              <Text style={[styles.heroTitle, styles.heroBrandLine, { textAlign: "center", writingDirection: direction }]}>{strings.home.heroBrand}</Text>
               <HomeSubtitle />
             </View>
 
@@ -591,15 +592,15 @@ const styles = StyleSheet.create({
   heroTextBlock: { direction: "ltr", width: "100%", alignSelf: "stretch" },
   heroTitle: {
     ...FONT.bold,
-    fontSize: 34,
-    lineHeight: 58,
-    paddingTop: 5,
-    paddingBottom: 2,
+    fontSize: 28,
+    lineHeight: 42,
     alignSelf: "stretch",
     width: "100%",
     includeFontPadding: true,
   },
   heroTitleAccent: { color: COLORS.primary },
+  // Brand line: keep the prefix at heroTitle's 28, bump the brand a touch bigger.
+  heroBrandLine: { color: COLORS.primary, fontSize: 33, lineHeight: 48 },
   heroSubtitle: {
     ...FONT.semiBold,
     fontSize: 15,

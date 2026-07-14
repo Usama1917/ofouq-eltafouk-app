@@ -23,6 +23,7 @@ import unitExamsRouter from "./unit-exams";
 import engagementRouter from "./engagement";
 import shippingRouter from "./shipping";
 import storeRouter from "./store";
+import appConfigRouter from "./app-config";
 
 const router: IRouter = Router();
 
@@ -50,5 +51,6 @@ router.use(unitExamsRouter);
 router.use(engagementRouter);
 router.use(shippingRouter);
 router.use(storeRouter);
+router.use(appConfigRouter);
 
 export default router;

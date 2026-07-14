@@ -1,4 +1,4 @@
-// Public store links for the Ofouq Eltafouk mobile app.
+// Public store links for the Eltafouk mobile app.
 //
 // The browser site is a marketing + STAFF portal only — students never log in or
 // register on the web, they use the mobile app. Every public CTA on the landing page

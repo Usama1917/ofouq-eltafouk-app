@@ -39,7 +39,10 @@ import {
   supportMessagesTable,
   studentOnboardingResponsesTable,
   adminAuditLogTable,
+  appSettingsTable,
 } from "@workspace/db";
+import { ensureAppSettings } from "../lib/app-settings";
+import { canCaptureScreen, hasAllSubjectsAccess } from "../lib/feature-access";
 import { eq, ne, and, count, sql, desc, asc, or, gte, lt, inArray, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
@@ -719,6 +722,7 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
         governorate: usersTable.governorate, joinedAt: usersTable.joinedAt, lastActiveAt: usersTable.lastActiveAt,
         expectationStars: usersTable.expectationStars, scoringFrozen: usersTable.scoringFrozen,
         reportCount: usersTable.reportCount,
+        screenCaptureAllowed: usersTable.screenCaptureAllowed, allSubjectsAccess: usersTable.allSubjectsAccess,
       })
       .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
     if (!profile) {
@@ -787,8 +791,20 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
 
     timeline.sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
 
+    // Effective per-account feature access (owner drawer switches). Includes the
+    // stored overrides AND the resolved values so the UI mirrors the server exactly.
+    const globalSettings = await ensureAppSettings();
+    const featureAccess = {
+      screenCaptureAllowed: profile.screenCaptureAllowed,
+      allSubjectsAccess: profile.allSubjectsAccess,
+      effectiveScreenCapture: canCaptureScreen(profile, globalSettings.screenCaptureBlockEnabled),
+      effectiveAllSubjects: hasAllSubjectsAccess(profile),
+      alwaysOn: profile.role === "owner",
+    };
+
     res.json({
       user: profile,
+      featureAccess,
       stats: {
         supportReplies: supportReplies.length,
         subscriptionsReviewed: subReviews.length,
@@ -2611,6 +2627,131 @@ router.put("/admin/reports/:id", async (req, res) => {
     res.json(report);
   } catch (err) {
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── App settings (OWNER ONLY) — «الإعدادات» tab in the owner panel ────────────
+// Global mobile-app toggles. Currently: screen-capture blocking on protected
+// screens (lesson video player). Reads/writes the app_settings singleton.
+router.get("/admin/app-settings", async (req, res) => {
+  try {
+    const actor = (req as any).adminActor;
+    if (!actor || actor.role !== "owner") {
+      res.status(403).json({ error: "هذه الإعدادات متاحة للمالك فقط" });
+      return;
+    }
+    const settings = await ensureAppSettings();
+    res.json({ screenCaptureBlockEnabled: settings.screenCaptureBlockEnabled });
+  } catch (err) {
+    req.log.error({ err }, "app-settings load error");
+    res.status(500).json({ error: "تعذّر تحميل الإعدادات" });
+  }
+});
+
+router.put("/admin/app-settings", async (req, res) => {
+  try {
+    const actor = (req as any).adminActor;
+    if (!actor || actor.role !== "owner") {
+      res.status(403).json({ error: "هذه الإعدادات متاحة للمالك فقط" });
+      return;
+    }
+    const value = req.body?.screenCaptureBlockEnabled;
+    if (typeof value !== "boolean") {
+      res.status(400).json({ error: "قيمة غير صالحة" });
+      return;
+    }
+    const current = await ensureAppSettings();
+    const [saved] = await db
+      .update(appSettingsTable)
+      .set({ screenCaptureBlockEnabled: value, updatedAt: new Date() })
+      .where(eq(appSettingsTable.id, current.id))
+      .returning();
+    res.json({ screenCaptureBlockEnabled: saved?.screenCaptureBlockEnabled ?? value });
+  } catch (err) {
+    req.log.error({ err }, "app-settings save error");
+    res.status(500).json({ error: "تعذّر حفظ الإعدادات" });
+  }
+});
+
+// ── Per-account feature overrides (OWNER ONLY) — «جميع المستخدمين» drawer ──────
+// Sets users.screen_capture_allowed / users.all_subjects_access. Strictly typed:
+// each provided field must be boolean (or null = clear back to the role default).
+// Owner-role targets are refused — the owner is ALWAYS unlocked (feature-access).
+router.put("/admin/users/:id/feature-overrides", async (req, res) => {
+  try {
+    const actor = (req as any).adminActor;
+    if (!actor || actor.role !== "owner") {
+      res.status(403).json({ error: "هذه الصلاحيات يتحكم فيها المالك فقط" });
+      return;
+    }
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "معرّف المستخدم غير صالح" });
+      return;
+    }
+    const [target] = await db
+      .select({ id: usersTable.id, name: usersTable.name, role: usersTable.role })
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1);
+    if (!target) {
+      res.status(404).json({ error: "المستخدم غير موجود" });
+      return;
+    }
+    if (target.role === "owner") {
+      res.status(400).json({ error: "حساب المالك مفتوح دائمًا ولا يمكن تعديله" });
+      return;
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const patch: { screenCaptureAllowed?: boolean | null; allSubjectsAccess?: boolean | null } = {};
+    for (const key of ["screenCaptureAllowed", "allSubjectsAccess"] as const) {
+      if (key in body) {
+        const value = body[key];
+        if (value !== null && typeof value !== "boolean") {
+          res.status(400).json({ error: "قيمة غير صالحة" });
+          return;
+        }
+        patch[key] = value;
+      }
+    }
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ error: "لا يوجد ما يُحفظ" });
+      return;
+    }
+
+    const [saved] = await db
+      .update(usersTable)
+      .set(patch)
+      .where(eq(usersTable.id, id))
+      .returning({
+        screenCaptureAllowed: usersTable.screenCaptureAllowed,
+        allSubjectsAccess: usersTable.allSubjectsAccess,
+        role: usersTable.role,
+      });
+    // The auth cache carries these flags — drop it so enforcement flips immediately.
+    invalidateUserAuth(id);
+
+    await logAudit(req, {
+      actionType: "user_feature_override",
+      actionLabel: "عدّل صلاحيات خاصة لحساب",
+      entityType: "user",
+      entityId: id,
+      entityLabel: target.name,
+      newValue: JSON.stringify(patch),
+    });
+
+    const globalSettings = await ensureAppSettings();
+    res.json({
+      screenCaptureAllowed: saved?.screenCaptureAllowed ?? null,
+      allSubjectsAccess: saved?.allSubjectsAccess ?? null,
+      effectiveScreenCapture: canCaptureScreen(saved ?? { role: target.role, ...patch }, globalSettings.screenCaptureBlockEnabled),
+      effectiveAllSubjects: hasAllSubjectsAccess(saved ?? { role: target.role, ...patch }),
+      alwaysOn: false,
+    });
+  } catch (err) {
+    req.log.error({ err }, "user feature-overrides save error");
+    res.status(500).json({ error: "تعذّر حفظ الصلاحيات" });
   }
 });
 

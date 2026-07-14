@@ -62,7 +62,7 @@ const DEMO_ACADEMIC_CONTENT = [
                   videoUrl: "https://www.youtube.com/watch?v=IHZwWFHWa-w",
                   thumbnailUrl: "https://i.ytimg.com/vi/IHZwWFHWa-w/hqdefault.jpg",
                   duration: 1020,
-                  instructor: "أفق التفوق",
+                  instructor: "التفوق",
                   segments: [
                     { title: "الفكرة الأساسية", startSeconds: 0, segmentType: "parts", orderIndex: 1 },
                     { title: "أمثلة محلولة", startSeconds: 300, segmentType: "parts", orderIndex: 2 },
@@ -81,7 +81,7 @@ const DEMO_ACADEMIC_CONTENT = [
                   videoUrl: "https://www.youtube.com/watch?v=aircAruvnKk",
                   thumbnailUrl: "https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg",
                   duration: 1180,
-                  instructor: "أفق التفوق",
+                  instructor: "التفوق",
                   segments: [
                     { title: "قراءة المحاور", startSeconds: 0, segmentType: "parts", orderIndex: 1 },
                     { title: "تحليل القيم", startSeconds: 360, segmentType: "topics", orderIndex: 2 },
@@ -115,7 +115,7 @@ const DEMO_ACADEMIC_CONTENT = [
                   videoUrl: "https://www.youtube.com/watch?v=kMCR6Ox9fYo",
                   thumbnailUrl: "https://i.ytimg.com/vi/kMCR6Ox9fYo/hqdefault.jpg",
                   duration: 900,
-                  instructor: "أفق التفوق",
+                  instructor: "التفوق",
                   segments: [
                     { title: "تعريف السرعة", startSeconds: 0, segmentType: "parts", orderIndex: 1 },
                     { title: "تعريف العجلة", startSeconds: 240, segmentType: "parts", orderIndex: 2 },

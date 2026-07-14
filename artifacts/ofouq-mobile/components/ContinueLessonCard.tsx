@@ -69,7 +69,9 @@ export function ContinueLessonCard({ item, mode }: { item: FeedLesson; mode: "co
             </View>
             <View style={[styles.progressLabelRow, { direction: "ltr", flexDirection: row }]}>
               <Text style={[styles.progressText, { writingDirection: direction }]}>{progressLabel}</Text>
-              <View style={[styles.resumeChip, { flexDirection: row }]}>
+              {/* Physical order: Arabic → arrow (◄) sits to the LEFT of the text; English
+                  → arrow (►) to the right. direction:"ltr" pins it on every device. */}
+              <View style={[styles.resumeChip, { direction: "ltr", flexDirection: en ? "row-reverse" : "row" }]}>
                 <Feather name={en ? "arrow-right" : "arrow-left"} size={13} color="#1D4ED8" />
                 <Text style={[styles.resumeText, { writingDirection: direction }]}>{strings.home.continueResume}</Text>
               </View>

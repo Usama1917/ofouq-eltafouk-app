@@ -11,33 +11,23 @@ import {
 } from "@workspace/db";
 import { and, desc, eq, ilike, inArray } from "drizzle-orm";
 import { getSessionUserId } from "../lib/auth";
+import { getUserAuth, type CachedUserAuth } from "../lib/user-cache";
+import { hasAllSubjectsAccess } from "../lib/feature-access";
 
 const router: IRouter = Router();
 
-type SessionUser = {
-  id: number;
-  role: string;
-  status: string;
-};
+// SessionUser now carries the owner-set per-account overrides (feature-access).
+type SessionUser = CachedUserAuth;
 
-// Loads the authenticated, active user (mirrors academic.ts getSessionUser).
+// Loads the authenticated, active user (mirrors academic.ts getSessionUser) via
+// the short-TTL auth cache — includes the owner-set per-account overrides.
 // Returns null for anonymous, unknown, or inactive accounts.
 async function getSessionUser(req: any): Promise<SessionUser | null> {
   const userId = getSessionUserId(req);
   if (!userId) return null;
-
-  const [user] = await db
-    .select({ id: usersTable.id, role: usersTable.role, status: usersTable.status })
-    .from(usersTable)
-    .where(eq(usersTable.id, userId))
-    .limit(1);
-
+  const user = await getUserAuth(userId);
   if (!user || user.status !== "active") return null;
   return user;
-}
-
-function isPrivileged(user: SessionUser | null): boolean {
-  return user?.role === "admin" || user?.role === "owner";
 }
 
 // Subject ids the given student holds an ACTIVE subscription to, restricted to
@@ -128,9 +118,10 @@ router.get("/videos", async (req, res) => {
       .limit(limit)
       .offset(offset);
 
-    // Admins/owners see every URL. Students only see videoUrl for subjects they
-    // hold an active subscription to; everyone else gets metadata without the URL.
-    const privileged = isPrivileged(user);
+    // All-subjects accounts (owner / non-locked admins / owner-boosted) see every
+    // URL. Everyone else only sees videoUrl for subjects they hold an active
+    // subscription to; the rest get metadata without the URL.
+    const privileged = hasAllSubjectsAccess(user);
     const accessible = privileged
       ? new Set<number>()
       : await accessibleSubjectIds(
@@ -204,7 +195,7 @@ router.get("/videos/:id", async (req, res) => {
     // subscription to the video's subject. Otherwise return metadata with no URL.
     const { subjectId, ...video } = row;
     const canSeeUrl =
-      isPrivileged(user) || (await accessibleSubjectIds(user.id, [subjectId])).has(subjectId);
+      hasAllSubjectsAccess(user) || (await accessibleSubjectIds(user.id, [subjectId])).has(subjectId);
 
     return res.json(canSeeUrl ? video : { ...video, videoUrl: null });
   } catch (err) {

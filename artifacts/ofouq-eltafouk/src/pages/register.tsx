@@ -240,7 +240,7 @@ export default function Register() {
                 <Field label="العنوان"><Input placeholder="المدينة، الشارع" value={form.address} onChange={e => set("address", e.target.value)} /></Field>
                 <Field label="التخصص الأكاديمي"><Input placeholder="الرياضيات، الفيزياء..." value={form.specialty} onChange={e => set("specialty", e.target.value)} /></Field>
                 <Field label="المؤهلات العلمية"><Input placeholder="بكالوريوس تربية..." value={form.qualifications} onChange={e => set("qualifications", e.target.value)} /></Field>
-                <Field label="كيف تريد أن تدعمك أفق التفوق؟">
+                <Field label="كيف تريد أن تدعمك التفوق؟">
                   <Select value={form.supportNeeded} onChange={e => set("supportNeeded", e.target.value)}>
                     <option value="">اختر</option>
                     {["نشر المحتوى التعليمي", "التواصل مع الطلاب", "بناء قاعدة طلاب", "الحصول على دخل إضافي", "أخرى"].map(o => <option key={o} value={o}>{o}</option>)}

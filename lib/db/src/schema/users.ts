@@ -47,6 +47,13 @@ export const usersTable = pgTable("users", {
   // admin (the owner toggles pages off). Null/empty = all pages visible (the default),
   // so new pages are auto-visible until the owner hides them. Owners ignore this.
   blockedTabs: jsonb("blocked_tabs").$type<string[]>(),
+  // OWNER-controlled per-account feature overrides («جميع المستخدمين» drawer).
+  // null = no override → role default (owner & admin: allowed/unlocked; others: follow
+  // the global rules). An explicit boolean set by the OWNER wins for every non-owner
+  // role; the owner role itself is ALWAYS allowed regardless of the stored value —
+  // see api-server lib/feature-access.ts (the single resolution point).
+  screenCaptureAllowed: boolean("screen_capture_allowed"),
+  allSubjectsAccess: boolean("all_subjects_access"),
   // Bumped on logout / password change to invalidate all previously-issued tokens. See review B-02.
   tokenVersion: integer("token_version").notNull().default(0),
   // Gamification (v2 Phase 1). Current consecutive-active-days streak, the best the

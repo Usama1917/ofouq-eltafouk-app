@@ -28,7 +28,7 @@ const ENGLISH_ACADEMIC_COPY: Record<string, string> = {
   "شرح تطبيقي للحركه في خط مستقيم.": "An applied explanation of motion in a straight line.",
   "تعريف السرعه": "Defining Speed",
   "تعريف العجله": "Defining Acceleration",
-  "افق التفوق": "Ofouq Eltafouk",
+  "التفوق": "Eltafouk",
   "الدرس الاول": "Lesson One",
   "الدعامه والحركه": "Support and Movement",
   "الدعامه والحركه في الكائنات الحيه": "Support and Movement in Living Organisms",

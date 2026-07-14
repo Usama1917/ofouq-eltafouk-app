@@ -225,7 +225,9 @@ export default function StoreCatalogScreen() {
             horizontal
             showsHorizontalScrollIndicator={false}
             style={styles.chipBar}
-            contentContainerStyle={{ gap: 8, paddingHorizontal: 20, flexDirection: row(en), alignItems: "center" }}
+            // flexGrow:1 makes the row fill the width so a few chips hug the reading side
+            // (right in Arabic via row-reverse, left in English) instead of the scroll origin.
+            contentContainerStyle={{ flexGrow: 1, gap: 8, paddingHorizontal: 20, flexDirection: row(en), alignItems: "center" }}
             renderItem={({ item }) => {
               const active = category === item;
               return (

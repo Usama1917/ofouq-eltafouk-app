@@ -67,7 +67,7 @@ export function maskDestination(destination: string, channel: "sms" | "email"): 
 
 function buildMessage(code: string): string {
   // Western digits per the app's i18n convention. Sender name shown by the gateway.
-  return `كود التحقق لأفق التفوق: ${code}\nصالح لمدة ${Math.round(TTL_SECONDS / 60)} دقائق. لا تشاركه مع أحد.`;
+  return `كود التحقق للتفوق: ${code}\nصالح لمدة ${Math.round(TTL_SECONDS / 60)} دقائق. لا تشاركه مع أحد.`;
 }
 
 /**

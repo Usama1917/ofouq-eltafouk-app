@@ -13,7 +13,7 @@ export const TRANSLATIONS = {
     direction: "rtl" as TextDirection,
     languageName: "العربية",
     common: {
-      appName: "أفق التفوق",
+      appName: "التفوق",
       appSubtitle: "منصة التعليم التفاعلي",
       loading: "جاري التحميل...",
       retry: "إعادة المحاولة",
@@ -34,7 +34,7 @@ export const TRANSLATIONS = {
       photoPermissionMessage: "يرجى السماح للتطبيق بالوصول إلى الصور من إعدادات الهاتف لاختيار صورة.",
     },
     onboarding: {
-      welcomeTitle: "أهلاً بيك في أفق التفوق",
+      welcomeTitle: "أهلاً بيك في التفوق",
       welcomeSubtitle: "جاوب على شوية أسئلة سريعة علشان نظبّطلك تجربتك.",
       next: "التالي",
       back: "رجوع",
@@ -204,7 +204,8 @@ export const TRANSLATIONS = {
     },
     home: {
       loginShort: "دخول",
-      badge: "تطبيق تعلم مرئي",
+      badge: "تطبيق تعلم تفاعلي",
+      heroBrand: "تطبيق التفوق",
       welcomePrefix: "مرحباً بك في",
       subtitle: "ابدأ رحلتك التعليمية من خلال الدروس المرئية المتاحة الآن.",
       browseLessons: "تصفح الدروس المرئية",
@@ -224,9 +225,9 @@ export const TRANSLATIONS = {
       startJourneyTitle: "ابدأ رحلتك",
       startJourneyBody: "افتح أول درس في موادك وابدأ التعلم.",
       startJourneyCta: "ابدأ أول درس",
-      suggestedTitle: "مقترح ليك",
-      suggestedSubtitle: "دروس مختارة على مقاسك من موادك.",
-      lessonProgress: "خلّصت {percent}٪",
+      suggestedTitle: "دروس مختارة لك",
+      suggestedSubtitle: "منتقاة على مقاسك من موادك.",
+      lessonProgress: "شاهدت {percent}٪",
     },
     videos: {
       title: "الدروس المرئية",
@@ -446,7 +447,7 @@ export const TRANSLATIONS = {
     direction: "ltr" as TextDirection,
     languageName: "English",
     common: {
-      appName: "Ofouq Eltafouk",
+      appName: "Eltafouk",
       appSubtitle: "Interactive learning platform",
       loading: "Loading...",
       retry: "Retry",
@@ -467,7 +468,7 @@ export const TRANSLATIONS = {
       photoPermissionMessage: "Please allow photo access from your phone settings to choose an image.",
     },
     onboarding: {
-      welcomeTitle: "Welcome to Ofouq Eltafouk",
+      welcomeTitle: "Welcome to Eltafouk",
       welcomeSubtitle: "Answer a few quick questions so we can tailor your experience.",
       next: "Next",
       back: "Back",
@@ -637,7 +638,8 @@ export const TRANSLATIONS = {
     },
     home: {
       loginShort: "Sign in",
-      badge: "Visual learning platform",
+      badge: "Interactive learning platform",
+      heroBrand: "Eltafouk",
       welcomePrefix: "Welcome to",
       subtitle: "Start your learning journey with the visual lessons available now.",
       browseLessons: "Browse visual lessons",
@@ -657,8 +659,8 @@ export const TRANSLATIONS = {
       startJourneyTitle: "Start your journey",
       startJourneyBody: "Open the first lesson in your subjects and start learning.",
       startJourneyCta: "Start first lesson",
-      suggestedTitle: "Suggested for you",
-      suggestedSubtitle: "Hand-picked lessons from your subjects.",
+      suggestedTitle: "Lessons picked for you",
+      suggestedSubtitle: "Tailored to your subjects.",
       lessonProgress: "{percent}% watched",
     },
     videos: {

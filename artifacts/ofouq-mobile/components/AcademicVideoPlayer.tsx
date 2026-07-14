@@ -36,6 +36,7 @@ import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { COLORS } from "@/constants/colors";
 import { getBaseUrl } from "@/constants/api";
 import { usePreferences } from "@/contexts/PreferencesContext";
+import { useScreenCaptureBlockEnabled } from "@/hooks/useScreenCaptureBlock";
 import { localizeAcademicText } from "@/lib/academicContentLocalization";
 import type { AppLanguage } from "@/lib/i18n";
 import { toEnglishDigits } from "@/lib/format";
@@ -183,6 +184,14 @@ const CONTROLS_DISSOLVE_OUT_MS = 320;
 const SCRUB_LABEL_UPDATE_MS = 120;
 const SEEK_CONFIRM_TOLERANCE_SECONDS = 0.85;
 const SEEK_CONFIRM_PLAYING_TOLERANCE_SECONDS = 2.5;
+
+// expo-screen-capture keeps ONE module-global tag set: allow(tag) fires the native
+// un-block as soon as the set empties. TWO lesson screens can be mounted at once
+// (watch-history / bookmarks / notifications push a second lesson on top of an open
+// one), so a SHARED tag would let the top screen's unmount silently un-block the
+// one still visible underneath (adversarial-review finding). A unique per-instance
+// tag keeps every prevent/allow pair independent.
+let screenCaptureTagSeq = 0;
 const SEEK_RETRY_MS = 900;
 const DEFAULT_PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const FALLBACK_QUALITY_LEVELS = ["hd720", "large", "medium", "auto"];
@@ -737,12 +746,21 @@ export function AcademicVideoPlayer({
   // blocked, screen recordings capture a black frame). iOS: the protected
   // content is blanked out while the screen is being recorded. The unique tag
   // keeps prevent/allow balanced so other screens stay unaffected.
+  // The block is OWNER-CONTROLLED (web panel → «الإعدادات»): when the owner turns
+  // it off, capture is allowed; the hook fail-safes to BLOCKED on any error and
+  // re-polls every minute, so flipping it mid-lesson applies within ~a minute
+  // (false→cleanup allows, true→prevent re-applies via the effect deps).
+  const screenCaptureBlockEnabled = useScreenCaptureBlockEnabled();
+  const captureTagRef = useRef<string | null>(null);
+  if (captureTagRef.current === null) captureTagRef.current = `academic-video-player-${++screenCaptureTagSeq}`;
   useEffect(() => {
-    ScreenCapture.preventScreenCaptureAsync("academic-video-player").catch(() => undefined);
+    if (!screenCaptureBlockEnabled) return;
+    const tag = captureTagRef.current!;
+    ScreenCapture.preventScreenCaptureAsync(tag).catch(() => undefined);
     return () => {
-      ScreenCapture.allowScreenCaptureAsync("academic-video-player").catch(() => undefined);
+      ScreenCapture.allowScreenCaptureAsync(tag).catch(() => undefined);
     };
-  }, []);
+  }, [screenCaptureBlockEnabled]);
 
   // review F-11: pause (and release audio) whenever the app leaves the foreground,
   // so a backgrounded lesson doesn't keep playing audio. The existing pause() also

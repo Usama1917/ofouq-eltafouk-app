@@ -317,7 +317,7 @@ export default function Landing() {
             في متناول يده، وقتما يحتاجه.
           </h2>
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-neutral-600">
-            أفق التفوق بنى مكان واحد بسيط ومنظّم، يجمع كل دروسك المرئية في رحلة
+            التفوق بنى مكان واحد بسيط ومنظّم، يجمع كل دروسك المرئية في رحلة
             تعليمية واضحة — من غير تعقيد ولا تشتيت.
           </p>
         </Reveal>
@@ -391,7 +391,7 @@ export default function Landing() {
                   معاك نسخة ورقية من الكتاب؟ اشتراكك مجاني بالكامل
                 </h2>
                 <p className="mt-2 max-w-2xl text-lg leading-relaxed text-neutral-600">
-                  لو عندك نسخة ورقية من كتاب أفق التفوق، تقدر تفعّل اشتراكك في كل الدروس
+                  لو عندك نسخة ورقية من كتاب التفوق، تقدر تفعّل اشتراكك في كل الدروس
                   المرئية مجانًا — من غير أي رسوم.
                 </p>
               </div>
@@ -473,7 +473,7 @@ export default function Landing() {
                 دروسك في جيبك
               </h2>
               <p className="mt-4 max-w-md text-lg leading-relaxed text-neutral-600">
-                نزّل تطبيق أفق التفوق على الأندرويد أو الآيفون، وذاكر في أي وقت
+                نزّل تطبيق التفوق على الأندرويد أو الآيفون، وذاكر في أي وقت
                 ومن أي مكان — حتى وأنت في الطريق.
               </p>
               <div className="mt-7">
@@ -540,7 +540,7 @@ export default function Landing() {
           </div>
         </div>
         <p className="mx-auto mt-8 max-w-6xl text-center text-sm text-neutral-400 md:text-start">
-          © 2026 أفق التفوق. جميع الحقوق محفوظة.
+          © 2026 التفوق. جميع الحقوق محفوظة.
         </p>
       </footer>
     </div>

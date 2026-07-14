@@ -21,7 +21,8 @@ import {
 } from "@workspace/db";
 import { and, asc, count, desc, eq, inArray, notInArray } from "drizzle-orm";
 import { getSessionUserId } from "../lib/auth";
-import { getUserAuth } from "../lib/user-cache";
+import { getUserAuth, type CachedUserAuth } from "../lib/user-cache";
+import { hasAllSubjectsAccess, canPreviewUnpublished } from "../lib/feature-access";
 import { POINTS, recordQuizActivity } from "../lib/gamification";
 import { getVideoSubjectUnit, recordQuestionStats, getStudentLevels } from "../lib/exam-engine";
 
@@ -94,7 +95,8 @@ const uploadQuizImage = multer({
 });
 
 // ── Auth helpers (mirror academic.ts / videos.ts) ───────────────────────────────
-export type SessionUser = { id: number; role: string; status: string };
+// SessionUser now carries the owner-set per-account overrides (feature-access).
+export type SessionUser = CachedUserAuth;
 
 export async function getSessionUser(req: any): Promise<SessionUser | null> {
   const userId = getSessionUserId(req);
@@ -104,6 +106,9 @@ export async function getSessionUser(req: any): Promise<SessionUser | null> {
   return user;
 }
 
+// ROLE check only (may this account use admin-ish capabilities). For CONTENT
+// paywall bypasses use hasAllSubjectsAccess() from lib/feature-access instead —
+// the owner can revoke content bypass per-account without demoting the role.
 export function isPrivileged(user: SessionUser | null): boolean {
   return user?.role === "admin" || user?.role === "owner";
 }
@@ -252,11 +257,16 @@ router.get("/videos/:id/quiz/info", async (req, res) => {
     const videoId = parseId(req.params.id);
     if (!videoId) return res.status(400).json({ error: "معرف الفيديو غير صالح" });
 
-    const privileged = isPrivileged(user);
-    let hasAccess = privileged;
+    // STAFF preview drafts + skip the watch gate — but ONLY unlocked staff (the owner,
+    // or an admin whose all-subjects access wasn't switched off). A subscription waiver
+    // (owner-boosted account, incl. boosted students) only bypasses the SUBSCRIPTION
+    // check below — the video must still be published and the watch gate still applies.
+    // Keeping these two concerns separate is the security-review fix.
+    const staff = canPreviewUnpublished(user);
+    let hasAccess = staff;
     let quizQuestionCount: number | null = null;
 
-    if (privileged) {
+    if (staff) {
       const [v] = await db
         .select({ quizQuestionCount: videosTable.quizQuestionCount })
         .from(videosTable)
@@ -267,7 +277,7 @@ router.get("/videos/:id/quiz/info", async (req, res) => {
     } else {
       const subjectId = await getPublishedVideoSubjectId(videoId);
       if (subjectId == null) return res.status(404).json({ error: "Video not found" });
-      hasAccess = await userHasSubjectAccess(user.id, subjectId);
+      hasAccess = hasAllSubjectsAccess(user) || (await userHasSubjectAccess(user.id, subjectId));
       const [v] = await db
         .select({ quizQuestionCount: videosTable.quizQuestionCount })
         .from(videosTable)
@@ -300,8 +310,9 @@ router.get("/videos/:id/quiz/info", async (req, res) => {
       .from(quizAttemptsTable)
       .where(and(eq(quizAttemptsTable.userId, user.id), eq(quizAttemptsTable.videoId, videoId)));
 
-    // Watch-gate: admins/owners bypass; students must have really watched enough.
-    const watchGate: WatchGateStatus = privileged
+    // Watch-gate: only STAFF (role) bypass; everyone else (incl. subscription-waived
+    // accounts) must have really watched enough — anti-cheat integrity.
+    const watchGate: WatchGateStatus = staff
       ? { enabled: false, requiredPercent: 0, watchedPercent: 100, watchedEnough: true }
       : await getVideoWatchGate(videoId, user.id);
 
@@ -330,9 +341,10 @@ router.get("/videos/:id/quiz", async (req, res) => {
     const videoId = parseId(req.params.id);
     if (!videoId) return res.status(400).json({ error: "معرف الفيديو غير صالح" });
 
-    // Access: admins/owners bypass; students need an active subscription to the subject.
+    // Unlocked STAFF preview drafts + skip the watch gate. A subscription waiver only
+    // bypasses the subscription check; publish + watch gate still apply (review fix).
     let quizQuestionCount: number | null = null;
-    if (isPrivileged(user)) {
+    if (canPreviewUnpublished(user)) {
       const [v] = await db
         .select({ quizQuestionCount: videosTable.quizQuestionCount })
         .from(videosTable)
@@ -343,7 +355,7 @@ router.get("/videos/:id/quiz", async (req, res) => {
     } else {
       const subjectId = await getPublishedVideoSubjectId(videoId);
       if (subjectId == null) return res.status(404).json({ error: "Video not found" });
-      const hasAccess = await userHasSubjectAccess(user.id, subjectId);
+      const hasAccess = hasAllSubjectsAccess(user) || (await userHasSubjectAccess(user.id, subjectId));
       if (!hasAccess) {
         return res.status(403).json({ error: "هذا الاختبار متاح للمشتركين في المادة فقط." });
       }
@@ -415,11 +427,12 @@ router.post("/videos/:id/quiz/submit", async (req, res) => {
     const videoId = parseId(req.params.id);
     if (!videoId) return res.status(400).json({ error: "معرف الفيديو غير صالح" });
 
-    // Access check (same as GET /quiz).
-    if (!isPrivileged(user)) {
+    // Access check (same as GET /quiz): unlocked STAFF bypass everything; others need a
+    // published video + (subscription OR waiver) + a satisfied watch gate.
+    if (!canPreviewUnpublished(user)) {
       const subjectId = await getPublishedVideoSubjectId(videoId);
       if (subjectId == null) return res.status(404).json({ error: "Video not found" });
-      const hasAccess = await userHasSubjectAccess(user.id, subjectId);
+      const hasAccess = hasAllSubjectsAccess(user) || (await userHasSubjectAccess(user.id, subjectId));
       if (!hasAccess) {
         return res.status(403).json({ error: "هذا الاختبار متاح للمشتركين في المادة فقط." });
       }

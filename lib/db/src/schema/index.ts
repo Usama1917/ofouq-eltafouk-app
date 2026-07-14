@@ -1,3 +1,4 @@
+export * from "./app-settings";
 export * from "./books";
 export * from "./videos";
 export * from "./posts";

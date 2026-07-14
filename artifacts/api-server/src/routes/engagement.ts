@@ -15,6 +15,7 @@ import {
 } from "@workspace/db";
 import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { getSessionUser, isPrivileged, userHasSubjectAccess, parseId } from "./quiz";
+import { hasAllSubjectsAccess } from "../lib/feature-access";
 import { getGamificationSummary } from "../lib/gamification";
 
 // v2 Phase 4 — quick-wins bundle: bookmarks (⭐), timestamped notes (📝), lesson search
@@ -65,10 +66,11 @@ async function getLessonSubjectId(lessonId: number): Promise<number | null> {
   return row?.subjectId ?? null;
 }
 
-// Student must be able to reach the lesson (subscribed to its subject; admins bypass).
+// Student must be able to reach the lesson (subscribed to its subject; all-subjects
+// accounts — owner / non-locked admins / owner-boosted — bypass).
 async function canAccessLesson(req: any, userId: number, lessonId: number): Promise<boolean> {
   const user = await getSessionUser(req);
-  if (user && isPrivileged(user)) return true;
+  if (user && hasAllSubjectsAccess(user)) return true;
   const subjectId = await getLessonSubjectId(lessonId);
   if (subjectId == null) return false;
   return userHasSubjectAccess(userId, subjectId);
@@ -251,11 +253,24 @@ router.get("/search", async (req, res) => {
     if (qNorm.length < 1) return res.json({ lessons: [] });
     const like = `%${qNorm}%`;
 
-    const subs = await db
-      .select({ subjectId: subjectSubscriptionsTable.subjectId })
-      .from(subjectSubscriptionsTable)
-      .where(and(eq(subjectSubscriptionsTable.studentId, userId), eq(subjectSubscriptionsTable.status, "active")));
-    const subjectIds = [...new Set(subs.map((s) => s.subjectId))];
+    // All-subjects accounts search EVERY published subject; others stay scoped to
+    // their active subscriptions (getSessionUser is cache-backed — no extra DB hit).
+    const searcher = await getSessionUser(req);
+    const subjectIds =
+      searcher && hasAllSubjectsAccess(searcher)
+        ? (
+            await db.select({ subjectId: subjectsTable.id }).from(subjectsTable).where(eq(subjectsTable.isPublished, true))
+          ).map((s) => s.subjectId)
+        : [
+            ...new Set(
+              (
+                await db
+                  .select({ subjectId: subjectSubscriptionsTable.subjectId })
+                  .from(subjectSubscriptionsTable)
+                  .where(and(eq(subjectSubscriptionsTable.studentId, userId), eq(subjectSubscriptionsTable.status, "active")))
+              ).map((s) => s.subjectId),
+            ),
+          ];
     if (subjectIds.length === 0) return res.json({ lessons: [] });
 
     // Normalized (Arabic-folded) column expressions, reused for both substring + fuzzy match.
@@ -337,11 +352,21 @@ router.get("/me/progress", async (req, res) => {
       .innerJoin(subjectsTable, eq(subjectSubscriptionsTable.subjectId, subjectsTable.id))
       .where(and(eq(subjectSubscriptionsTable.studentId, userId), eq(subjectSubscriptionsTable.status, "active")))
       .orderBy(asc(subjectsTable.orderIndex), asc(subjectsTable.id));
-    const subjectIds = [...new Set(subs.map((s) => s.subjectId))];
+    // All-subjects accounts aggregate across EVERY published subject instead.
+    const progressUser = await getSessionUser(req);
+    const subsRows =
+      progressUser && hasAllSubjectsAccess(progressUser)
+        ? await db
+            .select({ subjectId: subjectsTable.id, subjectName: subjectsTable.name, subjectNameEn: subjectsTable.nameEn, icon: subjectsTable.icon })
+            .from(subjectsTable)
+            .where(eq(subjectsTable.isPublished, true))
+            .orderBy(asc(subjectsTable.orderIndex), asc(subjectsTable.id))
+        : subs;
+    const subjectIds = [...new Set(subsRows.map((s) => s.subjectId))];
 
     type SubjRow = { subjectId: number; subjectName: string; subjectNameEn: string | null; icon: string; lessonCount: number; completedLessons: number; watchedSeconds: number; progressRatio: number };
     const bySubject = new Map<number, SubjRow>();
-    for (const s of subs) {
+    for (const s of subsRows) {
       bySubject.set(s.subjectId, { subjectId: s.subjectId, subjectName: s.subjectName, subjectNameEn: s.subjectNameEn, icon: s.icon, lessonCount: 0, completedLessons: 0, watchedSeconds: 0, progressRatio: 0 });
     }
 

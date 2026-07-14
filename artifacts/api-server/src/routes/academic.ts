@@ -885,14 +885,12 @@ async function logContentAudit(
   }
 }
 
-type SessionUser = {
-  id: number;
-  role: string;
-  status: string;
-};
-
 import { getSessionUserId } from "../lib/auth";
-import { getUserAuth } from "../lib/user-cache";
+import { getUserAuth, type CachedUserAuth } from "../lib/user-cache";
+import { hasAllSubjectsAccess } from "../lib/feature-access";
+
+// SessionUser now carries the owner-set per-account overrides (feature-access).
+type SessionUser = CachedUserAuth;
 
 async function getSessionUser(req: any): Promise<SessionUser | null> {
   const userId = getSessionUserId(req);
@@ -946,7 +944,8 @@ async function requireStudentSubjectAccess(req: any, res: any, subjectId: number
   const user = await requireAuthenticatedUser(req, res);
   if (!user) return null;
 
-  if (user.role === "admin" || user.role === "owner") return user;
+  // Owner always; admins by default (owner-revocable); owner-boosted accounts too.
+  if (hasAllSubjectsAccess(user)) return user;
 
   const hasAccess = await userHasSubjectAccess(user.id, subjectId);
   if (!hasAccess) {
@@ -1405,11 +1404,25 @@ router.get("/me/home-feed", async (req, res) => {
     const student = await requireStudent(req, res);
     if (!student) return;
 
-    const subs = await db
-      .select({ subjectId: subjectSubscriptionsTable.subjectId })
-      .from(subjectSubscriptionsTable)
-      .where(and(eq(subjectSubscriptionsTable.studentId, student.id), eq(subjectSubscriptionsTable.status, "active")));
-    const subjectIds = [...new Set(subs.map((s) => s.subjectId))];
+    // Owner-boosted accounts (all-subjects access) get the feed across EVERY
+    // published subject; everyone else stays scoped to their active subscriptions.
+    const subjectIds = hasAllSubjectsAccess(student)
+      ? (
+          await db
+            .select({ subjectId: subjectsTable.id })
+            .from(subjectsTable)
+            .where(eq(subjectsTable.isPublished, true))
+        ).map((s) => s.subjectId)
+      : [
+          ...new Set(
+            (
+              await db
+                .select({ subjectId: subjectSubscriptionsTable.subjectId })
+                .from(subjectSubscriptionsTable)
+                .where(and(eq(subjectSubscriptionsTable.studentId, student.id), eq(subjectSubscriptionsTable.status, "active")))
+            ).map((s) => s.subjectId),
+          ),
+        ];
     if (subjectIds.length === 0) {
       res.json({ continueLesson: null, startJourney: null, suggestions: [] });
       return;
@@ -2125,6 +2138,10 @@ router.get("/academic/years/:yearId/subjects", async (req, res) => {
       }
     }
 
+    // Owner-boosted student accounts see every subject unlocked («مشترك») without
+    // any subscription rows — mirrors the server-side paywall bypass exactly.
+    const boosted = hasAllSubjectsAccess(user);
+
     const withAccessState = subjects.map((subject) => {
       const subscription = latestSubscriptionBySubject.get(subject.id);
       const latestRequest = latestRequestBySubject.get(subject.id);
@@ -2133,7 +2150,11 @@ router.get("/academic/years/:yearId/subjects", async (req, res) => {
       let isLocked = true;
       let canRequestSubscription = true;
 
-      if (subscription?.status === "active") {
+      if (boosted) {
+        accessStatus = "approved";
+        isLocked = false;
+        canRequestSubscription = false;
+      } else if (subscription?.status === "active") {
         accessStatus = "approved";
         isLocked = false;
         canRequestSubscription = false;
@@ -2440,7 +2461,7 @@ router.get("/academic/videos/:videoId/segments/:segmentId/thumbnail", async (req
       return res.status(404).json({ error: "التقسيمة غير موجودة" });
     }
 
-    if (user.role === "student") {
+    if (!hasAllSubjectsAccess(user)) {
       const hasAccess = await userHasSubjectAccess(user.id, segment.subjectId);
       if (!hasAccess) {
         return res.status(403).json({ error: "غير مصرح لك بمشاهدة هذه المادة." });

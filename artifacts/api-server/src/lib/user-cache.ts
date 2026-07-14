@@ -7,7 +7,16 @@ import { eq } from "drizzle-orm";
 // (watch-progress, lesson/list loads). Staleness after a suspend / role change is
 // bounded by the TTL, and is made immediate by invalidateUserAuth() called from the
 // admin user-mutation handlers.
-export type CachedUserAuth = { id: number; role: string; status: string };
+// Also carries the OWNER-set per-account overrides (lib/feature-access.ts) so the
+// paywall/capture checks on hot paths stay round-trip-free. invalidateUserAuth()
+// is called whenever the owner changes them, so propagation is immediate.
+export type CachedUserAuth = {
+  id: number;
+  role: string;
+  status: string;
+  screenCaptureAllowed: boolean | null;
+  allSubjectsAccess: boolean | null;
+};
 
 const TTL_MS = 10_000;
 const cache = new Map<number, { value: CachedUserAuth | null; expires: number }>();
@@ -18,7 +27,13 @@ export async function getUserAuth(userId: number): Promise<CachedUserAuth | null
   if (hit && hit.expires > now) return hit.value;
 
   const [row] = await db
-    .select({ id: usersTable.id, role: usersTable.role, status: usersTable.status })
+    .select({
+      id: usersTable.id,
+      role: usersTable.role,
+      status: usersTable.status,
+      screenCaptureAllowed: usersTable.screenCaptureAllowed,
+      allSubjectsAccess: usersTable.allSubjectsAccess,
+    })
     .from(usersTable)
     .where(eq(usersTable.id, userId))
     .limit(1);

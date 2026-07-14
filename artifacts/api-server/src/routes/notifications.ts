@@ -947,7 +947,7 @@ router.post("/notifications/test-push", async (req, res): Promise<void> => {
     const user = await requireAuthenticatedUser(req, res);
     if (!user) return;
 
-    const title = normalizeText(req.body?.title, 140) || "أفق التفوق";
+    const title = normalizeText(req.body?.title, 140) || "التفوق";
     const body = normalizeText(req.body?.body, 500) || "هذه رسالة اختبار لإشعارات أندرويد.";
     const now = new Date();
     const [notification] = await db

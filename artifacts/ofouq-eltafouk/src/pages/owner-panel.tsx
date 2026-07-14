@@ -28,18 +28,20 @@ import {
   useListAdminUsers, useUpdateAdminUser, useDeleteAdminUser, useCreateAdminUser,
 } from "@workspace/api-client-react";
 import { Logo } from "@/components/logo";
+import { Switch } from "@/components/ui/switch";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 
-type Tab = "dashboard" | "reports" | "admins" | "users";
+type Tab = "dashboard" | "reports" | "admins" | "users" | "settings";
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "لوحة التحكم", icon: LayoutDashboard },
   { id: "reports", label: "التقارير", icon: FileBarChart },
   { id: "admins", label: "إدارة المشرفين", icon: ShieldCheck },
   { id: "users", label: "جميع المستخدمين", icon: Users },
+  { id: "settings", label: "الإعدادات", icon: Settings2 },
 ];
 
 const COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#EF4444", "#06B6D4", "#EC4899"];
@@ -1438,8 +1440,16 @@ function EmptyRow() {
 }
 
 // ── Per-user details + activity timeline drawer (owner only) ───────────────
+type FeatureAccess = {
+  screenCaptureAllowed: boolean | null;
+  allSubjectsAccess: boolean | null;
+  effectiveScreenCapture: boolean;
+  effectiveAllSubjects: boolean;
+  alwaysOn: boolean;
+};
 type ActivityResponse = {
   user: { id: number; name: string; email: string; role: string; status: string; phone: string | null; governorate: string | null; joinedAt: string; lastActiveAt: string | null; expectationStars?: number; scoringFrozen?: boolean };
+  featureAccess?: FeatureAccess;
   stats: { supportReplies: number; subscriptionsReviewed: number; subscriptionsGranted: number; requestsSubmitted: number; lessonsWatched: number; videosAdded: number };
   timeline: { type: string; at: string | null; title: string; detail: string }[];
 };
@@ -1630,6 +1640,79 @@ function ScoringControl({ userId, stars, frozen, onChanged }: { userId: number; 
   );
 }
 
+// ── Per-account feature switches (owner only) — inside the user drawer ────────
+// Two owner-controlled overrides: screen-capture allow + all-subjects access.
+// Shows the EFFECTIVE value (role defaults included); toggling stores an explicit
+// override on the server. Owner-role targets are always-on and not editable.
+function FeatureAccessControls({ userId, access, onChanged }: { userId: number; access: FeatureAccess; onChanged: () => void }) {
+  const [saving, setSaving] = useState<string | null>(null);
+
+  async function setOverride(key: "screenCaptureAllowed" | "allSubjectsAccess", value: boolean) {
+    if (saving) return;
+    setSaving(key);
+    try {
+      const res = await fetch(apiPath(`/api/admin/users/${userId}/feature-overrides`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ [key]: value }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((d as any)?.error || "تعذّر الحفظ");
+      toast.success("تم حفظ الصلاحيات ✓");
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "تعذّر الحفظ");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  const rows: { key: "screenCaptureAllowed" | "allSubjectsAccess"; title: string; desc: string; effective: boolean; stored: boolean | null }[] = [
+    {
+      key: "screenCaptureAllowed",
+      title: "السماح بتصوير الشاشة",
+      desc: "يتخطى حظر لقطات الشاشة داخل التطبيق لهذا الحساب.",
+      effective: access.effectiveScreenCapture,
+      stored: access.screenCaptureAllowed,
+    },
+    {
+      key: "allSubjectsAccess",
+      title: "فتح كل المواد تلقائيًا",
+      desc: "وصول كامل لكل المواد بدون أكواد اشتراك لهذا الحساب.",
+      effective: access.effectiveAllSubjects,
+      stored: access.allSubjectsAccess,
+    },
+  ];
+
+  return (
+    <div className="glass-card p-4 space-y-3">
+      <h4 className="font-bold text-sm flex items-center gap-2">
+        <KeyRound className="w-4 h-4 text-amber-500" /> صلاحيات خاصة <span className="text-[10px] font-normal text-muted-foreground">(يتحكم فيها المالك فقط)</span>
+      </h4>
+      {access.alwaysOn ? (
+        <p className="text-xs text-muted-foreground rounded-xl bg-amber-500/10 border border-amber-500/25 p-3">
+          👑 حساب مالك — كل الصلاحيات مفتوحة دائمًا ولا يمكن تعديلها.
+        </p>
+      ) : (
+        rows.map((r) => (
+          <div key={r.key} className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-white/40 dark:bg-white/[0.04] p-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">{r.title}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{r.desc}</p>
+              <p className="text-[10px] text-muted-foreground/80 mt-1">{r.stored === null ? "افتراضي حسب الدور" : "مُخصَّص من المالك"}</p>
+            </div>
+            {saving === r.key ? (
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0" />
+            ) : (
+              <Switch checked={r.effective} disabled={!!saving} onCheckedChange={(v) => setOverride(r.key, v)} className="shrink-0" />
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 function ActivityDrawer({ userId, onClose }: { userId: number | null; onClose: () => void }) {
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error } = useQuery<ActivityResponse>({
@@ -1682,6 +1765,13 @@ function ActivityDrawer({ userId, onClose }: { userId: number | null; onClose: (
                       <Field label="آخر نشاط" value={fmtDateTime(data.user.lastActiveAt)} />
                     </div>
                   </div>
+                  {data.featureAccess ? (
+                    <FeatureAccessControls
+                      userId={data.user.id}
+                      access={data.featureAccess}
+                      onChanged={() => queryClient.invalidateQueries({ queryKey: ["admin-activity", userId] })}
+                    />
+                  ) : null}
                   <div className="grid grid-cols-3 gap-2">
                     {([["ردود دعم", data.stats.supportReplies], ["مراجعات", data.stats.subscriptionsReviewed], ["منح اشتراك", data.stats.subscriptionsGranted], ["فيديوهات مُضافة", data.stats.videosAdded], ["طلبات", data.stats.requestsSubmitted], ["دروس", data.stats.lessonsWatched]] as [string, number][]).map(([l, v]) => (
                       <div key={l} className="glass-card p-3 text-center"><p className="font-display font-black text-xl text-primary">{fmt(v)}</p><p className="text-[11px] text-muted-foreground">{l}</p></div>
@@ -2167,6 +2257,80 @@ function FilterGroup({ label, options, value, onChange }: { label: string; optio
   );
 }
 
+// ── Settings tab (owner-only app-wide toggles) ─────────────────────────────
+function SettingsTab() {
+  const qc = useQueryClient();
+  const { data, isLoading, isError, refetch } = useQuery<{ screenCaptureBlockEnabled: boolean }>({
+    queryKey: ["owner", "app-settings"],
+    queryFn: async () => {
+      const res = await fetch(apiPath("/api/admin/app-settings"), { headers: authHeader() });
+      if (!res.ok) throw new Error("تعذّر تحميل الإعدادات");
+      return res.json();
+    },
+  });
+  const [saving, setSaving] = useState(false);
+
+  // Optimistic toggle: flip the UI immediately, PUT to the server, roll back on failure.
+  async function setBlock(next: boolean) {
+    if (saving) return;
+    setSaving(true);
+    const prev = qc.getQueryData<{ screenCaptureBlockEnabled: boolean }>(["owner", "app-settings"]);
+    qc.setQueryData(["owner", "app-settings"], { screenCaptureBlockEnabled: next });
+    try {
+      const res = await fetch(apiPath("/api/admin/app-settings"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ screenCaptureBlockEnabled: next }),
+      });
+      if (!res.ok) throw new Error();
+      const saved: { screenCaptureBlockEnabled: boolean } = await res.json();
+      qc.setQueryData(["owner", "app-settings"], saved);
+      toast.success(saved.screenCaptureBlockEnabled ? "تم تفعيل حظر تصوير الشاشة في التطبيق ✓" : "تم إلغاء حظر تصوير الشاشة — التصوير متاح للطلاب الآن");
+    } catch {
+      qc.setQueryData(["owner", "app-settings"], prev);
+      toast.error("تعذّر حفظ الإعداد — حاول مرة أخرى");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const blockEnabled = data?.screenCaptureBlockEnabled ?? true;
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      <div>
+        <h2 className="text-xl font-display font-bold">الإعدادات</h2>
+        <p className="text-sm text-muted-foreground mt-1">إعدادات عامة بتتحكم في تطبيق الطلاب — أي تغيير هنا يسري على كل المستخدمين.</p>
+      </div>
+
+      <div className="glass-card p-5">
+        <h3 className="font-bold mb-4 flex items-center gap-2">
+          <ShieldCheck className="w-4.5 h-4.5 text-primary" /> حماية المحتوى
+        </h3>
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-border/70 bg-white/40 dark:bg-white/[0.04] p-4">
+          <div className="min-w-0">
+            <div className="font-semibold text-sm">حظر تصوير الشاشة في التطبيق</div>
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              عند التفعيل، لا يستطيع الطالب أخذ لقطة شاشة أو تسجيل الشاشة في أماكن المحتوى المحمي (مشغّل فيديو الدروس).
+              عند الإلغاء، يصبح التصوير متاحًا للطلاب.
+            </p>
+          </div>
+          {isLoading ? (
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground shrink-0" />
+          ) : (
+            <Switch checked={blockEnabled} disabled={saving || isError} onCheckedChange={setBlock} className="shrink-0" />
+          )}
+        </div>
+        {isError ? (
+          <button type="button" onClick={() => refetch()} className="mt-3 text-xs font-bold text-red-500 hover:underline">
+            تعذّر تحميل الإعدادات — اضغط لإعادة المحاولة
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Owner Panel ───────────────────────────────────────────────────────
 export default function OwnerPanel() {
   const { user, logout, isLoading: authLoading } = useAuth();
@@ -2237,6 +2401,7 @@ export default function OwnerPanel() {
     reports: <ReportsTab isDark={isDarkAdmin} />,
     admins: <AdminsTab />,
     users: <AllUsersTab />,
+    settings: <SettingsTab />,
   };
 
   return (

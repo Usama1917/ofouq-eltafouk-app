@@ -15,13 +15,13 @@ import { POINTS, recordExamActivity } from "../lib/gamification";
 import { notifyExamOpened, notifyExamResult, type ExamType } from "../lib/exam-notifications";
 import {
   getSessionUser,
-  isPrivileged,
   requireAdmin,
   userHasSubjectAccess,
   parseId,
   toStudentOptions,
   normalizeQuestionInput,
 } from "./quiz";
+import { hasAllSubjectsAccess, canPreviewUnpublished } from "../lib/feature-access";
 import {
   buildMistakesReview,
   getChapterLessonQuestions,
@@ -71,7 +71,11 @@ async function resolveUnitAccess(
   const reviewPublished = Boolean(exam?.reviewPublished);
   const adaptivePublished = Boolean(exam?.adaptivePublished);
 
-  const privileged = isPrivileged(user);
+  // Only UNLOCKED STAFF (owner, or an admin whose all-subjects access wasn't switched
+  // off) preview UNPUBLISHED exams and are marked `privileged` (downstream treats that
+  // as "exam open"). A subscription waiver (owner-boosted account, incl. students) only
+  // bypasses the SUBSCRIPTION check below — the exam must still be published for them.
+  const privileged = canPreviewUnpublished(user);
   if (privileged) return { ok: true, userId: user.id, subjectId, privileged, reviewPublished, adaptivePublished };
 
   // Which flag gates this request: a specific exam, or "either" for the card itself.
@@ -82,9 +86,11 @@ async function resolveUnitAccess(
     return { ok: false, status: 403, error: `${label} مش متاح دلوقتي.` };
   }
 
-  const hasAccess = await userHasSubjectAccess(user.id, subjectId);
+  const hasAccess = hasAllSubjectsAccess(user) || (await userHasSubjectAccess(user.id, subjectId));
   if (!hasAccess) return { ok: false, status: 403, error: "امتحان الفصل متاح للمشتركين في المادة فقط." };
 
+  // privileged=false → downstream (reviewOpen/adaptiveOpen) keeps requiring the
+  // published flag, so a boosted student only ever reaches PUBLISHED exams.
   return { ok: true, userId: user.id, subjectId, privileged, reviewPublished, adaptivePublished };
 }
 

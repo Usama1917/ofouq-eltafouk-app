@@ -1,4 +1,4 @@
-# سياسة الخصوصية — أفق التفوق / Privacy Policy — Ofouq Eltafouk
+# سياسة الخصوصية — التفوق / Privacy Policy — Eltafouk
 
 > **مسودة للمراجعة.** دي صياغة مبدئية مبنية على البيانات اللي التطبيق فعلًا بيجمعها. يُفضّل مراجعتها من محامٍ قبل النشر، خصوصًا إن أغلب المستخدمين طلبة (قُصّر).
 > قبل النشر: املأ الأماكن المعلّمة `[...]` (الاسم القانوني، العنوان، تاريخ السريان)، وانشرها على رابط عام مثل `https://eltafouk.com/privacy`.
@@ -8,11 +8,11 @@
 ## 🇪🇬 النسخة العربية
 
 **آخر تحديث:** [التاريخ]
-**الجهة المسؤولة:** [الاسم القانوني للجهة / الشركة] — «أفق التفوق»
+**الجهة المسؤولة:** [الاسم القانوني للجهة / الشركة] — «التفوق»
 **للتواصل:** info@eltafouk.com
 
 ### مقدمة
-بنحترم خصوصيتك. السياسة دي بتوضّح أنهي بيانات بنجمعها في تطبيق «أفق التفوق» التعليمي، وليه، وإزاي بنحميها.
+بنحترم خصوصيتك. السياسة دي بتوضّح أنهي بيانات بنجمعها في تطبيق «التفوق» التعليمي، وليه، وإزاي بنحميها.
 
 ### البيانات اللي بنجمعها
 - **بيانات الحساب:** الاسم، البريد الإلكتروني، كلمة السر (مشفّرة)، رقم التليفون، السن، المحافظة/العنوان، رقم ولي الأمر، ولبعض الأدوار (المعلمين) بيانات إضافية زي التخصص والمؤهلات.
@@ -56,11 +56,11 @@
 ## 🇬🇧 English version
 
 **Last updated:** [date]
-**Data controller:** [Legal entity / company name] — "Ofouq Eltafouk"
+**Data controller:** [Legal entity / company name] — "Eltafouk"
 **Contact:** info@eltafouk.com
 
 ### Introduction
-We respect your privacy. This policy explains what data the Ofouq Eltafouk education app collects, why, and how we protect it.
+We respect your privacy. This policy explains what data the Eltafouk education app collects, why, and how we protect it.
 
 ### Data we collect
 - **Account data:** name, email, password (hashed), phone number, age, governorate/address, parent phone, and for some roles (teachers) extra fields such as specialty and qualifications.

@@ -52,7 +52,7 @@ export default function Login() {
         <div className="absolute bottom-20 left-20 w-48 h-48 rounded-full bg-white/10 blur-3xl" />
         <div className="relative text-white text-center space-y-6 max-w-sm">
           <Logo size={64} className="justify-center" />
-          <h2 className="text-3xl font-display font-black">أفق التفوق</h2>
+          <h2 className="text-3xl font-display font-black">التفوق</h2>
           <p className="text-blue-100 leading-relaxed">ابدأ رحلتك التعليمية من خلال الدروس المرئية المتاحة الآن.</p>
           <div className="flex flex-col gap-3 text-sm font-medium text-blue-100">
             {["✦ دروس مرئية منظمة", "✦ محتوى تعليمي واضح", "✦ تجربة مشاهدة سهلة"].map(f => (

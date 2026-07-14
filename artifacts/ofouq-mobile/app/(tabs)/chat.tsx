@@ -38,7 +38,7 @@ const SUGGESTIONS = [
 const INITIAL_MSG: Message = {
   id: "0",
   role: "assistant",
-  content: "مرحباً! أنا مساعدك الذكي في منصة أفق التفوق. كيف يمكنني مساعدتك في رحلتك التعليمية اليوم؟",
+  content: "مرحباً! أنا مساعدك الذكي في منصة التفوق. كيف يمكنني مساعدتك في رحلتك التعليمية اليوم؟",
   timestamp: new Date(),
 };
 

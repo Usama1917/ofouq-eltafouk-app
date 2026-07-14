@@ -130,7 +130,7 @@ async function ensureAndroidChannel() {
   configureNotificationHandler(Notifications);
 
   const channel = await Notifications.setNotificationChannelAsync(PUSH_CHANNEL_ID, {
-    name: "أفق التفوق",
+    name: "التفوق",
     description: "تنبيهات الدروس والدعم والرسائل المهمة",
     importance: Notifications.AndroidImportance.MAX,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
