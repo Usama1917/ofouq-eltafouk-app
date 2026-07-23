@@ -16,6 +16,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **UX:** RTL/i18n everywhere (Western digits); 401 → auto sign-out + redirect on both clients; refresh must not bounce logged-in users; respect `prefers-reduced-motion`; `SOFT_LAUNCH_MODE` hides Books+AI.
 
+**Motion principle (owner-mandated, app-wide):** EVERY state change must feel smooth — never a hard/instant jump. Any transition from one state to another (screen ↔ screen navigation, show/hide, expand/collapse, press feedback, loading→loaded, tab/list changes, layout shifts, value/number changes) gets a gentle animated transition (fade / spring / layout animation / crossfade). Default to soft spring or ease timing; keep it quick and subtle (not flashy). ALWAYS gate motion on `prefers-reduced-motion` (web) / reduce-motion (RN) so it degrades to instant for users who ask for less motion. When building or editing ANY UI, animate the transition by default — don't ship instant state flips.
+
 **Performance:** keep video/list endpoints paginated and cache-safe; DB pool tuned in `lib/db`. `replit.md` is stale on auth.
 
 **Deferred review items:** intentionally-postponed code-review findings (internal refactors / cleanups, not urgent) are listed in `magazine_details.md` — a backlog, not open bugs.

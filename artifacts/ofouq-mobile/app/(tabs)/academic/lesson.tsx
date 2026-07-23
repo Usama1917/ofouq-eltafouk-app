@@ -161,7 +161,7 @@ export default function LessonDetailScreen() {
   const initialSeekSeconds = Math.max(0, Math.floor(Number(seekSeconds) || 0));
   const shouldAutoResume = resumeFromNotification === "1" && initialSeekSeconds > 0;
   // Measured so the header grows for a 2-line title instead of clipping it.
-  const [headerHeight, setHeaderHeight] = useState(insets.top + 126);
+  const [headerHeight, setHeaderHeight] = useState(insets.top + 92);
 
   // "+points" celebration shown once, when this lesson first crosses to completed.
   const queryClient = useQueryClient();
@@ -323,7 +323,8 @@ export default function LessonDetailScreen() {
           ]}
         />
         <View style={[styles.topBarContent, { paddingHorizontal: HORIZONTAL_PADDING }]}>
-          <View style={styles.backCornerRow}>
+          {/* One compact row: back button (LEFT) · title · bookmark star (RIGHT). */}
+          <View style={{ direction: "ltr", flexDirection: "row", alignItems: "center", gap: 12 }}>
             <Pressable
               onPress={backToLessonsList}
               hitSlop={8}
@@ -337,29 +338,27 @@ export default function LessonDetailScreen() {
               ]}
             >
               <Feather name="arrow-left" size={20} color={colors.textSecondary} />
-              <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>
-                {strings.academic.lessons}
-              </Text>
             </Pressable>
+
+            <View style={[styles.titleBlock, { flex: 1, direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+              <AutoFitTitle
+                style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]}
+                maxFontSize={24}
+                minFontSize={17}
+                maxLines={2}
+              >
+                {localizeAcademicText(lesson?.title ?? String(lessonTitle ?? strings.academic.lesson), language, lesson?.titleEn)}
+              </AutoFitTitle>
+              <Text style={[styles.lessonDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
+                {lesson?.description ? localizeAcademicText(lesson.description, language, lesson.descriptionEn) : strings.academic.chooseLesson}
+              </Text>
+            </View>
+
             {lesson?.id && user?.role === "student" ? (
               <View style={[styles.starButton, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <BookmarkStar lessonId={lesson.id} size={22} />
               </View>
             ) : null}
-          </View>
-
-          <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-            <AutoFitTitle
-              style={[styles.lessonTitle, { color: colors.text, textAlign, writingDirection: direction }]}
-              maxFontSize={28}
-              minFontSize={18}
-              maxLines={2}
-            >
-              {localizeAcademicText(lesson?.title ?? String(lessonTitle ?? strings.academic.lesson), language, lesson?.titleEn)}
-            </AutoFitTitle>
-            <Text style={[styles.lessonDesc, { color: colors.textSecondary, textAlign, writingDirection: direction }]} numberOfLines={1}>
-              {lesson?.description ? localizeAcademicText(lesson.description, language, lesson.descriptionEn) : strings.academic.chooseLesson}
-            </Text>
           </View>
         </View>
       </View>
@@ -548,13 +547,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   backButton: {
-    minHeight: 40,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
-    paddingHorizontal: 13,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    justifyContent: "center",
     direction: "ltr",
     shadowColor: "#1E3A8A",
     shadowOffset: { width: 0, height: 10 },

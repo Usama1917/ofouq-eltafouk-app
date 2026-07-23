@@ -18,7 +18,6 @@ import { toEnglishDigits } from "@/lib/format";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AutoFitTitle } from "@/components/AutoFitTitle";
-import { SearchButton } from "@/components/SearchButton";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePreferences } from "@/contexts/PreferencesContext";
@@ -239,7 +238,7 @@ export default function SubjectsScreen() {
   const title = String(yearName ?? strings.academic.subjects);
   const displayTitle = localizeAcademicText(title, language, yearNameEn ? String(yearNameEn) : undefined);
   // Measured so the header grows for a 2-line title instead of clipping it.
-  const [headerHeight, setHeaderHeight] = useState(insets.top + 134);
+  const [headerHeight, setHeaderHeight] = useState(insets.top + 96);
 
   useEffect(() => {
     navigation.setOptions({ title: displayTitle });
@@ -327,8 +326,8 @@ export default function SubjectsScreen() {
           ]}
         />
         <View style={[styles.topBarContent, { paddingHorizontal: 18 }]}>
-          {/* Back button: pinned to the physical LEFT, on its own row at the top. */}
-          <View style={[styles.backCornerRow, { direction: "ltr", alignItems: "flex-start" }]}>
+          {/* One compact row: back button on the physical LEFT, title + its icon on the RIGHT. */}
+          <View style={{ direction: "ltr", flexDirection: "row", alignItems: "center", gap: 12 }}>
             <Pressable
               onPress={backToYears}
               hitSlop={8}
@@ -342,16 +341,7 @@ export default function SubjectsScreen() {
               ]}
             >
               <Feather name="arrow-left" size={20} color={colors.textSecondary} />
-              <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>
-                {strings.academic.years}
-              </Text>
             </Pressable>
-          </View>
-
-          {/* Row below: search on the LEFT (under the back button), title + its icon on the
-              RIGHT — the search sits on the same line as the title icon. */}
-          <View style={{ direction: "ltr", flexDirection: "row", alignItems: "center", gap: 12, marginTop: 10 }}>
-            <SearchButton />
             <View style={[styles.titleRow, { flex: 1, flexDirection: rowDirection, direction }]}>
               <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
                 <Feather name="book-open" size={23} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
@@ -493,13 +483,13 @@ const styles = StyleSheet.create({
     direction: "ltr",
   },
   backButton: {
-    minHeight: 40,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
-    paddingHorizontal: 13,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    justifyContent: "center",
     direction: "ltr",
     shadowColor: "#1E3A8A",
     shadowOffset: { width: 0, height: 10 },

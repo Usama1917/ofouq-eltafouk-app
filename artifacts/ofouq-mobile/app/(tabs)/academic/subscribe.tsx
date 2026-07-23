@@ -309,7 +309,6 @@ export default function SubscribeScreen() {
               ]}
             >
               <Feather name="arrow-left" size={20} color={colors.textSecondary} />
-              <Text style={[styles.backText, { color: colors.text, writingDirection: direction }]}>{tr.backToSubjects}</Text>
             </Pressable>
           </View>
 
@@ -526,13 +525,13 @@ const styles = StyleSheet.create({
   },
   backButton: {
     alignSelf: "flex-start",
-    minHeight: 40,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
-    paddingHorizontal: 13,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    justifyContent: "center",
     direction: "ltr",
     shadowColor: "#1E3A8A",
     shadowOffset: { width: 0, height: 10 },
