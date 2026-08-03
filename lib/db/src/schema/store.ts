@@ -82,12 +82,38 @@ export const ordersTable = pgTable(
     voucherCode: text("voucher_code"),
     // "cod" (cash on delivery) to start; card/wallet gateways come later.
     paymentMethod: text("payment_method").notNull().default("cod"),
+    // ── ERPNext sync ────────────────────────────────────────────────────────
+    // Checkout must NEVER fail because the ERP is unreachable, so an order is
+    // saved first and pushed after: this column is the outbox state driving the
+    // retry worker.
+    //   pending → not pushed yet · sent → the invoice exists · failed → retrying
+    //   skipped → integration disabled/not configured (nothing to do)
+    erpSyncState: text("erp_sync_state").notNull().default("pending"),
+    // The ERPNext Sales Invoice name (e.g. "ACC-SINV-2026-00123"). Also the
+    // idempotency marker: an order that already has one is never pushed twice.
+    erpInvoiceName: text("erp_invoice_name"),
+    // Last failure reason, surfaced in the admin so a stuck order is visible
+    // rather than silently missing from the ERP.
+    erpSyncError: text("erp_sync_error"),
+    erpSyncedAt: timestamp("erp_synced_at", { withTimezone: true }),
+    // Courier waybill ("بوليصة") assigned in the ERP. `shippingNumber` is the
+    // first/primary one; `shippingNumbers` holds them all, because one order can
+    // be split across several packages and therefore several waybills — without
+    // the list a split shipment is indistinguishable from a single one.
+    shippingNumber: text("shipping_number"),
+    shippingNumbers: jsonb("shipping_numbers").$type<string[]>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     userIdx: index("orders_user_idx").on(table.userId),
     statusIdx: index("orders_status_idx").on(table.status),
+    // The retry worker scans for pending/failed pushes every cycle — without this
+    // it would sequential-scan the whole orders table each time.
+    erpSyncIdx: index("orders_erp_sync_idx").on(table.erpSyncState),
+    // Status webhooks arrive keyed by the ERP's invoice name, so that lookup is
+    // the hot path on the inbound side.
+    erpInvoiceIdx: index("orders_erp_invoice_idx").on(table.erpInvoiceName),
   }),
 );
 

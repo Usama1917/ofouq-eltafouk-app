@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ShoppingCart, Search, X, Download, AlertTriangle, Package, Phone, MapPin } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ShoppingCart, Search, X, Download, AlertTriangle, Package, Phone, MapPin, ChevronLeft, ChevronRight } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const apiPath = (path: string) => `${BASE}${path}`;
@@ -56,8 +56,13 @@ function StatusBadge({ status }: { status: OrderStatus }) {
   return <span className={`inline-block rounded-full px-2.5 py-1 text-[11px] font-bold ${m.cls}`}>{m.label}</span>;
 }
 
+const PAGE_SIZE = 50;
+
 export default function OrdersTab() {
   const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [lowStock, setLowStock] = useState<LowStock | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -66,20 +71,31 @@ export default function OrdersTab() {
   const [selected, setSelected] = useState<OrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
-  async function load(silent = false) {
+  // Shared by the table (one page) and the Excel export (everything matching).
+  function queryParams(extra?: Record<string, string>) {
+    const params = new URLSearchParams();
+    if (statusFilter) params.set("status", statusFilter);
+    if (search.trim()) params.set("q", search.trim());
+    for (const [k, v] of Object.entries(extra ?? {})) params.set(k, v);
+    return params;
+  }
+
+  async function load(silent = false, targetPage = page) {
     if (!silent) setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams();
-      if (statusFilter) params.set("status", statusFilter);
-      if (search.trim()) params.set("q", search.trim());
+      const params = queryParams({ limit: String(PAGE_SIZE), offset: String(targetPage * PAGE_SIZE) });
       const [oRes, lsRes] = await Promise.all([
         fetch(apiPath(`/api/admin/orders?${params.toString()}`), { headers: authHeader() }),
         fetch(apiPath("/api/admin/store/low-stock"), { headers: authHeader() }),
       ]);
       if (!oRes.ok) throw new Error("تعذّر تحميل الطلبات");
-      setOrders(await oRes.json());
+      const data = await oRes.json();
+      setOrders(data.orders ?? []);
+      setTotal(data.total ?? 0);
+      setStatusCounts(data.statusCounts ?? {});
       if (lsRes.ok) setLowStock(await lsRes.json());
     } catch (err) {
       setError(err instanceof Error ? err.message : "حدث خطأ");
@@ -88,10 +104,16 @@ export default function OrdersTab() {
     }
   }
 
+  // Changing the filter or the search invalidates the current page number.
+  function applyFilters(nextStatus: "" | OrderStatus = statusFilter) {
+    setStatusFilter(nextStatus);
+    setPage(0);
+  }
+
   useEffect(() => {
-    void load();
+    void load(false, page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
+  }, [statusFilter, page]);
 
   async function openOrder(id: number) {
     setDetailLoading(true);
@@ -127,9 +149,27 @@ export default function OrdersTab() {
     }
   }
 
-  function exportCsv() {
+  // Exports EVERY order matching the current filter/search — not just the page on
+  // screen — so paginating the table never silently shrinks the export.
+  async function exportCsv() {
+    setExporting(true);
+    setError("");
+    try {
+      const params = queryParams({ limit: "10000", offset: "0" });
+      const res = await fetch(apiPath(`/api/admin/orders?${params.toString()}`), { headers: authHeader() });
+      if (!res.ok) throw new Error("تعذّر تحميل الطلبات للتصدير");
+      const data = await res.json();
+      buildCsv(data.orders ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذّر التصدير");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function buildCsv(rowsToExport: OrderRow[]) {
     const headers = ["رقم الطلب", "الحالة", "الاسم", "التليفون", "المحافظة", "الإجمالي", "الدفع", "عدد الكتب", "التاريخ"];
-    const rows = orders.map((o) => [
+    const rows = rowsToExport.map((o) => [
       o.orderNumber ?? String(o.id),
       STATUS_META[o.status]?.label ?? o.status,
       o.recipientName,
@@ -151,11 +191,9 @@ export default function OrdersTab() {
     URL.revokeObjectURL(url);
   }
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {};
-    for (const o of orders) c[o.status] = (c[o.status] ?? 0) + 1;
-    return c;
-  }, [orders]);
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const firstShown = total === 0 ? 0 : page * PAGE_SIZE + 1;
+  const lastShown = Math.min(total, page * PAGE_SIZE + orders.length);
 
   if (loading) {
     return <div className="glass-card p-8 text-center text-sm font-bold text-muted-foreground">جاري التحميل...</div>;
@@ -170,8 +208,12 @@ export default function OrdersTab() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">طلبات المتجر — غيّر الحالة عشان الطالب يتابع شحنته.</p>
         </div>
-        <button onClick={exportCsv} className="text-xs py-2 px-4 rounded-xl border border-primary/30 bg-primary/5 font-bold text-primary flex items-center gap-1.5 hover:bg-primary/10">
-          <Download className="w-4 h-4" /> تصدير Excel
+        <button
+          onClick={() => void exportCsv()}
+          disabled={exporting}
+          className="text-xs py-2 px-4 rounded-xl border border-primary/30 bg-primary/5 font-bold text-primary flex items-center gap-1.5 hover:bg-primary/10 transition-colors disabled:opacity-60"
+        >
+          <Download className="w-4 h-4" /> {exporting ? "جاري التصدير..." : "تصدير Excel"}
         </button>
       </div>
 
@@ -189,22 +231,22 @@ export default function OrdersTab() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && void load()}
+            onKeyDown={(e) => e.key === "Enter" && (page === 0 ? void load() : setPage(0))}
             placeholder="ابحث برقم الطلب / الاسم / التليفون / المحافظة"
             dir="rtl"
             className="flex-1 bg-transparent text-sm outline-none"
           />
-          <button onClick={() => void load()} className="text-xs font-bold text-primary">بحث</button>
+          <button onClick={() => (page === 0 ? void load() : setPage(0))} className="text-xs font-bold text-primary">بحث</button>
         </div>
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as "" | OrderStatus)}
+          onChange={(e) => applyFilters(e.target.value as "" | OrderStatus)}
           className="rounded-2xl border border-border bg-background px-3 py-2 text-sm font-semibold"
         >
           <option value="">كل الحالات</option>
           {ORDER_STATUSES.map((s) => (
             <option key={s} value={s}>
-              {STATUS_META[s].label} {counts[s] ? `(${counts[s]})` : ""}
+              {STATUS_META[s].label} {statusCounts[s] ? `(${statusCounts[s]})` : ""}
             </option>
           ))}
         </select>
@@ -250,6 +292,34 @@ export default function OrdersTab() {
           </div>
         </div>
       )}
+
+      {/* Pagination — hidden while everything fits on one page */}
+      {total > PAGE_SIZE ? (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <span className="text-xs font-bold text-muted-foreground">
+            <span dir="ltr">{firstShown}–{lastShown}</span> من <span dir="ltr">{total}</span> طلب
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="text-xs py-2 px-3 rounded-xl border border-border font-bold flex items-center gap-1 hover:bg-primary/5 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+            >
+              <ChevronRight className="w-4 h-4" /> السابق
+            </button>
+            <span className="text-xs font-bold text-muted-foreground px-1" dir="ltr">
+              {page + 1} / {pageCount}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              disabled={page >= pageCount - 1}
+              className="text-xs py-2 px-3 rounded-xl border border-border font-bold flex items-center gap-1 hover:bg-primary/5 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+            >
+              التالي <ChevronLeft className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {/* Detail modal */}
       {selected ? (

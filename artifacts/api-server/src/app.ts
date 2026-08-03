@@ -150,7 +150,25 @@ app.use("/api/uploads/subscription-codes", (req: Request, res: Response, next: N
 
 app.use(
   "/api/uploads",
-  express.static(path.resolve(process.cwd(), "uploads"), { dotfiles: "deny", index: false }),
+  express.static(path.resolve(process.cwd(), "uploads"), {
+    dotfiles: "deny",
+    index: false,
+    setHeaders: (res, filePath) => {
+      // Payment-proof screenshots stay private and uncached — they're gated by the
+      // session check above and must not linger in any intermediate cache.
+      if (filePath.includes(`${path.sep}subscription-codes${path.sep}`)) return;
+      // Everything else under uploads is an IMMUTABLE asset with a random,
+      // content-unique filename (book covers, sample pages…): editing a book
+      // uploads a new file rather than overwriting one, so these can be cached
+      // hard and forever.
+      //
+      // This overrides the blanket `Cache-Control: no-store` set for /api/ above,
+      // which is right for JSON but was forcing every image to be re-downloaded on
+      // EVERY screen open — it also silently defeated the reader's image prefetch,
+      // and was the real reason the book sample felt slow however small the pages.
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    },
+  }),
 );
 
 app.use("/api", router);

@@ -26,6 +26,9 @@ export type StoreBook = {
   imageUrls: string[] | null;
   unlocksSubjectId: number | null;
   favorite?: boolean;
+  // v2 — "نسخة الاطلاع". The catalog sends only this flag (for the badge); the
+  // detail endpoint sends the actual pages below.
+  hasPreview?: boolean;
 };
 
 // Pick the best cover for a slot. `landscape` = full-width card, else grid card;
@@ -56,6 +59,10 @@ export function pickBookCover(
 export type StoreBookDetail = StoreBook & {
   unlocksSubject: { id: number; name: string } | null;
   related: StoreBook[];
+  /** Ordered sample page images. Empty = this book has no sample. */
+  previewPages: string[];
+  /** Which way the sample reader flips — owner-set per book. */
+  previewDirection: "rtl" | "ltr";
 };
 
 export type CartLine = {
@@ -105,6 +112,9 @@ function resolveBookDetailMedia(book: StoreBookDetail): StoreBookDetail {
   return {
     ...resolveBookMedia(book),
     related: book.related.map(resolveBookMedia),
+    // Sample pages are stored as server-relative paths like the covers, so they
+    // need the same host prefixing before <Image> can load them.
+    previewPages: resolveImageUrls(book.previewPages) ?? [],
   };
 }
 

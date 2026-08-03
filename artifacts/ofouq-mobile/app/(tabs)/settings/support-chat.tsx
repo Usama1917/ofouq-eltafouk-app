@@ -218,7 +218,7 @@ export default function SupportChatScreen() {
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [quickQuestionsDismissed, setQuickQuestionsDismissed] = useState(false);
   const quickQuestions = language === "ar" ? QUICK_QUESTIONS_AR : QUICK_QUESTIONS_EN;
-  const headerOverlayHeight = insets.top + 150;
+  const headerOverlayHeight = insets.top + 92;
   const inputTextFlow = getTextFlow(message, direction);
 
   const queryKey = ["support", "me", token] as const;
@@ -358,28 +358,13 @@ export default function SupportChatScreen() {
         style={StyleSheet.absoluteFill}
       />
 
-      <View style={[styles.pageBackWrap, { top: insets.top + 12 }]}>
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={8}
-          style={({ pressed }) => [
-            styles.pageBackButton,
-            { backgroundColor: pressed ? colors.surfaceSecondary : colors.card, borderColor: colors.border },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={strings.common.back}
-        >
-          <Feather name="arrow-left" size={20} color={colors.textSecondary} />
-        </Pressable>
-      </View>
-
       <View style={styles.content}>
         <View
           style={[
             styles.header,
             {
               height: headerOverlayHeight,
-              paddingTop: insets.top + 60,
+              paddingTop: insets.top + 14,
               flexDirection: rowDirection,
               direction,
             },
@@ -401,17 +386,35 @@ export default function SupportChatScreen() {
               },
             ]}
           />
-          <View style={[styles.headerContent, { paddingHorizontal: 18, flexDirection: rowDirection, direction }]}>
-            <View style={styles.headerIcon}>
-              <Feather name="headphones" size={24} color={COLORS.primary} />
-            </View>
-            <View style={[styles.headerTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-              <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
-                {strings.settings.supportChatTitle}
-              </Text>
-              <Text style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
-                {strings.settings.supportChatSubtitle}
-              </Text>
+          {/* Compact one-row header (matches «تواصل معنا» / «سجل المشاهدة»):
+              arrow-only back on the LEFT, then icon + title + subtitle beside it.
+              It used to stack the back button above the title block, which cost
+              ~60px of dead height and pushed the conversation down the screen. */}
+          <View style={[styles.headerContent, { paddingHorizontal: 18, direction: "ltr", flexDirection: "row", alignItems: "center", gap: 12 }]}>
+            <Pressable
+              onPress={() => router.back()}
+              hitSlop={8}
+              style={({ pressed }) => [
+                styles.pageBackButton,
+                { backgroundColor: pressed ? colors.surfaceSecondary : colors.card, borderColor: colors.border },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={strings.common.back}
+            >
+              <Feather name="arrow-left" size={20} color={colors.textSecondary} />
+            </Pressable>
+            <View style={{ flex: 1, flexDirection: rowDirection, direction, alignItems: "center", gap: 12 }}>
+              <View style={styles.headerIcon}>
+                <Feather name="headphones" size={21} color={COLORS.primary} />
+              </View>
+              <View style={[styles.headerTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                <Text numberOfLines={1} style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
+                  {strings.settings.supportChatTitle}
+                </Text>
+                <Text numberOfLines={1} style={[styles.subtitle, { color: colors.textSecondary, textAlign, writingDirection: direction }]}>
+                  {strings.settings.supportChatSubtitle}
+                </Text>
+              </View>
             </View>
           </View>
         </View>
@@ -591,11 +594,6 @@ export default function SupportChatScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { flex: 1 },
-  pageBackWrap: {
-    position: "absolute",
-    left: 18,
-    zIndex: 20,
-  },
   pageBackButton: {
     width: 40,
     height: 40,
@@ -621,9 +619,9 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   headerIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 21,
+    width: 46,
+    height: 46,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
@@ -633,14 +631,14 @@ const styles = StyleSheet.create({
   headerTextBlock: { flex: 1, alignItems: "flex-end", justifyContent: "center" },
   title: {
     ...FONT.bold,
-    fontSize: 25,
-    lineHeight: 36,
+    fontSize: 20,
+    lineHeight: 28,
     textAlign: "right",
   },
   subtitle: {
     ...FONT.regular,
-    fontSize: 15,
-    lineHeight: 24,
+    fontSize: 13,
+    lineHeight: 18,
     textAlign: "right",
   },
   loadingWrap: {

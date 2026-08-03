@@ -35,6 +35,22 @@ export const booksTable = pgTable("books", {
   // book with no digital content). Plain int (no FK) to avoid a cross-schema
   // import cycle; the store joins it to `subjects` manually.
   unlocksSubjectId: integer("unlocks_subject_id"),
+  // ── v2 — "نسخة الاطلاع" (free sample) ─────────────────────────────────────
+  // Ordered page images of a short sample the student can read before buying.
+  // Always IMAGES even when the owner uploads a PDF: the dashboard rasterises
+  // the PDF page-by-page in the browser and uploads the results, so the app
+  // never has to render a PDF. null / [] = this book has no sample.
+  previewPages: jsonb("preview_pages").$type<string[]>(),
+  // Which way the sample reader flips: "rtl" (Arabic) or "ltr" (English).
+  // Owner-set per book — never guessed from the title.
+  previewDirection: text("preview_direction").notNull().default("rtl"),
+  // ── ERPNext link ──────────────────────────────────────────────────────────
+  // The Item this book maps to in the owner's ERPNext ("Item Code"). Set from a
+  // picker in the admin, never typed. When present, the ERP becomes the source of
+  // truth for this book's stock and `stockQuantity` is a synced cache of it.
+  erpItemCode: text("erp_item_code"),
+  // When that cached stock was last refreshed from the ERP (null = never).
+  erpStockSyncedAt: timestamp("erp_stock_synced_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

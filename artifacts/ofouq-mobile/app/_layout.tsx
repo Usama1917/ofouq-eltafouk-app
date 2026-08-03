@@ -13,6 +13,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import InAppNotificationBanner from "@/components/InAppNotificationBanner";
 import { getAppIsRTL } from "@/lib/appDirection";
 import { FONT } from "@/constants/typography";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
@@ -144,7 +145,15 @@ function RootLayoutNav() {
         <Stack.Screen name="setup-phone" options={{ headerShown: false }} />
         <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
         <Stack.Screen name="quiz" options={{ headerShown: false }} />
+        {/* The book sample reader lives at the ROOT, not inside (tabs): a page has
+            to fill the whole screen, and the bottom tab bar renders above every
+            tab screen so it would otherwise sit on top of the page scrubber.
+            Slides in horizontally like a normal push (and reverses on back). */}
+        <Stack.Screen name="book-preview" options={{ headerShown: false, animation: "slide_from_right" }} />
       </Stack>
+      {/* Sits OUTSIDE the Stack so a foreground push banner floats above whatever
+          screen is open, instead of being clipped by the current one. */}
+      <InAppNotificationBanner />
     </ThemeProvider>
   );
 }
@@ -181,13 +190,16 @@ function PushNotificationsBootstrap() {
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    // Android renders Arabic in IBM Plex Sans Arabic (open-source OFL, full weights, iOS-SF-like).
-    // Each weight is its own family so real bold works reliably. iOS uses its system font and
-    // ignores these. See constants/typography.ts.
-    IBMPlexSansArabic_400Regular: require("../assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Regular.ttf"),
-    IBMPlexSansArabic_500Medium: require("../assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Medium.ttf"),
-    IBMPlexSansArabic_600SemiBold: require("../assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-SemiBold.ttf"),
-    IBMPlexSansArabic_700Bold: require("../assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Bold.ttf"),
+    // Android renders Arabic in Teshrin (the owner's brand typeface — same one used on
+    // the printed books; switched from IBM Plex Sans Arabic 2026-08-03 on the owner's
+    // request). Each weight is its own family so real bold works reliably. iOS keeps
+    // its system font and ignores these. The names bake in each file's TRUE OS/2
+    // weight — Teshrin's style names run heavy ("Bold" is 600, "Heavy" is 800) — so
+    // typography.ts maps slots by number, not by the misleading style name.
+    Teshrin_350Light: require("../assets/fonts/Teshrin/Teshrin-Light.otf"),
+    Teshrin_500Medium: require("../assets/fonts/Teshrin/Teshrin-Medium.otf"),
+    Teshrin_600Bold: require("../assets/fonts/Teshrin/Teshrin-Bold.otf"),
+    Teshrin_800Heavy: require("../assets/fonts/Teshrin/Teshrin-Heavy.otf"),
   });
 
   useEffect(() => {

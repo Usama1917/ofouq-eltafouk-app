@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { assertRequiredTablesExist, databaseUrlSource, waitForDatabase } from "@workspace/db";
 import { startGamificationAutomationWorker } from "./lib/automated-messages";
+import { startErpWorker } from "./lib/erp-worker";
 
 const rawPort = process.env["PORT"];
 
@@ -63,6 +64,9 @@ async function start() {
     // v2 Phase 1: seed the automated-message defaults and start the daily worker that
     // sends the evening streak reminder at its configured Cairo hour.
     startGamificationAutomationWorker();
+    // Retries orders that couldn't reach ERPNext and keeps book stock in step
+    // with the warehouse. No-ops when the integration isn't configured.
+    startErpWorker();
   });
 
   // Graceful shutdown (review B-14): stop accepting new connections and let

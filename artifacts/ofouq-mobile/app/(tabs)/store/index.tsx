@@ -1,11 +1,13 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Easing, FlatList, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { ActivityIndicator, Animated, Easing, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import ListErrorState from "@/components/ListErrorState";
 import { COLORS } from "@/constants/colors";
 import { FONT } from "@/constants/typography";
 import { useAuth } from "@/contexts/AuthContext";
@@ -37,12 +39,17 @@ const isArabicText = (s: string) => AR_RE.test(s ?? "");
 // fires before the chips are measured and reports a too-small height — which the
 // animated wrapper then clips to a thin strip. The gap ABOVE the chips lives on the
 // search box (marginBottom) so it survives when the chips collapse on scroll-down —
-// that leaves a small breathing gap under the search bar. CHIPS_TOTAL_H = chip + bottom gap.
+// that leaves a small breathing gap under the search bar. CHIP_ROW_H = chip + bottom gap.
 const CHIP_H = 36;
 const CHIPS_GAP = 12;
-const CHIPS_TOTAL_H = CHIP_H + CHIPS_GAP;
+// Each chip row costs its own height + the gap under it, so the collapsible
+// wrapper's height is a multiple of this (grade row + category row).
+const CHIP_ROW_H = CHIP_H + CHIPS_GAP;
 
 type DisplayRow = { type: "normal" | "carousel"; title?: string; titleEn?: string; books: StoreBook[] };
+
+/** A single filter chip. `key: ""` is the "all" reset chip. */
+type Chip = { key: string; label: string };
 
 // Split a flat list into rows of `size` (the default 2-per-row grid).
 function chunk(list: StoreBook[], size: number): StoreBook[][] {
@@ -81,7 +88,7 @@ function buildCatalogRows(filtered: StoreBook[], all: StoreBook[], layout: Layou
 
 export default function StoreCatalogScreen() {
   const { token } = useAuth();
-  const { colors, resolvedScheme, language, isRTL, direction } = usePreferences();
+  const { colors, resolvedScheme, language, isRTL, direction, reduceMotion } = usePreferences();
   const en = language === "en";
   const insets = useSafeAreaInsets();
   const { width: screenW } = useWindowDimensions();
@@ -91,7 +98,7 @@ export default function StoreCatalogScreen() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("");
 
-  const { data: books = [], isLoading, refetch } = useQuery({
+  const { data: books = [], isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: storeBooksKey(),
     queryFn: () => listBooks(token),
     enabled: !!token,
@@ -122,6 +129,11 @@ export default function StoreCatalogScreen() {
   const rows = useMemo(
     () => buildCatalogRows(filtered, books, layoutData?.layout ?? null, hasFilter, maxCols),
     [filtered, books, layoutData, hasFilter, maxCols],
+  );
+
+  const categoryChips = useMemo<Chip[]>(
+    () => [{ key: "", label: en ? "All" : "الكل" }, ...categories.map((c) => ({ key: c, label: c }))],
+    [categories, en],
   );
 
   // Category chips: shown on open, hide when scrolling down, reveal on scroll up.
@@ -214,34 +226,12 @@ export default function StoreCatalogScreen() {
       {categories.length > 0 ? (
         <Animated.View
           style={{
-            height: chipsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, CHIPS_TOTAL_H] }),
+            height: chipsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, CHIP_ROW_H] }),
             opacity: chipsAnim,
             overflow: "hidden",
           }}
         >
-          <FlatList
-            data={["", ...categories]}
-            keyExtractor={(c) => c || "all"}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.chipBar}
-            // flexGrow:1 makes the row fill the width so a few chips hug the reading side
-            // (right in Arabic via row-reverse, left in English) instead of the scroll origin.
-            contentContainerStyle={{ flexGrow: 1, gap: 8, paddingHorizontal: 20, flexDirection: row(en), alignItems: "center" }}
-            renderItem={({ item }) => {
-              const active = category === item;
-              return (
-                <Pressable
-                  onPress={() => setCategory(item)}
-                  style={[styles.chip, { backgroundColor: active ? COLORS.primary : controlBg, borderWidth: 1, borderColor: active ? "transparent" : controlBorder }]}
-                >
-                  <Text style={[styles.chipText, { color: active ? "#fff" : colors.textSecondary }]}>
-                    {item || (en ? "All" : "الكل")}
-                  </Text>
-                </Pressable>
-              );
-            }}
-          />
+          <ChipRow items={categoryChips} activeKey={category} onPick={setCategory} en={en} colors={colors} controlBg={controlBg} controlBorder={controlBorder} />
         </Animated.View>
       ) : null}
 
@@ -249,6 +239,8 @@ export default function StoreCatalogScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={COLORS.primary} />
         </View>
+      ) : isError ? (
+        <ListErrorState onRetry={() => void refetch()} retrying={isFetching} />
       ) : (
         <FlatList
           data={rows}
@@ -287,7 +279,7 @@ export default function StoreCatalogScreen() {
                     books={r.books}
                     cardW={cardW}
                     renderCard={(b) => (
-                      <BookCard book={b} single={false} width={cardW} colors={colors} isDark={resolvedScheme === "dark"} en={en} isRTL={isRTL} onFav={() => toggleFav(b)} />
+                      <BookCard book={b} single={false} width={cardW} colors={colors} isDark={resolvedScheme === "dark"} en={en} isRTL={isRTL} reduceMotion={reduceMotion} onFav={() => toggleFav(b)} />
                     )}
                   />
                 </View>
@@ -301,7 +293,7 @@ export default function StoreCatalogScreen() {
                 {heading}
                 <View style={{ flexDirection: row(en), flexWrap: "wrap", gap: 12, direction: "ltr" }}>
                   {r.books.map((b, idx) => (
-                    <BookCard key={`${b.id}-${idx}`} book={b} single={single} width={cardW} colors={colors} isDark={resolvedScheme === "dark"} en={en} isRTL={isRTL} onFav={() => toggleFav(b)} />
+                    <BookCard key={`${b.id}-${idx}`} book={b} single={single} width={cardW} colors={colors} isDark={resolvedScheme === "dark"} en={en} isRTL={isRTL} reduceMotion={reduceMotion} onFav={() => toggleFav(b)} />
                   ))}
                 </View>
               </View>
@@ -313,6 +305,57 @@ export default function StoreCatalogScreen() {
   );
 }
 
+// The catalog's filter line. The first chip is always the "all" reset (key: "").
+function ChipRow({
+  items,
+  activeKey,
+  onPick,
+  en,
+  colors,
+  controlBg,
+  controlBorder,
+}: {
+  items: Chip[];
+  activeKey: string;
+  onPick: (key: string) => void;
+  en: boolean;
+  colors: typeof COLORS.light;
+  controlBg: string;
+  controlBorder: string;
+}) {
+  return (
+    <FlatList
+      data={items}
+      keyExtractor={(c) => c.key || "all"}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.chipBar}
+      // flexGrow:1 makes the row fill the width so a few chips hug the reading side
+      // (right in Arabic via row-reverse, left in English) instead of the scroll origin.
+      contentContainerStyle={{ flexGrow: 1, gap: 8, paddingHorizontal: 20, flexDirection: en ? "row" : "row-reverse", alignItems: "center" }}
+      renderItem={({ item }) => {
+        const active = activeKey === item.key;
+        return (
+          <Pressable
+            onPress={() => onPick(item.key)}
+            style={({ pressed }) => [
+              styles.chip,
+              {
+                backgroundColor: active ? COLORS.primary : controlBg,
+                borderWidth: 1,
+                borderColor: active ? "transparent" : controlBorder,
+                transform: [{ scale: pressed ? 0.96 : 1 }],
+              },
+            ]}
+          >
+            <Text style={[styles.chipText, { color: active ? "#fff" : colors.textSecondary }]}>{item.label}</Text>
+          </Pressable>
+        );
+      }}
+    />
+  );
+}
+
 function BookCard({
   book,
   single,
@@ -321,6 +364,7 @@ function BookCard({
   isDark,
   en,
   isRTL,
+  reduceMotion,
   onFav,
 }: {
   book: StoreBook;
@@ -330,6 +374,7 @@ function BookCard({
   isDark: boolean;
   en: boolean;
   isRTL: boolean;
+  reduceMotion: boolean;
   onFav: () => void;
 }) {
   const out = book.stockQuantity <= 0;
@@ -338,6 +383,17 @@ function BookCard({
   // renders each as a grid card → portrait (3:4).
   const cover = pickBookCover(book, { landscape: single, dark: isDark });
   const aspectRatio = single ? 16 / 9 : 3 / 4;
+
+  // The detail screen opens on the LANDSCAPE art while a grid card shows the
+  // PORTRAIT one — two different files. Pulling the other orientation down now,
+  // quietly, is what makes the banner appear the instant the card is tapped
+  // instead of after a download. Cheap: it only ever runs for cards that actually
+  // reached the screen, and a cached URL is a no-op.
+  const detailCover = pickBookCover(book, { landscape: true, dark: isDark });
+  useEffect(() => {
+    if (!detailCover || detailCover === cover) return;
+    void Image.prefetch(detailCover, "memory-disk").catch(() => false);
+  }, [detailCover, cover]);
   return (
     <Pressable
       onPress={() => router.push({ pathname: "/(tabs)/store/book", params: { bookId: String(book.id) } })}
@@ -345,7 +401,16 @@ function BookCard({
     >
       <View style={styles.coverWrap}>
         {cover ? (
-          <Image source={{ uri: cover }} style={[styles.cover, { aspectRatio }]} resizeMode="cover" />
+          <Image
+            source={{ uri: cover }}
+            style={[styles.cover, { aspectRatio }]}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            // Cards are recycled as the list scrolls; without this the view can
+            // briefly show the PREVIOUS book's art before the new one decodes.
+            recyclingKey={String(book.id)}
+            transition={reduceMotion ? 0 : 180}
+          />
         ) : (
           <LinearGradient colors={[COLORS.primary + "22", COLORS.primary + "0A"]} style={[styles.cover, { aspectRatio }]}>
             <Feather name="book-open" size={30} color={COLORS.primary} />
@@ -354,6 +419,13 @@ function BookCard({
         <Pressable onPress={onFav} hitSlop={8} style={[styles.favBtn, { backgroundColor: isDark ? "#0008" : "#fff" }]}>
           <Ionicons name={book.favorite ? "heart" : "heart-outline"} size={16} color={book.favorite ? COLORS.error : colors.textSecondary} />
         </Pressable>
+        {/* Sample badge — sits opposite the stock badge so the two never collide */}
+        {book.hasPreview ? (
+          <View style={styles.previewBadge}>
+            <Feather name="book-open" size={9} color="#fff" />
+            <Text style={styles.previewBadgeText}>{en ? "Sample" : "نسخة اطلاع"}</Text>
+          </View>
+        ) : null}
         {out ? (
           <View style={styles.outBadge}>
             <Text style={styles.outText}>{en ? "Out of stock" : "نفدت"}</Text>
@@ -517,6 +589,8 @@ const styles = StyleSheet.create({
   favBtn: { position: "absolute", top: 8, left: 8, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   outBadge: { position: "absolute", bottom: 8, right: 8, backgroundColor: COLORS.error, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   outText: { ...FONT.bold, fontSize: 10, color: "#fff" },
+  previewBadge: { position: "absolute", bottom: 8, left: 8, flexDirection: "row", direction: "ltr", alignItems: "center", gap: 4, backgroundColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
+  previewBadgeText: { ...FONT.bold, fontSize: 9, color: "#fff" },
   cardBody: { padding: 12, gap: 4 },
   bookTitle: { ...FONT.bold, fontSize: 14 },
   bookAuthor: { ...FONT.regular, fontSize: 12 },

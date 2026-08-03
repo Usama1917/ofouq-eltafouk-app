@@ -5,6 +5,7 @@ import * as Device from "expo-device";
 import { useEffect, useRef } from "react";
 import { Alert, Platform } from "react-native";
 
+import { showInAppNotification } from "@/components/InAppNotificationBanner";
 import { SHOULD_SHOW_PREVIEW_API_DEBUG } from "@/constants/api";
 import { apiFetch } from "@/lib/api";
 import {
@@ -333,8 +334,18 @@ export function usePushNotifications(authToken: string | null, userId: number | 
     // A push arriving while the app is foregrounded must refresh the in-app
     // notifications list immediately — otherwise the new item only shows up
     // after the user fully restarts the app.
-    const receivedSubscription = Notifications.addNotificationReceivedListener(() => {
+    const receivedSubscription = Notifications.addNotificationReceivedListener((notification) => {
       void queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+      // …and SHOW it. The OS decides on its own whether to draw a banner over a
+      // foregrounded app (permission level, per-app settings, Focus modes, Expo Go
+      // entitlements), so relying on it meant pushes routinely landed invisibly.
+      // Drawing our own banner makes a foreground push always visible and tappable.
+      const content = notification.request.content;
+      showInAppNotification({
+        title: String(content.title ?? ""),
+        body: String(content.body ?? ""),
+        data: content.data as NotificationActionData | undefined,
+      });
     });
     try {
       const lastResponse = Notifications.getLastNotificationResponse();

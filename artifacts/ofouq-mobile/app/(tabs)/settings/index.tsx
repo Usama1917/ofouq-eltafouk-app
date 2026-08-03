@@ -1,4 +1,6 @@
-import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+// Row icons use Ionicons' *-outline set: rounded caps and softer shapes than
+// Feather's squarer geometry. Feather is kept for the small chevrons/phone badge.
+import { Feather, Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
@@ -98,7 +100,7 @@ export default function SettingsScreen() {
         />
         <View style={[styles.topBarContent, { paddingHorizontal: 18, flexDirection: rowDirection, direction }]}>
           <View style={[styles.titleIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
-            <Feather name="settings" size={24} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+            <Ionicons name="settings-outline" size={24} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
           </View>
           <View style={[styles.titleBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
             <Text style={[styles.title, { color: colors.text, textAlign, writingDirection: direction }]}>
@@ -119,7 +121,7 @@ export default function SettingsScreen() {
       >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={[styles.cardTitleRow, { alignSelf: alignStart, flexDirection: rowDirection, direction }]}>
-            <Feather name="user" size={20} color={COLORS.primary} />
+            <Ionicons name="person-outline" size={20} color={COLORS.primary} />
             <Text style={[styles.cardTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
               {strings.settings.account}
             </Text>
@@ -192,8 +194,8 @@ export default function SettingsScreen() {
                   },
                 ]}
               >
-                <Feather
-                  name="sliders"
+                <Ionicons
+                  name="options-outline"
                   size={23}
                   color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary}
                 />
@@ -243,7 +245,7 @@ export default function SettingsScreen() {
                   },
                 ]}
               >
-                <Feather name="activity" size={23} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+                <Ionicons name="pulse-outline" size={23} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
               </View>
               <View style={[styles.subscriptionTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                 <Text style={[styles.subscriptionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
@@ -285,7 +287,7 @@ export default function SettingsScreen() {
                     resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border },
                   ]}
                 >
-                  <Feather name="award" size={23} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+                  <Ionicons name="medal-outline" size={23} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
                 </View>
                 <View style={[styles.subscriptionTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                   <Text style={[styles.subscriptionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
@@ -314,7 +316,7 @@ export default function SettingsScreen() {
             >
               <View style={[styles.subscriptionLeading, { flexDirection: rowDirection, direction }]}>
                 <View style={[styles.subscriptionIcon, resolvedScheme === "dark" && { backgroundColor: COLORS.darkIconFrame.background, borderColor: COLORS.darkIconFrame.border }]}>
-                  <Feather name="star" size={22} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
+                  <Ionicons name="star-outline" size={22} color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary} />
                 </View>
                 <View style={[styles.subscriptionTextBlock, { direction: "ltr", alignItems: isRTL ? "flex-end" : "flex-start" }]}>
                   <Text style={[styles.subscriptionTitle, { color: colors.text, textAlign, writingDirection: direction }]}>
@@ -353,8 +355,8 @@ export default function SettingsScreen() {
                   },
                 ]}
               >
-                <MaterialCommunityIcons
-                  name="message-text-outline"
+                <Ionicons
+                  name="chatbubble-ellipses-outline"
                   size={24}
                   color={resolvedScheme === "dark" ? COLORS.darkIconFrame.foreground : COLORS.primary}
                 />

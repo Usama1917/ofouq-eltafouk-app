@@ -1,11 +1,13 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React from "react";
-import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import ListErrorState from "@/components/ListErrorState";
 import { COLORS } from "@/constants/colors";
 import { FONT } from "@/constants/typography";
 import { useAuth } from "@/contexts/AuthContext";
@@ -23,7 +25,7 @@ export default function WishlistScreen() {
   const row = (e: boolean): "row" | "row-reverse" => (e ? "row" : "row-reverse");
   const ta = isRTL ? "right" : "left";
 
-  const { data: books = [], isLoading, refetch } = useQuery({ queryKey: wishlistKey, queryFn: () => getWishlist(token), enabled: !!token });
+  const { data: books = [], isLoading, isError, isFetching, refetch } = useQuery({ queryKey: wishlistKey, queryFn: () => getWishlist(token), enabled: !!token });
   useRefetchOnFocus(refetch);
 
   async function remove(bookId: number) {
@@ -48,6 +50,8 @@ export default function WishlistScreen() {
 
       {isLoading ? (
         <View style={styles.center}><ActivityIndicator color={COLORS.primary} /></View>
+      ) : isError ? (
+        <ListErrorState onRetry={() => void refetch()} retrying={isFetching} />
       ) : (
         <FlatList
           data={books}
@@ -65,7 +69,7 @@ export default function WishlistScreen() {
               style={[styles.item, { backgroundColor: colors.surface, flexDirection: row(en), direction: "ltr" }]}
             >
               {item.coverUrl ? (
-                <Image source={{ uri: item.coverUrl }} style={styles.cover} resizeMode="cover" />
+                <Image source={{ uri: item.coverUrl }} style={styles.cover} contentFit="cover" cachePolicy="memory-disk" recyclingKey={String(item.id)} transition={160} />
               ) : (
                 <LinearGradient colors={[COLORS.primary + "22", COLORS.primary + "0A"]} style={styles.cover}>
                   <Feather name="book" size={20} color={COLORS.primary} />

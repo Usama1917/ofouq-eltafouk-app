@@ -56,34 +56,26 @@
       [
         "expo-font",
         {
-          "ios": {
-            "fonts": [
-              "./assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Regular.ttf",
-              "./assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Medium.ttf",
-              "./assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-SemiBold.ttf",
-              "./assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Bold.ttf"
-            ]
-          },
           "android": {
             "fonts": [
               {
-                "fontFamily": "IBMPlexSansArabic",
+                "fontFamily": "Teshrin",
                 "fontDefinitions": [
                   {
-                    "path": "./assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Regular.ttf",
-                    "weight": 400
+                    "path": "./assets/fonts/Teshrin/Teshrin-Light.otf",
+                    "weight": 350
                   },
                   {
-                    "path": "./assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Medium.ttf",
+                    "path": "./assets/fonts/Teshrin/Teshrin-Medium.otf",
                     "weight": 500
                   },
                   {
-                    "path": "./assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-SemiBold.ttf",
+                    "path": "./assets/fonts/Teshrin/Teshrin-Bold.otf",
                     "weight": 600
                   },
                   {
-                    "path": "./assets/fonts/IBM_Plex_Sans_Arabic/IBMPlexSansArabic-Bold.ttf",
-                    "weight": 700
+                    "path": "./assets/fonts/Teshrin/Teshrin-Heavy.otf",
+                    "weight": 800
                   }
                 ]
               }

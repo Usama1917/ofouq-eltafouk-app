@@ -71,6 +71,10 @@ const uploadBookCoverFile = multer({
   },
 });
 
+// Upper bound on a book's sample size — keeps one upload (and the book payload
+// the app downloads) sane. A "نسخة اطلاع" is a teaser, not the whole book.
+const MAX_PREVIEW_PAGES = 60;
+
 const router: IRouter = Router();
 const DEFAULT_MATERIALS = [
   { name: "علوم عامة", classification: "علوم" },
@@ -2076,6 +2080,38 @@ router.post("/admin/books/upload-cover", uploadBookCoverFile.single("cover"), as
   }
 });
 
+// Sample ("نسخة الاطلاع") pages, uploaded in one go and kept IN ORDER — the
+// client sends them already rasterised to images (a PDF is split page-by-page in
+// the dashboard), so the reader never deals with PDFs.
+router.post("/admin/books/upload-preview-pages", uploadBookCoverFile.array("pages", MAX_PREVIEW_PAGES), async (req, res) => {
+  try {
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (files.length === 0) {
+      res.status(400).json({ error: "مفيش صفحات مرفوعة" });
+      return;
+    }
+    // multer preserves the field order, so the returned urls match the page order
+    // the dashboard sent them in.
+    const urls = files.map((f) => `/api/uploads/book-covers/${f.filename}`);
+    res.json({ urls });
+  } catch (err) {
+    req.log.error({ err }, "Upload preview pages error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/** Ordered list of page-image urls, capped so one book can't bloat the payload. */
+function parsePreviewPages(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const pages = value.filter((u: unknown): u is string => typeof u === "string" && u.trim().length > 0).slice(0, MAX_PREVIEW_PAGES);
+  return pages.length > 0 ? pages : null;
+}
+
+/** Owner-chosen flip direction; anything unrecognised falls back to Arabic. */
+function parsePreviewDirection(value: unknown): "rtl" | "ltr" {
+  return String(value ?? "").trim().toLowerCase() === "ltr" ? "ltr" : "rtl";
+}
+
 router.post("/admin/books", async (req, res) => {
   try {
     const body = req.body ?? {};
@@ -2112,6 +2148,9 @@ router.post("/admin/books", async (req, res) => {
         imageUrls: Array.isArray(body.imageUrls) ? body.imageUrls.filter((u: unknown) => typeof u === "string") : null,
         weightGrams: body.weightGrams != null && body.weightGrams !== "" ? Number.parseInt(String(body.weightGrams), 10) || null : null,
         unlocksSubjectId: body.unlocksSubjectId ? Number.parseInt(String(body.unlocksSubjectId), 10) || null : null,
+        // v2 — free sample pages + which way its reader flips.
+        previewPages: parsePreviewPages(body.previewPages),
+        previewDirection: parsePreviewDirection(body.previewDirection),
       })
       .returning();
     res.status(201).json(book);
@@ -2163,6 +2202,9 @@ router.put("/admin/books/:id", async (req, res) => {
       updateData.weightGrams = body.weightGrams === null || body.weightGrams === "" ? null : Number.parseInt(String(body.weightGrams), 10) || null;
     if (body.unlocksSubjectId !== undefined)
       updateData.unlocksSubjectId = body.unlocksSubjectId ? Number.parseInt(String(body.unlocksSubjectId), 10) || null : null;
+    // v2 — free sample pages + reader direction.
+    if (body.previewPages !== undefined) updateData.previewPages = parsePreviewPages(body.previewPages);
+    if (body.previewDirection !== undefined) updateData.previewDirection = parsePreviewDirection(body.previewDirection);
 
     const [book] = await db.update(booksTable).set(updateData).where(eq(booksTable.id, id)).returning();
     if (!book) return res.status(404).json({ error: "Not found" });

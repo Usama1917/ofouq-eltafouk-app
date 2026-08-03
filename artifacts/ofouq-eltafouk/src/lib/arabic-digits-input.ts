@@ -9,6 +9,14 @@ import { toEnglishDigits } from "./format";
 // Password fields are skipped (an Arabic digit there may be intentional).
 const ARABIC_OR_PERSIAN_DIGIT = /[٠-٩۰-۹]/;
 
+// Input types whose `value` must never be rewritten. A file input in particular
+// exposes the picked filename as its value but THROWS on any assignment other
+// than "" — so picking a file whose name contains Arabic-Indic digits (e.g.
+// "الفيزياء ٣.pdf") used to blow up inside this capture-phase listener and could
+// take the upload's change event down with it. The rest simply have no text to
+// normalise.
+const SKIPPED_INPUT_TYPES = new Set(["password", "file", "checkbox", "radio", "range", "color", "button", "submit", "reset", "image"]);
+
 export function installArabicDigitNormalizer(): void {
   if (typeof document === "undefined") return;
 
@@ -17,7 +25,7 @@ export function installArabicDigitNormalizer(): void {
     (event) => {
       const el = event.target;
       if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return;
-      if (el instanceof HTMLInputElement && el.type === "password") return;
+      if (el instanceof HTMLInputElement && SKIPPED_INPUT_TYPES.has(el.type)) return;
 
       const { value } = el;
       if (!ARABIC_OR_PERSIAN_DIGIT.test(value)) return;

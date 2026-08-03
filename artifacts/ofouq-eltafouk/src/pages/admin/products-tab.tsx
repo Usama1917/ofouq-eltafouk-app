@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { BookOpen, Plus, Save, Trash2, X, Upload, Settings, ImagePlus, TicketPercent, Eye } from "lucide-react";
+import { BookOpen, Plus, Save, Trash2, X, Upload, Settings, ImagePlus, TicketPercent, Eye, ChevronLeft, ChevronRight } from "lucide-react";
 import ShippingTab from "./shipping-tab";
 import StoreLayoutDialog from "./store-layout-dialog";
 
@@ -34,6 +34,8 @@ type Book = {
   unlocksSubjectId: number | null;
   freeShipping: boolean;
   available: boolean;
+  previewPages: string[] | null;
+  previewDirection: string;
 };
 type Subject = { id: number; name: string; yearName: string };
 type Settings = { freeShippingThresholdEgp: number | null; pointsPerEgpUnit: number; lowStockThreshold: number };
@@ -55,6 +57,7 @@ type Form = {
   coverPortraitUrl: string | null; coverLandscapeUrl: string | null;
   coverPortraitDarkUrl: string | null; coverLandscapeDarkUrl: string | null;
   available: boolean; freeShipping: boolean;
+  previewPages: string[]; previewDirection: "rtl" | "ltr";
 };
 
 const emptyForm: Form = {
@@ -62,6 +65,7 @@ const emptyForm: Form = {
   stockQuantity: "0", weightGrams: "", unlocksSubjectId: "", coverUrl: null, imageUrls: [],
   coverPortraitUrl: null, coverLandscapeUrl: null, coverPortraitDarkUrl: null, coverLandscapeDarkUrl: null,
   available: true, freeShipping: false,
+  previewPages: [], previewDirection: "rtl",
 };
 
 export default function ProductsTab() {
@@ -74,12 +78,19 @@ export default function ProductsTab() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showImgInfo, setShowImgInfo] = useState(false);
+  // Non-empty while sample pages are being converted/uploaded — doubles as the
+  // progress label, since a 40-page PDF takes a few seconds to rasterise.
+  const [previewBusy, setPreviewBusy] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [nc, setNc] = useState({ code: "", type: "percent", value: "", usageLimit: "", expiresAt: "" });
   const [addingCoupon, setAddingCoupon] = useState(false);
   const [view, setView] = useState<"products" | "settings" | "shipping">("products");
   const [showLayout, setShowLayout] = useState(false);
+  // Non-empty while the one-off "shrink the pictures already uploaded" pass runs;
+  // doubles as its progress label. `optimizeReport` holds the result afterwards.
+  const [optimizing, setOptimizing] = useState("");
+  const [optimizeReport, setOptimizeReport] = useState("");
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
@@ -116,18 +127,18 @@ export default function ProductsTab() {
         coverPortraitUrl: b.coverPortraitUrl, coverLandscapeUrl: b.coverLandscapeUrl,
         coverPortraitDarkUrl: b.coverPortraitDarkUrl, coverLandscapeDarkUrl: b.coverLandscapeDarkUrl,
         imageUrls: b.imageUrls ?? [], available: b.available, freeShipping: b.freeShipping,
+        previewPages: b.previewPages ?? [], previewDirection: b.previewDirection === "ltr" ? "ltr" : "rtl",
       },
     });
   }
   function patch(fields: Partial<Form>) { setEditing((p) => (p ? { ...p, form: { ...p.form, ...fields } } : p)); }
 
+  // Every picture that goes up is shrunk first (see lib/compress-image): a raw
+  // 2 MB design export is what made a book's banner take seconds to appear on a
+  // student's phone. Failing to shrink is never fatal — the original still uploads.
   async function uploadImage(file: File): Promise<string | null> {
-    const fd = new FormData();
-    fd.append("cover", file);
-    const res = await fetch(apiPath("/api/admin/books/upload-cover"), { method: "POST", headers: authHeader(), body: fd });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.url ?? null;
+    const { compressImageFile } = await import("@/lib/compress-image"); // lazy: keeps the canvas path out of the main bundle
+    return uploadCompressed(await compressImageFile(file));
   }
   async function onPickField(
     field: "coverPortraitUrl" | "coverLandscapeUrl" | "coverPortraitDarkUrl" | "coverLandscapeDarkUrl",
@@ -152,6 +163,158 @@ export default function ProductsTab() {
     } finally { setUploading(false); e.target.value = ""; }
   }
 
+  // One-off catch-up for art uploaded BEFORE covers were compressed on the way in.
+  // Runs entirely from the dashboard: download each picture, shrink it with the same
+  // canvas path new uploads use, upload the smaller copy, and repoint the book at it.
+  //
+  // The old files are deliberately left on disk rather than deleted — two books can
+  // share a cover, and a dangling reference would show a broken image, which is far
+  // worse than a few unused megabytes on the server.
+  //
+  // Sample pages are skipped: they already come out of the PDF converter compressed,
+  // so re-encoding a 40-page book would be minutes of work for no gain.
+  async function optimizeExistingImages() {
+    if (optimizing) return;
+    const { compressImageFile, formatBytes } = await import("@/lib/compress-image");
+    setOptimizeReport("");
+    setOptimizing("جاري التجهيز...");
+    setError("");
+    let before = 0;
+    let after = 0;
+    let count = 0;
+    let failed = 0;
+    try {
+      const res = await fetch(apiPath("/api/admin/books"), { headers: authHeader() });
+      if (!res.ok) throw new Error("تعذّر تحميل الكتب");
+      const list: Book[] = await res.json();
+      const coverFields = ["coverUrl", "coverPortraitUrl", "coverLandscapeUrl", "coverPortraitDarkUrl", "coverLandscapeDarkUrl"] as const;
+      // old URL → new URL, shared across ALL books: the same file is routinely used
+      // in more than one slot (and by more than one book), and re-shrinking it per
+      // slot would upload several identical copies.
+      const swapped = new Map<string, string>();
+
+      for (let i = 0; i < list.length; i++) {
+        const b = list[i];
+        setOptimizing(`(${i + 1}/${list.length}) ${b.title}`);
+        const urls = [...coverFields.map((f) => b[f]), ...(b.imageUrls ?? [])].filter((u): u is string => !!u);
+
+        for (const url of urls) {
+          if (swapped.has(url)) continue;
+          // Only OUR uploads: an externally-hosted cover isn't ours to re-encode,
+          // and fetching it cross-origin would fail anyway.
+          if (url.startsWith("http")) continue;
+          try {
+            const r = await fetch(apiPath(url), { headers: authHeader() });
+            if (!r.ok) { failed++; continue; }
+            const blob = await r.blob();
+            // Anything already this small isn't what's slowing the app down.
+            if (blob.size < 300 * 1024) continue;
+            const name = url.split("/").pop() || "cover.png";
+            const small = await compressImageFile(new File([blob], name, { type: blob.type }));
+            if (small.size >= blob.size) continue; // nothing gained
+            const newUrl = await uploadCompressed(small);
+            if (!newUrl) { failed++; continue; }
+            swapped.set(url, newUrl);
+            before += blob.size;
+            after += small.size;
+            count++;
+          } catch {
+            // One unreadable picture must not abort the whole pass — but it is
+            // counted, so the report can't claim success for work that didn't happen.
+            failed++;
+          }
+        }
+
+        const next = {
+          coverUrl: swapped.get(b.coverUrl ?? "") ?? b.coverUrl,
+          coverPortraitUrl: swapped.get(b.coverPortraitUrl ?? "") ?? b.coverPortraitUrl,
+          coverLandscapeUrl: swapped.get(b.coverLandscapeUrl ?? "") ?? b.coverLandscapeUrl,
+          coverPortraitDarkUrl: swapped.get(b.coverPortraitDarkUrl ?? "") ?? b.coverPortraitDarkUrl,
+          coverLandscapeDarkUrl: swapped.get(b.coverLandscapeDarkUrl ?? "") ?? b.coverLandscapeDarkUrl,
+          imageUrls: (b.imageUrls ?? []).map((u) => swapped.get(u) ?? u),
+        };
+        const touched =
+          next.coverUrl !== b.coverUrl ||
+          next.coverPortraitUrl !== b.coverPortraitUrl ||
+          next.coverLandscapeUrl !== b.coverLandscapeUrl ||
+          next.coverPortraitDarkUrl !== b.coverPortraitDarkUrl ||
+          next.coverLandscapeDarkUrl !== b.coverLandscapeDarkUrl ||
+          next.imageUrls.some((u, n) => u !== (b.imageUrls ?? [])[n]);
+        if (!touched) continue;
+
+        // Send ONLY the picture fields: the endpoint updates whatever it's given and
+        // leaves the rest alone, so re-posting price/stock here would just risk
+        // writing back values that went stale while this pass was running.
+        await fetch(apiPath(`/api/admin/books/${b.id}`), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify(next),
+        });
+      }
+
+      const failNote = failed ? ` — فيه ${failed} صورة معرفناش نعملها (سيبناها زي ما هي).` : "";
+      setOptimizeReport(
+        count === 0
+          ? `كل الصور مضغوطة بالفعل — مفيش حاجة محتاجة تعديل.${failNote}`
+          : `تم ضغط ${count} صورة: من ${formatBytes(before)} إلى ${formatBytes(after)} (توفير ${Math.round((1 - after / before) * 100)}%).${failNote}`,
+      );
+      await load(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذّر ضغط الصور");
+    } finally {
+      setOptimizing("");
+    }
+  }
+
+  // Upload a file that is ALREADY compressed — going through uploadImage() would
+  // run it through the canvas a second time for nothing.
+  async function uploadCompressed(file: File): Promise<string | null> {
+    const fd = new FormData();
+    fd.append("cover", file);
+    const res = await fetch(apiPath("/api/admin/books/upload-cover"), { method: "POST", headers: authHeader(), body: fd });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.url ?? null;
+  }
+
+  // Sample pages go up in ONE request so the server keeps them in page order.
+  async function uploadPreviewPages(files: File[]): Promise<string[]> {
+    const fd = new FormData();
+    for (const f of files) fd.append("pages", f);
+    const res = await fetch(apiPath("/api/admin/books/upload-preview-pages"), { method: "POST", headers: authHeader(), body: fd });
+    if (!res.ok) throw new Error("تعذّر رفع صفحات نسخة الاطلاع");
+    const data = await res.json();
+    return Array.isArray(data.urls) ? data.urls : [];
+  }
+
+  async function onPickPreviewPdf(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError("");
+    try {
+      setPreviewBusy("جاري فتح الملف...");
+      const { pdfToImageFiles } = await import("@/lib/pdf-to-images"); // lazy: keeps pdf.js out of the main bundle
+      const images = await pdfToImageFiles(file, ({ page, total }) => setPreviewBusy(`جاري تحويل الصفحة ${page} من ${total}...`));
+      if (!images.length) throw new Error("الملف مفيهوش صفحات");
+      setPreviewBusy(`جاري رفع ${images.length} صفحة...`);
+      const urls = await uploadPreviewPages(images);
+      patch({ previewPages: [...(editing?.form.previewPages ?? []), ...urls] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذّر قراءة ملف الـPDF");
+    } finally { setPreviewBusy(""); e.target.value = ""; }
+  }
+
+  function movePreviewPage(from: number, to: number) {
+    const pages = [...(editing?.form.previewPages ?? [])];
+    if (to < 0 || to >= pages.length) return;
+    const [moved] = pages.splice(from, 1);
+    pages.splice(to, 0, moved);
+    patch({ previewPages: pages });
+  }
+  function removePreviewPage(i: number) {
+    patch({ previewPages: (editing?.form.previewPages ?? []).filter((_, n) => n !== i) });
+  }
+
   async function save() {
     if (!editing) return;
     const f = editing.form;
@@ -169,6 +332,7 @@ export default function ProductsTab() {
         stockQuantity: Number(f.stockQuantity) || 0, weightGrams: f.weightGrams ? Number(f.weightGrams) : null,
         unlocksSubjectId: f.unlocksSubjectId ? Number(f.unlocksSubjectId) : null, imageUrls: f.imageUrls,
         available: f.available, freeShipping: f.freeShipping,
+        previewPages: f.previewPages, previewDirection: f.previewDirection,
       };
       const res = editing.id
         ? await fetch(apiPath(`/api/admin/books/${editing.id}`), { method: "PUT", headers: { "Content-Type": "application/json", ...authHeader() }, body: JSON.stringify(body) })
@@ -294,6 +458,36 @@ export default function ProductsTab() {
         </div>
       ) : null}
 
+      {/* One-off image optimisation for art uploaded before compression existed */}
+      {view === "settings" ? (
+        <div className="glass-card p-5 space-y-3 border-primary/20">
+          <div>
+            <h3 className="font-display font-bold text-base flex items-center gap-2 text-primary"><ImagePlus className="w-4 h-4" /> سرعة ظهور صور الكتب</h3>
+            <p className="text-[12px] text-muted-foreground mt-1">
+              الصور اللي بترفعها دلوقتي بتتصغّر أوتوماتيك عشان تظهر فورًا في التطبيق. الزرار ده بيعمل نفس الحاجة للصور اللي اترفعت قبل كده — دوسه مرة واحدة بس، وسيب الصفحة مفتوحة لحد ما يخلص.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={optimizeExistingImages}
+              disabled={!!optimizing}
+              className="btn-primary text-xs py-1.5 px-4 flex items-center gap-1.5 disabled:opacity-60"
+            >
+              <ImagePlus className="w-3.5 h-3.5" /> {optimizing ? "جاري الضغط..." : "اضغط الصور الموجودة"}
+            </button>
+            {optimizing ? <span className="text-[12px] font-bold text-muted-foreground">{optimizing}</span> : null}
+          </div>
+          <motion.div
+            initial={false}
+            animate={{ height: optimizeReport ? "auto" : 0, opacity: optimizeReport ? 1 : 0 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-hidden"
+          >
+            <div className="rounded-xl bg-primary/10 px-3 py-2 text-[12px] font-bold text-primary">{optimizeReport}</div>
+          </motion.div>
+        </div>
+      ) : null}
+
       {/* Discount codes */}
       {view === "settings" ? (
       <div className="glass-card p-5 space-y-4 border-primary/20">
@@ -394,6 +588,9 @@ export default function ProductsTab() {
                   <span className="text-primary font-bold text-sm" dir="ltr">{b.priceEgp} ج</span>
                   <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${b.stockQuantity <= 0 ? "bg-red-100 text-red-700" : b.stockQuantity <= (settings?.lowStockThreshold ?? 5) ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>مخزون {b.stockQuantity}</span>
                   {!b.available ? <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">مخفي</span> : null}
+                  {/* An unpriced book is not sellable, so the store hides it. Say so
+                      explicitly here or the owner can't tell why it never appears. */}
+                  {b.priceEgp <= 0 ? <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700" title="الكتاب من غير سعر، فمش هيظهر في المتجر للطلبة">بدون سعر — مش ظاهر</span> : null}
                 </div>
                 <div className="flex items-center gap-3 mt-2">
                   <button onClick={() => openEdit(b)} className="text-xs font-bold text-primary">تعديل</button>
@@ -482,6 +679,97 @@ export default function ProductsTab() {
                 </label>
               </div>
             </Field>
+
+            {/* ── نسخة الاطلاع ─────────────────────────────────────────────── */}
+            <div className="rounded-2xl border border-primary/25 bg-primary/5 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-black">نسخة الاطلاع</span>
+                  {editing.form.previewPages.length > 0 ? (
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary/15 text-primary">
+                      {editing.form.previewPages.length} صفحة
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold text-muted-foreground">اتجاه القراءة</span>
+                  <select
+                    value={editing.form.previewDirection}
+                    onChange={(e) => patch({ previewDirection: e.target.value === "ltr" ? "ltr" : "rtl" })}
+                    className="rounded-xl border border-border bg-background px-2.5 py-1.5 text-xs font-bold"
+                  >
+                    <option value="rtl">عربي — من اليمين للشمال</option>
+                    <option value="ltr">إنجليزي — من الشمال لليمين</option>
+                  </select>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                صفحات مختارة من الكتاب الطالب يقراها قبل ما يشتري. ارفع <b>ملف PDF</b> وهو هيتقسّم لصفحات لوحده بالترتيب — وده الترتيب اللي الطالب هيشوفه.
+              </p>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className={`text-xs py-2 px-3.5 rounded-xl border border-primary/30 bg-background font-bold text-primary flex items-center gap-1.5 transition-colors hover:bg-primary/10 ${previewBusy ? "opacity-50 pointer-events-none" : "cursor-pointer"}`}>
+                  <Upload className="w-4 h-4" /> ارفع ملف PDF
+                  <input type="file" accept="application/pdf" hidden onChange={onPickPreviewPdf} />
+                </label>
+                {editing.form.previewPages.length > 0 ? (
+                  <button
+                    onClick={() => patch({ previewPages: [] })}
+                    disabled={!!previewBusy}
+                    className="text-xs py-2 px-3.5 rounded-xl border border-red-200 font-bold text-red-600 flex items-center gap-1.5 hover:bg-red-50 transition-colors disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> امسح الكل
+                  </button>
+                ) : null}
+                {previewBusy ? <span className="text-xs font-bold text-primary animate-pulse">{previewBusy}</span> : null}
+              </div>
+
+              {editing.form.previewPages.length > 0 ? (
+                <div className="flex items-start gap-2 flex-wrap">
+                  {editing.form.previewPages.map((u, i) => (
+                    <div key={`${u}-${i}`} className="relative w-16 group">
+                      <div className="relative w-16 h-20 rounded-lg overflow-hidden border border-border bg-background">
+                        <img src={imgSrc(u)} alt="" className="w-full h-full object-cover" />
+                        <span className="absolute bottom-0 right-0 bg-black/65 text-white text-[10px] font-bold px-1 rounded-tl-md" dir="ltr">{i + 1}</span>
+                        <button
+                          onClick={() => removePreviewPage(i)}
+                          title="احذف الصفحة"
+                          className="absolute top-0 left-0 bg-black/60 rounded-br-lg p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="w-3 h-3 text-white" />
+                        </button>
+                      </div>
+                      {/* Reorder. dir="ltr" pins the PHYSICAL order of these two buttons
+                          so it can't flip with the surrounding RTL text, and the icons are
+                          SVGs — the old ‹ › text glyphs were being mirrored by the bidi
+                          algorithm inside Arabic content, so they pointed the wrong way.
+                          The strip reads right→left (page 1 is rightmost), hence:
+                          right arrow = move toward page 1, left arrow = move later. */}
+                      <div dir="ltr" className="flex items-center justify-center gap-2 mt-1">
+                        <button
+                          onClick={() => movePreviewPage(i, i + 1)}
+                          disabled={i === editing.form.previewPages.length - 1}
+                          className="text-muted-foreground disabled:opacity-25 hover:text-primary transition-colors"
+                          title="حرّك لبعدين"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => movePreviewPage(i, i - 1)}
+                          disabled={i === 0}
+                          className="text-muted-foreground disabled:opacity-25 hover:text-primary transition-colors"
+                          title="حرّك لقبل"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
 
             <div className="flex items-center gap-6">
               <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={editing.form.available} onChange={(e) => patch({ available: e.target.checked })} className="h-5 w-5 accent-primary" /><span className="text-sm font-bold">ظاهر في المتجر</span></label>

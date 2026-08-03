@@ -5,6 +5,7 @@ import React from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import ListErrorState from "@/components/ListErrorState";
 import { COLORS } from "@/constants/colors";
 import { FONT } from "@/constants/typography";
 import { useAuth } from "@/contexts/AuthContext";
@@ -31,7 +32,7 @@ export default function OrdersScreen() {
   const row = (e: boolean): "row" | "row-reverse" => (e ? "row" : "row-reverse");
   const ta = isRTL ? "right" : "left";
 
-  const { data: orders = [], isLoading, refetch } = useQuery({ queryKey: ordersKey, queryFn: () => listOrders(token), enabled: !!token });
+  const { data: orders = [], isLoading, isError, isFetching, refetch } = useQuery({ queryKey: ordersKey, queryFn: () => listOrders(token), enabled: !!token });
   useRefetchOnFocus(refetch);
 
   return (
@@ -46,6 +47,8 @@ export default function OrdersScreen() {
 
       {isLoading ? (
         <View style={styles.center}><ActivityIndicator color={COLORS.primary} /></View>
+      ) : isError ? (
+        <ListErrorState onRetry={() => void refetch()} retrying={isFetching} />
       ) : (
         <FlatList
           data={orders}

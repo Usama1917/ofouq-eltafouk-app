@@ -1,11 +1,13 @@
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React from "react";
-import { ActivityIndicator, FlatList, Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import ListErrorState from "@/components/ListErrorState";
 import { COLORS } from "@/constants/colors";
 import { FONT } from "@/constants/typography";
 import { useAuth } from "@/contexts/AuthContext";
@@ -25,7 +27,7 @@ export default function CartScreen() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
 
-  const { data, isLoading, refetch } = useQuery({ queryKey: cartKey, queryFn: () => getCart(token), enabled: !!token });
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({ queryKey: cartKey, queryFn: () => getCart(token), enabled: !!token });
   useRefetchOnFocus(refetch);
   const items = data?.items ?? [];
   const subtotal = data?.subtotal ?? 0;
@@ -55,6 +57,8 @@ export default function CartScreen() {
 
       {isLoading ? (
         <View style={styles.center}><ActivityIndicator color={COLORS.primary} /></View>
+      ) : isError ? (
+        <ListErrorState onRetry={() => void refetch()} retrying={isFetching} />
       ) : items.length === 0 ? (
         <View style={styles.center}>
           <Feather name="shopping-cart" size={48} color={colors.textTertiary} />
@@ -72,7 +76,7 @@ export default function CartScreen() {
             renderItem={({ item }) => (
               <View style={[styles.item, { backgroundColor: colors.surface, flexDirection: row(en), direction: "ltr" }]}>
                 {item.coverUrl ? (
-                  <Image source={{ uri: item.coverUrl }} style={styles.cover} resizeMode="cover" />
+                  <Image source={{ uri: item.coverUrl }} style={styles.cover} contentFit="cover" cachePolicy="memory-disk" recyclingKey={String(item.bookId)} transition={160} />
                 ) : (
                   <LinearGradient colors={[COLORS.primary + "22", COLORS.primary + "0A"]} style={styles.cover}>
                     <Feather name="book" size={20} color={COLORS.primary} />

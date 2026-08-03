@@ -21,6 +21,10 @@ import {
 import { getSessionUser } from "./quiz";
 import { ensureShippingDefaults } from "./shipping";
 import { awardPoints } from "../lib/gamification";
+import { getStoreSettings } from "../lib/store-settings";
+import { notifyOrderStatus } from "../lib/order-notifications";
+import { ORDER_STATUSES, applyOrderStatusChange, type OrderStatus } from "../lib/order-status";
+import { schedulePushOrderToErp } from "../lib/erp-sync";
 import { sendPushNotificationToUser } from "../lib/push-notifications";
 
 // v2 Phase 5 — bookstore. Student-facing store (/store/*) + admin order management
@@ -29,21 +33,16 @@ import { sendPushNotificationToUser } from "../lib/push-notifications";
 // granted only on an instant online payment (COD → student redeems the code later).
 const router: IRouter = Router();
 
-const ORDER_STATUSES = ["placed", "confirmed", "packed", "shipped", "out_for_delivery", "delivered", "cancelled"] as const;
-type OrderStatus = (typeof ORDER_STATUSES)[number];
 // A student may self-cancel only while the order hasn't shipped yet.
 const CANCELLABLE_BY_STUDENT: OrderStatus[] = ["placed", "confirmed", "packed"];
 const DEFAULT_BOOK_WEIGHT_GRAMS = 500;
 
-const STATUS_MSG: Record<OrderStatus, { t: string; b: string }> = {
-  placed: { t: "تم استلام طلبك 🛒", b: "طلبك وصلنا وبنراجعه دلوقتي." },
-  confirmed: { t: "تم تأكيد طلبك ✅", b: "بنجهّزلك الطلب حالًا." },
-  packed: { t: "طلبك بيتجهّز 📦", b: "جهّزنا كتبك وبنحضّرها للشحن." },
-  shipped: { t: "طلبك اتشحن 🚚", b: "الطلب في الطريق إليك." },
-  out_for_delivery: { t: "طلبك خرج للتوصيل 🛵", b: "المندوب في الطريق ليك النهارده." },
-  delivered: { t: "طلبك اتسلّم 🎉", b: "استمتع بكتبك! لو الكتاب بيفتح محتوى رقمي فعّله بالكود." },
-  cancelled: { t: "اتلغى طلبك", b: "لو عندك أي استفسار كلّم الدعم." },
-};
+// A book is sellable only when it's marked available AND actually priced. An
+// unpriced (0 EGP) book is almost always a half-finished admin draft, and letting
+// it through produced real 0-EGP orders that still charged shipping. Treat "no
+// price" as "not for sale" everywhere on the student side: catalog, detail, cart
+// and checkout all go through this one predicate.
+const sellableBook = () => [eq(booksTable.available, true), gt(booksTable.priceEgp, 0)];
 
 function toInt(value: unknown, fallback = 0): number {
   const n = Number(value);
@@ -57,16 +56,6 @@ async function requireStudentId(req: any, res: any): Promise<number | null> {
     return null;
   }
   return user.id;
-}
-
-async function getStoreSettings() {
-  // orderBy(asc id) so GET + PUT always resolve to the SAME (lowest) row even if a
-  // first-call race ever created a duplicate — the singleton stays deterministic.
-  const [existing] = await db.select().from(storeSettingsTable).orderBy(asc(storeSettingsTable.id)).limit(1);
-  if (existing) return existing;
-  await db.insert(storeSettingsTable).values({}).onConflictDoNothing();
-  const [row] = await db.select().from(storeSettingsTable).orderBy(asc(storeSettingsTable.id)).limit(1);
-  return row;
 }
 
 type LayoutRow = { type: "normal" | "carousel"; title?: string; titleEn?: string; books: number[] };
@@ -145,20 +134,6 @@ async function evaluateVoucher(code: string, subtotalEgp: number): Promise<Vouch
   return { ok: true, discountEgp, freeShipping: false, voucher: v };
 }
 
-async function notifyOrderStatus(userId: number, order: { id: number; orderNumber: string | null }, status: OrderStatus) {
-  const m = STATUS_MSG[status];
-  if (!m) return;
-  const data = { route: "order", orderId: order.id, orderNumber: order.orderNumber, status };
-  const [created] = await db
-    .insert(notificationsTable)
-    .values({ userId, type: `order_${status}`, title: m.t, body: m.b, tone: "primary", data, dedupeKey: `order:${order.id}:status:${status}` })
-    .onConflictDoNothing()
-    .returning({ id: notificationsTable.id });
-  if (created) {
-    await sendPushNotificationToUser({ userId, title: m.t, body: m.b, data: { ...data, type: `order_${status}`, notificationId: created.id } }).catch(() => undefined);
-  }
-}
-
 async function notifyAdminsNewOrder(order: { id: number; orderNumber: string | null; totalEgp: number }) {
   const admins = await db
     .select({ id: usersTable.id })
@@ -188,7 +163,7 @@ router.get("/store/books", async (req, res) => {
     const yearId = toInt(req.query.yearId);
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
-    const conds = [eq(booksTable.available, true)];
+    const conds = [...sellableBook()];
     if (subjectId) conds.push(eq(booksTable.unlocksSubjectId, subjectId));
     if (yearId) {
       conds.push(
@@ -212,7 +187,15 @@ router.get("/store/books", async (req, res) => {
     const favRows = await db.select({ bookId: bookFavoritesTable.bookId }).from(bookFavoritesTable).where(eq(bookFavoritesTable.userId, studentId));
     const favSet = new Set(favRows.map((f) => f.bookId));
 
-    res.json(books.map((b) => ({ ...b, favorite: favSet.has(b.id) })));
+    // The catalog only needs to know a sample EXISTS (for the badge) — shipping
+    // every book's full page list would bloat the list response for nothing.
+    res.json(
+      books.map(({ previewPages, ...b }) => ({
+        ...b,
+        favorite: favSet.has(b.id),
+        hasPreview: Array.isArray(previewPages) && previewPages.length > 0,
+      })),
+    );
   } catch (err) {
     req.log.error({ err }, "Store list books error");
     res.status(500).json({ error: "تعذّر تحميل الكتب" });
@@ -224,7 +207,7 @@ router.get("/store/books/:id", async (req, res) => {
     const studentId = await requireStudentId(req, res);
     if (studentId == null) return;
     const id = toInt(req.params.id);
-    const [book] = await db.select().from(booksTable).where(eq(booksTable.id, id)).limit(1);
+    const [book] = await db.select().from(booksTable).where(and(eq(booksTable.id, id), ...sellableBook())).limit(1);
     if (!book) {
       res.status(404).json({ error: "الكتاب غير موجود" });
       return;
@@ -237,10 +220,12 @@ router.get("/store/books/:id", async (req, res) => {
     const related = await db
       .select()
       .from(booksTable)
-      .where(and(eq(booksTable.available, true), ne(booksTable.id, id), eq(booksTable.category, book.category)))
+      .where(and(...sellableBook(), ne(booksTable.id, id), eq(booksTable.category, book.category)))
       .limit(6);
     const [fav] = await db.select({ id: bookFavoritesTable.id }).from(bookFavoritesTable).where(and(eq(bookFavoritesTable.userId, studentId), eq(bookFavoritesTable.bookId, id))).limit(1);
-    res.json({ ...book, favorite: Boolean(fav), unlocksSubject, related });
+    // Detail DOES carry the sample pages — this is what the reader screen renders.
+    const previewPages = Array.isArray(book.previewPages) ? book.previewPages : [];
+    res.json({ ...book, previewPages, hasPreview: previewPages.length > 0, favorite: Boolean(fav), unlocksSubject, related });
   } catch (err) {
     req.log.error({ err }, "Store book detail error");
     res.status(500).json({ error: "تعذّر تحميل الكتاب" });
@@ -298,8 +283,12 @@ router.post("/store/cart", async (req, res) => {
     if (studentId == null) return;
     const bookId = toInt(req.body?.bookId);
     const quantity = Math.max(1, toInt(req.body?.quantity, 1));
-    const [book] = await db.select({ id: booksTable.id, stock: booksTable.stockQuantity, available: booksTable.available }).from(booksTable).where(eq(booksTable.id, bookId)).limit(1);
-    if (!book || !book.available) {
+    const [book] = await db
+      .select({ id: booksTable.id, stock: booksTable.stockQuantity, available: booksTable.available, priceEgp: booksTable.priceEgp })
+      .from(booksTable)
+      .where(eq(booksTable.id, bookId))
+      .limit(1);
+    if (!book || !book.available || book.priceEgp <= 0) {
       res.status(404).json({ error: "الكتاب غير متاح" });
       return;
     }
@@ -473,6 +462,14 @@ router.post("/store/checkout", async (req, res) => {
       res.status(400).json({ error: "السلة فاضية" });
       return;
     }
+    // Last line of defence: a book already sitting in a cart may have been
+    // un-priced by an admin since it was added. Never place a 0-EGP order (the
+    // student would still be charged shipping for nothing).
+    const unpriced = items.find((i) => i.priceEgp <= 0);
+    if (unpriced) {
+      res.status(409).json({ error: `«${unpriced.title}» مش متاح للبيع دلوقتي، شيله من السلة` });
+      return;
+    }
     const [address] = await db.select().from(shippingAddressesTable).where(eq(shippingAddressesTable.userId, studentId)).orderBy(desc(shippingAddressesTable.id)).limit(1);
     if (!address) {
       res.status(400).json({ error: "ضيف عنوان الشحن الأول" });
@@ -568,6 +565,10 @@ router.post("/store/checkout", async (req, res) => {
     // can't farm points. No digital access is granted here (COD, unpaid).
     await notifyOrderStatus(studentId, order, "placed").catch(() => undefined);
     await notifyAdminsNewOrder(order).catch(() => undefined);
+    // Push to the ERP AFTER the sale is safely committed, and never await it: an
+    // ERP outage must delay bookkeeping, never block or fail a student's order.
+    // Anything that doesn't get through here is retried by the outbox worker.
+    schedulePushOrderToErp(order.id);
 
     res.status(201).json(order);
   } catch (err) {
@@ -668,7 +669,9 @@ router.get("/store/wishlist", async (req, res) => {
       .select({ id: booksTable.id, title: booksTable.title, author: booksTable.author, coverUrl: booksTable.coverUrl, priceEgp: booksTable.priceEgp, stockQuantity: booksTable.stockQuantity })
       .from(bookFavoritesTable)
       .innerJoin(booksTable, eq(bookFavoritesTable.bookId, booksTable.id))
-      .where(eq(bookFavoritesTable.userId, studentId))
+      // Hide favourites that are no longer for sale — otherwise tapping one opens
+      // a book detail that now 404s.
+      .where(and(eq(bookFavoritesTable.userId, studentId), ...sellableBook()))
       .orderBy(desc(bookFavoritesTable.id));
     res.json(rows);
   } catch (err) {
@@ -712,12 +715,22 @@ router.get("/admin/orders", async (req, res) => {
   try {
     const status = typeof req.query.status === "string" ? req.query.status.trim() : "";
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
-    const conds = [] as any[];
-    if (status && (ORDER_STATUSES as readonly string[]).includes(status)) conds.push(eq(ordersTable.status, status));
+    // Search narrows both the page AND the per-status counts; the status filter
+    // narrows only the page (the counts are what you pick a status FROM).
+    const searchConds = [] as any[];
     if (q) {
       const like = `%${q}%`;
-      conds.push(or(ilike(ordersTable.orderNumber, like), ilike(ordersTable.recipientName, like), ilike(ordersTable.phone, like), ilike(ordersTable.governorate, like))!);
+      searchConds.push(or(ilike(ordersTable.orderNumber, like), ilike(ordersTable.recipientName, like), ilike(ordersTable.phone, like), ilike(ordersTable.governorate, like))!);
     }
+    const conds = [...searchConds];
+    if (status && (ORDER_STATUSES as readonly string[]).includes(status)) conds.push(eq(ordersTable.status, status));
+    // Paginated: this list used to fetch EVERY order on every load, which only
+    // works while the store is tiny. The Excel export asks for a big limit so it
+    // still covers the whole (filtered) result set — see the admin orders tab.
+    const where = conds.length ? and(...conds) : undefined;
+    const limit = Math.min(Math.max(toInt(req.query.limit, 50), 1), 10000);
+    const offset = Math.max(toInt(req.query.offset, 0), 0);
+
     const rows = await db
       .select({
         id: ordersTable.id,
@@ -732,9 +745,20 @@ router.get("/admin/orders", async (req, res) => {
         itemCount: sql<number>`(select count(*) from ${orderItemsTable} where ${orderItemsTable.orderId} = ${ordersTable.id})`,
       })
       .from(ordersTable)
-      .where(conds.length ? and(...conds) : undefined)
-      .orderBy(desc(ordersTable.id));
-    res.json(rows);
+      .where(where)
+      .orderBy(desc(ordersTable.id))
+      .limit(limit)
+      .offset(offset);
+    const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(ordersTable).where(where);
+    // Per-status totals for the filter dropdown. Counted across the WHOLE result
+    // set, never just the current page, so the numbers don't shrink as you page.
+    const countRows = await db
+      .select({ status: ordersTable.status, n: sql<number>`count(*)::int` })
+      .from(ordersTable)
+      .where(searchConds.length ? and(...searchConds) : undefined)
+      .groupBy(ordersTable.status);
+    const statusCounts = Object.fromEntries(countRows.map((r) => [r.status, r.n]));
+    res.json({ orders: rows, total, limit, offset, statusCounts });
   } catch (err) {
     req.log.error({ err }, "Admin orders list error");
     res.status(500).json({ error: "تعذّر تحميل الطلبات" });
@@ -768,47 +792,14 @@ router.put("/admin/orders/:id/status", async (req, res) => {
       res.status(400).json({ error: "حالة غير صحيحة" });
       return;
     }
-    const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
-    if (!order) {
-      res.status(404).json({ error: "الطلب غير موجود" });
+    // Shared with the ERPNext webhook (lib/order-status) so an admin picking a
+    // status and the ERP reporting one produce identical side effects.
+    const result = await applyOrderStatusChange(id, status, note);
+    if (!result.ok) {
+      res.status(result.reason === "not_found" ? 404 : 400).json({ error: result.reason === "not_found" ? "الطلب غير موجود" : "حالة غير صحيحة" });
       return;
     }
-    if (order.status === status) {
-      res.json(order);
-      return;
-    }
-    await db.transaction(async (tx) => {
-      await tx.update(ordersTable).set({ status, updatedAt: new Date() }).where(eq(ordersTable.id, id));
-      await tx.insert(orderStatusHistoryTable).values({ orderId: id, status, note });
-      const its = await tx.select({ bookId: orderItemsTable.bookId, quantity: orderItemsTable.quantity }).from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
-      // Restock ONLY on a real non-cancelled → cancelled transition (prior status
-      // guard prevents restocking an already-cancelled order twice).
-      if (status === "cancelled" && order.status !== "cancelled") {
-        for (const it of its) {
-          if (it.bookId) await tx.update(booksTable).set({ stockQuantity: sql`${booksTable.stockQuantity} + ${it.quantity}` }).where(eq(booksTable.id, it.bookId));
-        }
-      } else if (order.status === "cancelled" && status !== "cancelled") {
-        // Reviving a cancelled order → take the stock back out.
-        for (const it of its) {
-          if (it.bookId) await tx.update(booksTable).set({ stockQuantity: sql`greatest(0, ${booksTable.stockQuantity} - ${it.quantity})` }).where(eq(booksTable.id, it.bookId));
-        }
-      }
-    });
-
-    // Loyalty points are credited once, only when the order is actually DELIVERED
-    // (a settled, non-reversible state) — idempotent per order via sourceKey.
-    if (status === "delivered") {
-      const settings = await getStoreSettings();
-      const unit = settings.pointsPerEgpUnit > 0 ? settings.pointsPerEgpUnit : 10;
-      const points = Math.floor(order.subtotalEgp / unit);
-      if (points > 0) {
-        await awardPoints({ userId: order.userId, type: "book_purchase", amount: points, description: `شراء كتب (طلب ${order.orderNumber ?? order.id})`, sourceKey: `order:${order.id}` }).catch(() => 0);
-      }
-    }
-
-    await notifyOrderStatus(order.userId, order, status).catch(() => undefined);
-    const [updated] = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
-    res.json(updated);
+    res.json(result.order);
   } catch (err) {
     req.log.error({ err }, "Admin order status error");
     res.status(500).json({ error: "تعذّر تغيير الحالة" });
