@@ -9,6 +9,7 @@ import {
   Download, FileSpreadsheet, FileText, Loader2, Star, Snowflake,
   Search, SlidersHorizontal, GripVertical, Settings2, RotateCcw, Check, ChevronRight, ChevronLeft,
   CalendarDays, KeyRound, Trash2, Eye, EyeOff, UserMinus, Clock3,
+  ShoppingCart, Banknote,
 } from "lucide-react";
 import { fetchReport, exportExcel, exportPdf } from "@/lib/activity-export";
 import { exportReportExcel, exportReportPdf, type MetricColumn } from "@/lib/reports-export";
@@ -83,6 +84,11 @@ type OwnerSummary = {
     totalLessons: number; totalVideos: number; totalSegments: number; unreadSupport: number;
     openConversations: number; pushTokensAndroid: number; pushTokensIos: number; pushTokensTotal: number;
     lastActivityAt: string | null;
+    // Store / products — optional so an older API build still renders the page.
+    totalOrders?: number; openOrders?: number; deliveredOrders?: number; cancelledOrders?: number;
+    booksSoldCount?: number; salesEgpTotal?: number;
+    totalBooks?: number; publishedBooks?: number; outOfStockBooks?: number; totalStock?: number;
+    lowStockThreshold?: number;
   };
   alerts: {
     pendingSubscriptions: number; unreadSupport: number; subjectsWithoutUnits: number;
@@ -101,8 +107,16 @@ type OwnerSummary = {
     topSubjects: { name: string; value: number }[];
     userGrowth: { month: string; students: number; teachers: number; others: number }[];
     last7Days: { day: string; watch: number; requests: number; messages: number }[];
+    // Store charts — optional so an older API build still renders the dashboard.
+    salesDaily?: { day: string; salesEgp: number; orders: number; booksSold: number }[];
+    topBooks?: { name: string; value: number }[];
   };
+  // Store products (stock + sales per book). Optional so an older API build still renders.
+  products?: { id: number; title: string; available: boolean; priceEgp: number; stockQuantity: number; sold: number; revenueEgp: number }[];
+  // Copies sold for books that were later deleted — they can't show in the table.
+  soldFromRemovedBooks?: number;
   recent: {
+    orders?: { id: number; orderNumber: string | null; buyerName: string | null; recipientName: string; governorate: string; status: string; totalEgp: number; createdAt: string }[];
     students: { id: number; name: string; email: string; status: string; joinedAt: string }[];
     subscriptionRequests: { id: number; studentName: string | null; subjectName: string | null; status: string; submittedAt: string }[];
     support: { conversationId: number; userName: string | null; status: string; lastMessageAt: string }[];
@@ -219,7 +233,7 @@ function loadCardSizes(): Record<string, CardSize> {
 // Card display order (persisted, drag-to-reorder). Unknown/missing ids are
 // reconciled against DEFAULT_ORDER so new charts always appear.
 const CARD_ORDER_KEY = "ofouq-owner-chart-order:v1";
-const DEFAULT_ORDER = ["growth", "roles", "subs", "academic", "topSubjects", "activity"];
+const DEFAULT_ORDER = ["growth", "roles", "subs", "academic", "topSubjects", "activity", "sales", "topBooks"];
 function loadCardOrder(): string[] {
   try {
     const raw = localStorage.getItem(CARD_ORDER_KEY);
@@ -265,12 +279,50 @@ const CHART_META: Record<string, {
     ],
     dateRange: true, dateGranularity: "day", metric: "activity", yAxis: true,
   },
+  // Store — money/volume curves. Same controls as `activity`: calendar range,
+  // per-series toggles, Y cap.
+  sales: {
+    series: [
+      { key: "مبيعات", label: "مبيعات (ج.م)", color: "#10B981" },
+      { key: "طلبات", label: "طلبات", color: "#3B82F6" },
+      { key: "كتب", label: "كتب مباعة", color: "#F59E0B" },
+    ],
+    dateRange: true, dateGranularity: "day", metric: "sales", yAxis: true,
+  },
   academic: { categories: true, yAxis: true },
   subs: { categories: true, yAxis: true },
   roles: { categories: true },
   topSubjects: { categories: true, yAxis: true },
+  // Store — best sellers. Category toggles AND a calendar, because "which book
+  // sold most" is only meaningful for a stated period.
+  topBooks: { categories: true, dateRange: true, dateGranularity: "day", metric: "topBooks", yAxis: true },
 };
 const GROWTH_GRAD: Record<string, string> = { "طلاب": "gS", "معلمون": "gT", "أخرى": "gO" };
+const SALES_GRAD: Record<string, string> = { "مبيعات": "sSales", "طلبات": "sOrders", "كتب": "sBooks" };
+
+// Book titles are long AND usually share a prefix ("كتاب الفيزياء …"), so plain
+// end-truncation collapses two different books into the same tick label. Wrap
+// onto two short lines instead — that keeps the part that tells them apart.
+function wrapTwoLines(text: string, per = 13): [string, string] {
+  const t = String(text ?? "").trim();
+  if (t.length <= per) return [t, ""];
+  const words = t.split(/\s+/);
+  let first = "";
+  let i = 0;
+  for (; i < words.length; i += 1) {
+    const next = first ? `${first} ${words[i]}` : words[i];
+    if (next.length > per) break;
+    first = next;
+  }
+  // A single word longer than the line budget: split it mid-word instead of looping.
+  if (!first) {
+    const rest = t.slice(per);
+    return [t.slice(0, per), rest.length > per ? `${rest.slice(0, per - 1)}…` : rest];
+  }
+  let second = words.slice(i).join(" ");
+  if (second.length > per) second = `${second.slice(0, per - 1)}…`;
+  return [first, second];
+}
 function loadCardSettings(): Record<string, CardSettings> {
   try { const raw = localStorage.getItem(CARD_SETTINGS_KEY); if (raw) return JSON.parse(raw) || {}; } catch { /* ignore */ }
   return {};
@@ -800,6 +852,34 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
     queryFn: () => fetchTimeseries("activity", sActivity.from!, sActivity.to!),
     enabled: !!(sActivity.from && sActivity.to),
   });
+  const sSales = getCardSettings("sales");
+  const sTopBooks = getCardSettings("topBooks");
+  // The best-sellers chart wraps long titles under each column, so the label
+  // budget has to follow the column width — on a narrow card a fixed budget
+  // renders neighbouring titles on top of each other. Measured, not guessed,
+  // because the card is both resizable and responsive.
+  const [topBooksW, setTopBooksW] = useState(0);
+  const topBooksRO = useRef<ResizeObserver | null>(null);
+  const setTopBooksBox = (el: HTMLDivElement | null) => {
+    if (topBooksRO.current) { topBooksRO.current.disconnect(); topBooksRO.current = null; }
+    if (!el) return;
+    const measure = () => setTopBooksW(el.getBoundingClientRect().width);
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    topBooksRO.current = ro;
+    measure();
+  };
+  useEffect(() => () => topBooksRO.current?.disconnect(), []);
+  const salesRangeQ = useQuery({
+    queryKey: ["owner-ts", "sales", sSales.from, sSales.to],
+    queryFn: () => fetchTimeseries("sales", sSales.from!, sSales.to!),
+    enabled: !!(sSales.from && sSales.to),
+  });
+  const topBooksRangeQ = useQuery({
+    queryKey: ["owner-ts", "topBooks", sTopBooks.from, sTopBooks.to],
+    queryFn: () => fetchTimeseries("topBooks", sTopBooks.from!, sTopBooks.to!),
+    enabled: !!(sTopBooks.from && sTopBooks.to),
+  });
 
   const dragCenter = useRef<{ x: number; y: number } | null>(null);      // live centre of the grabbed card
   const dragStartCenter = useRef<{ x: number; y: number } | null>(null); // where the drag began
@@ -911,13 +991,26 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
   const sTop = getCardSettings("topSubjects");
   const topShown = data.charts.topSubjects.filter((d) => !sTop.hidden.includes(d.name));
 
+  // ── Store cards ──
+  const salesData = (data.charts.salesDaily ?? []).map((d) => ({ day: dayLabel(d.day), مبيعات: d.salesEgp, طلبات: d.orders, كتب: d.booksSold }));
+  const salesShown = (sSales.from && sSales.to && salesRangeQ.data)
+    ? salesRangeQ.data.series.map((d: any) => ({ day: dayLabel(d.day), مبيعات: d.salesEgp, طلبات: d.orders, كتب: d.booksSold }))
+    : salesData;
+  const salesSeries = CHART_META.sales!.series!.filter((s) => !sSales.hidden.includes(s.key));
+  // A custom range refetches the top-6 for that window; otherwise it's all-time.
+  const topBooksAll = (sTopBooks.from && sTopBooks.to && topBooksRangeQ.data)
+    ? (topBooksRangeQ.data.series as { name: string; value: number }[])
+    : (data.charts.topBooks ?? []);
+  const topBooksShown = topBooksAll.filter((d) => !sTopBooks.hidden.includes(d.name));
+
   // The gear's category list (single-series charts toggle data points by name).
   const categoriesFor = (id: string): string[] =>
     id === "academic" ? academicData.map((d) => d.name)
       : id === "subs" ? subsData.map((d) => d.name)
         : id === "roles" ? roleData.map((d) => d.name)
           : id === "topSubjects" ? data.charts.topSubjects.map((d) => d.name)
-            : [];
+            : id === "topBooks" ? topBooksAll.map((d) => d.name)
+              : [];
   const settingsFor = (id: string) => (
     <ChartSettingsPanel id={id} categories={categoriesFor(id)} settings={getCardSettings(id)}
       onChange={(patch) => updateCardSettings(id, patch)} onReset={() => resetCardSettings(id)} />
@@ -1009,6 +1102,68 @@ function DashboardTab({ go, isDark }: { go: (tab: Tab) => void; isDark: boolean 
             <Bar dataKey="value" name="العدد" fill="#3B82F6" radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
+      ),
+    },
+    sales: {
+      title: sSales.from && sSales.to ? `المبيعات — ${salesShown.length} يوم` : "المبيعات خلال آخر 30 يوم",
+      icon: Banknote, iconClass: "text-emerald-500",
+      empty: salesSeries.length === 0 || salesShown.every((d) => d.مبيعات === 0 && d.طلبات === 0 && d.كتب === 0),
+      children: (
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={salesShown}>
+            <defs>
+              {[["sSales", "#10B981"], ["sOrders", "#3B82F6"], ["sBooks", "#F59E0B"]].map(([id, c]) => (
+                <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={c} stopOpacity={0.25} /><stop offset="95%" stopColor={c} stopOpacity={0} />
+                </linearGradient>
+              ))}
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+            <XAxis dataKey="day" tick={{ fontSize: 11, fontFamily: "SF Arabic, Cairo", fill: axisColor }} />
+            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(sSales.yMax)} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(salesShown.flatMap((d) => [d.مبيعات, d.طلبات, d.كتب]))} />
+            <Tooltip content={<CustomTooltip />} />
+            <Legend wrapperStyle={{ fontFamily: "SF Arabic, Cairo", fontSize: 12 }} />
+            {salesSeries.map((s) => (
+              // `name` (not the bare dataKey) drives the legend + tooltip, so the
+              // money series reads "مبيعات (ج.م)" rather than an unlabelled number.
+              <Area key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} fill={`url(#${SALES_GRAD[s.key]})`} strokeWidth={2.5} />
+            ))}
+          </AreaChart>
+        </ResponsiveContainer>
+      ),
+    },
+    topBooks: {
+      title: sTopBooks.from && sTopBooks.to ? "أكثر الكتب مبيعًا — فترة مخصصة" : "أكثر الكتب مبيعًا",
+      icon: ShoppingCart, iconClass: "text-rose-500", empty: topBooksShown.length === 0,
+      children: (
+        <div ref={setTopBooksBox} className="h-full w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={topBooksShown} margin={{ left: 4, right: 8, top: 4, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+            {/* Two-line ticks (see wrapTwoLines) — the full title is in the tooltip.
+                ~5.4px per Arabic glyph at 11px; clamped so a wide card doesn't
+                sprawl and a narrow one still shows enough to tell books apart. */}
+            <XAxis dataKey="name" interval={0} height={34} tick={(p: any) => {
+              const slot = topBooksW && topBooksShown.length ? (topBooksW - 44) / topBooksShown.length : 0;
+              const per = slot ? Math.max(6, Math.min(13, Math.floor(slot / 5.4))) : 13;
+              const [l1, l2] = wrapTwoLines(p?.payload?.value, per);
+              return (
+                <g transform={`translate(${p.x},${p.y})`}>
+                  <text textAnchor="middle" dy={12} fill={axisColor} style={{ fontSize: 11, fontFamily: "SF Arabic, Cairo" }}>
+                    <tspan x={0}>{l1}</tspan>
+                    {l2 ? <tspan x={0} dy={13}>{l2}</tspan> : null}
+                  </text>
+                </g>
+              );
+            }} />
+            <YAxis tick={{ fontSize: 11, fill: axisColor }} allowDecimals={false} domain={yDomain(sTopBooks.yMax)} tickFormatter={numTick} tickMargin={AXIS_GAP} width={numAxisWidth(topBooksShown.map((b) => b.value))} />
+            <Tooltip content={<CustomTooltip />} />
+            <Bar dataKey="value" name="نسخ مباعة" radius={[6, 6, 0, 0]}>
+              {topBooksShown.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+        </div>
       ),
     },
     topSubjects: {
@@ -1384,7 +1539,17 @@ function ReportsTab({ isDark }: { isDark: boolean }) {
     { title: "تقرير الاشتراكات", icon: TicketPercent, iconClass: "text-emerald-500", color: "#10B981", rows: [["اشتراكات نشطة", k.activeSubscriptions, "activeSubscriptions"], ["قيد المراجعة", k.pendingSubscriptions, "pendingSubscriptions"], ["مقبولة", k.approvedSubscriptions, "approvedSubscriptions"], ["مرفوضة", k.rejectedSubscriptions, "rejectedSubscriptions"]] },
     { title: "تقرير المحتوى الأكاديمي", icon: GraduationCap, iconClass: "text-indigo-500", color: "#6366F1", rows: [["السنوات", k.totalYears, "totalYears"], ["المواد", k.totalSubjects, "totalSubjects"], ["الوحدات", k.totalUnits, "totalUnits"], ["الدروس", k.totalLessons, "totalLessons"], ["الفيديوهات", k.totalVideos, "totalVideos"], ["التقسيمات", k.totalSegments, "totalSegments"]] },
     { title: "تقرير الدعم والإشعارات", icon: MessageSquare, iconClass: "text-amber-500", color: "#F59E0B", rows: [["رسائل غير مقروءة", k.unreadSupport, "unreadSupport"], ["محادثات مفتوحة", k.openConversations, "openConversations"], ["أجهزة أندرويد", k.pushTokensAndroid, "pushTokensAndroid"], ["أجهزة iOS", k.pushTokensIos, "pushTokensIos"], ["إجمالي الأجهزة", k.pushTokensTotal, "pushTokensTotal"]] },
+    // Store. Every row here is a metric whose running-total-over-time reading is
+    // truthful, because the flip side plots exactly that. Stock levels are NOT —
+    // they move as orders ship — so they live in the products table below instead
+    // of being charted against a book's creation date.
+    { title: "تقرير المتجر والمبيعات", icon: ShoppingCart, iconClass: "text-rose-500", color: "#F43F5E", rows: [["إجمالي الطلبات", k.totalOrders ?? 0, "totalOrders"], ["طلبات قيد التنفيذ", k.openOrders ?? 0, "openOrders"], ["طلبات مُسلَّمة", k.deliveredOrders ?? 0, "deliveredOrders"], ["طلبات ملغية", k.cancelledOrders ?? 0, "cancelledOrders"], ["نسخ مُباعة", k.booksSoldCount ?? 0, "booksSoldCount"], ["إجمالي المبيعات (ج.م)", k.salesEgpTotal ?? 0, "salesEgpTotal"]] },
+    { title: "تقرير المنتجات", icon: BookOpen, iconClass: "text-violet-500", color: "#8B5CF6", rows: [["إجمالي الكتب", k.totalBooks ?? 0, "totalBooks"], ["كتب معروضة", k.publishedBooks ?? 0, "publishedBooks"], ["نسخ مُباعة", k.booksSoldCount ?? 0, "booksSoldCount"]] },
   ];
+
+  const products = data.products ?? [];
+  const lowStock = k.lowStockThreshold ?? 5;
+  const recentOrders = data.recent.orders ?? [];
 
   return (
     <div className="space-y-6">
@@ -1392,6 +1557,84 @@ function ReportsTab({ isDark }: { isDark: boolean }) {
         {reportCards.map((c) => (
           <ReportFlipCard key={c.title} card={c} isDark={isDark} />
         ))}
+      </div>
+
+      {/* Latest orders — the store's operations feed (cancellations included). */}
+      <div className="glass-card p-5">
+        <h3 className="font-display font-bold text-base mb-3 flex items-center gap-2"><ShoppingCart className="w-5 h-5 text-rose-500" />أحدث الطلبات</h3>
+        {recentOrders.length === 0 ? <EmptyRow /> : (
+          <div className="space-y-1.5">
+            {recentOrders.map((o) => (
+              <div key={o.id} className="flex items-center justify-between gap-3 text-sm py-2 border-b border-white/30 last:border-0">
+                <div className="min-w-0">
+                  <p className="font-semibold text-foreground truncate">{o.orderNumber || `#${o.id}`} · {o.buyerName || o.recipientName}</p>
+                  <p className="text-xs text-muted-foreground truncate">{o.governorate} · {fmt(o.totalEgp)} ج.م</p>
+                </div>
+                <div className="text-left flex-shrink-0">
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${ORDER_STATUS_STYLE[o.status] ?? "bg-slate-100 text-slate-700"}`}>{ORDER_STATUS_AR[o.status] || o.status}</span>
+                  <p className="text-xs text-muted-foreground mt-1">{fmtDate(o.createdAt)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Products: current stock + how much each book actually sold. Stock is a
+          live number, so it's shown as-is here rather than charted over time. */}
+      <div className="glass-card p-5">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+          <h3 className="font-display font-bold text-base flex items-center gap-2"><BookOpen className="w-5 h-5 text-violet-500" />المنتجات — المخزون والمبيعات</h3>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <MiniStat label="كتب" value={fmt(k.totalBooks ?? 0)} />
+            <MiniStat label="معروضة" value={fmt(k.publishedBooks ?? 0)} />
+            <MiniStat label="نفدت" value={fmt(k.outOfStockBooks ?? 0)} tone={(k.outOfStockBooks ?? 0) > 0 ? "danger" : undefined} />
+            <MiniStat label="نسخ بالمخزن" value={fmt(k.totalStock ?? 0)} />
+          </div>
+        </div>
+        {products.length === 0 ? <EmptyRow /> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[560px]">
+              <thead>
+                <tr className="text-xs text-muted-foreground border-b border-white/40">
+                  <th className="text-right font-semibold py-2">الكتاب</th>
+                  <th className="text-center font-semibold py-2">السعر</th>
+                  <th className="text-center font-semibold py-2">المخزون</th>
+                  <th className="text-center font-semibold py-2">نسخ مُباعة</th>
+                  <th className="text-center font-semibold py-2">الإيراد</th>
+                </tr>
+              </thead>
+              <tbody>
+                {products.map((p) => {
+                  const out = p.stockQuantity <= 0;
+                  const low = !out && p.stockQuantity <= lowStock;
+                  return (
+                    <tr key={p.id} className="border-b border-white/25 last:border-0">
+                      <td className="py-2 pl-2">
+                        <p className="font-semibold text-foreground truncate max-w-[240px]">{p.title}</p>
+                        {!p.available ? <p className="text-[11px] text-amber-600 font-bold">غير معروض</p> : null}
+                      </td>
+                      <td className="text-center text-muted-foreground">{fmt(p.priceEgp)}</td>
+                      <td className="text-center">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${out ? "bg-red-100 text-red-700" : low ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+                          {out ? "نفد" : fmt(p.stockQuantity)}
+                        </span>
+                      </td>
+                      <td className="text-center font-bold text-foreground">{fmt(p.sold)}</td>
+                      <td className="text-center font-bold text-primary whitespace-nowrap">{fmt(p.revenueEgp)} ج.م</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="text-[11px] text-muted-foreground mt-2">المخزون الأصفر = وصل لحدّ التنبيه ({fmt(lowStock)} نسخ أو أقل). الإيراد محسوب بسعر البيع وقت الطلب، والطلبات الملغية غير محسوبة.</p>
+        {(data.soldFromRemovedBooks ?? 0) > 0 ? (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold mt-1">
+            ملاحظة: {fmt(data.soldFromRemovedBooks!)} نسخة مُباعة تخصّ كتبًا اتشالت من الكتالوج، فهي محسوبة في الإجماليات فوق لكن مش ظاهرة في الجدول.
+          </p>
+        ) : null}
       </div>
 
       {/* Recent students */}
@@ -1439,6 +1682,27 @@ function EmptyRow() {
   return <p className="text-sm text-muted-foreground py-4 text-center">لا توجد بيانات كافية لعرض هذا التقرير حاليًا</p>;
 }
 
+// The 6 delivery stages + cancellation, mirroring lib/order-status.ts on the API.
+const ORDER_STATUS_AR: Record<string, string> = {
+  placed: "تم الطلب", confirmed: "مؤكَّد", packed: "تم التغليف",
+  shipped: "تم الشحن", out_for_delivery: "خرج للتوصيل",
+  delivered: "تم التسليم", cancelled: "ملغي",
+};
+const ORDER_STATUS_STYLE: Record<string, string> = {
+  placed: "bg-slate-100 text-slate-700", confirmed: "bg-sky-100 text-sky-700",
+  packed: "bg-indigo-100 text-indigo-700", shipped: "bg-violet-100 text-violet-700",
+  out_for_delivery: "bg-amber-100 text-amber-700",
+  delivered: "bg-emerald-100 text-emerald-700", cancelled: "bg-red-100 text-red-700",
+};
+
+function MiniStat({ label, value, tone }: { label: string; value: string; tone?: "danger" }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] ${tone === "danger" ? "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300" : "border-white/60 bg-white/60 text-muted-foreground dark:border-white/10 dark:bg-white/[0.06]"}`}>
+      <span className="font-black text-foreground">{value}</span>{label}
+    </span>
+  );
+}
+
 // ── Per-user details + activity timeline drawer (owner only) ───────────────
 type FeatureAccess = {
   screenCaptureAllowed: boolean | null;
@@ -1450,7 +1714,13 @@ type FeatureAccess = {
 type ActivityResponse = {
   user: { id: number; name: string; email: string; role: string; status: string; phone: string | null; governorate: string | null; joinedAt: string; lastActiveAt: string | null; expectationStars?: number; scoringFrozen?: boolean };
   featureAccess?: FeatureAccess;
-  stats: { supportReplies: number; subscriptionsReviewed: number; subscriptionsGranted: number; requestsSubmitted: number; lessonsWatched: number; videosAdded: number };
+  stats: {
+    supportReplies: number; subscriptionsReviewed: number; subscriptionsGranted: number;
+    requestsSubmitted: number; lessonsWatched: number; videosAdded: number;
+    // Store / points / exams — optional so an older API build still renders.
+    ordersPlaced?: number; pointsEarned?: number; pointsSpent?: number;
+    quizzesTaken?: number; examsTaken?: number;
+  };
   timeline: { type: string; at: string | null; title: string; detail: string }[];
 };
 const ACTIVITY_ICON: Record<string, React.ElementType> = {
@@ -1458,6 +1728,12 @@ const ACTIVITY_ICON: Record<string, React.ElementType> = {
   subscription_review: TicketPercent, request_submitted: TicketPercent,
   subscription_grant: CheckCircle2, lesson_watch: Video,
   content_create: Video,
+  // Store · points · exams · study tools · generic admin actions.
+  order_placed: ShoppingCart, book_favorite: Star,
+  points_earn: Star, points_spend: Banknote,
+  quiz_attempt: FileBarChart, exam_attempt: GraduationCap,
+  bookmark: Star, note: FileText,
+  admin_action: ShieldCheck,
 };
 function fmtDateTime(value: string | null | undefined) {
   if (!value) return "—";
@@ -1773,7 +2049,7 @@ function ActivityDrawer({ userId, onClose }: { userId: number | null; onClose: (
                     />
                   ) : null}
                   <div className="grid grid-cols-3 gap-2">
-                    {([["ردود دعم", data.stats.supportReplies], ["مراجعات", data.stats.subscriptionsReviewed], ["منح اشتراك", data.stats.subscriptionsGranted], ["فيديوهات مُضافة", data.stats.videosAdded], ["طلبات", data.stats.requestsSubmitted], ["دروس", data.stats.lessonsWatched]] as [string, number][]).map(([l, v]) => (
+                    {([["ردود دعم", data.stats.supportReplies], ["مراجعات", data.stats.subscriptionsReviewed], ["منح اشتراك", data.stats.subscriptionsGranted], ["فيديوهات مُضافة", data.stats.videosAdded], ["طلبات اشتراك", data.stats.requestsSubmitted], ["دروس", data.stats.lessonsWatched], ["طلبات المتجر", data.stats.ordersPlaced ?? 0], ["نقاط مكتسبة", data.stats.pointsEarned ?? 0], ["نقاط مصروفة", data.stats.pointsSpent ?? 0], ["اختبارات", data.stats.quizzesTaken ?? 0], ["امتحانات", data.stats.examsTaken ?? 0]] as [string, number][]).map(([l, v]) => (
                       <div key={l} className="glass-card p-3 text-center"><p className="font-display font-black text-xl text-primary">{fmt(v)}</p><p className="text-[11px] text-muted-foreground">{l}</p></div>
                     ))}
                   </div>
@@ -1832,6 +2108,8 @@ function AdminsTab() {
   // Per-admin page permissions dialog (owner toggles which pages an admin sees).
   const [permTarget, setPermTarget] = useState<{ id: number; name: string } | null>(null);
   const [permBlocked, setPermBlocked] = useState<string[]>([]);
+  // Separate from the page list: an opt-IN capability, off unless the owner grants it.
+  const [permActivity, setPermActivity] = useState(false);
   const [permBusy, setPermBusy] = useState(false);
   const [permLoading, setPermLoading] = useState(false);
   // Right-click actions menu — actions are hidden on the card and surface here,
@@ -1866,13 +2144,15 @@ function AdminsTab() {
   const openPermissions = async (u: { id: number; name: string }) => {
     setPermTarget({ id: u.id, name: u.name });
     setPermBlocked([]);
+    setPermActivity(false);
     setPermLoading(true);
     try {
       const res = await fetch(apiPath(`/api/admin/users/${u.id}/tabs`), { headers: authHeader() });
       const data = await res.json().catch(() => ({}));
       if (res.ok && Array.isArray(data.blockedTabs)) setPermBlocked(data.blockedTabs as string[]);
+      if (res.ok) setPermActivity(data.canViewUserActivity === true);
     } catch {
-      /* keep defaults (all enabled) on failure */
+      /* keep defaults (all pages on, activity off) on failure */
     } finally {
       setPermLoading(false);
     }
@@ -1885,7 +2165,7 @@ function AdminsTab() {
       const res = await fetch(apiPath(`/api/admin/users/${permTarget.id}/tabs`), {
         method: "PUT",
         headers: { ...authHeader(), "Content-Type": "application/json" },
-        body: JSON.stringify({ blockedTabs: permBlocked }),
+        body: JSON.stringify({ blockedTabs: permBlocked, canViewUserActivity: permActivity }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as { error?: string })?.error || "تعذّر حفظ الصلاحيات");
@@ -2059,13 +2339,14 @@ function AdminsTab() {
               transition={{ type: "tween", ease: [0.22, 1, 0.36, 1], duration: 0.2 }}
               className="fixed left-1/2 top-1/2 z-[61] w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white/97 dark:bg-[#11151b]/97 backdrop-blur border border-white/70 dark:border-white/10 shadow-2xl p-5 space-y-4 text-right" dir="rtl">
               <div>
-                <h3 className="font-bold text-foreground flex items-center gap-2"><SlidersHorizontal className="w-4 h-4 text-primary" /> صلاحيات الصفحات</h3>
+                <h3 className="font-bold text-foreground flex items-center gap-2"><SlidersHorizontal className="w-4 h-4 text-primary" /> صلاحيات المشرف</h3>
                 <p className="text-xs text-muted-foreground mt-1">للمشرف: <span className="font-bold text-foreground">{permTarget.name}</span> — فعّل الصفحات اللي يقدر يشوفها.</p>
               </div>
               {permLoading ? (
                 <div className="py-8 text-center text-sm text-muted-foreground">جارٍ التحميل…</div>
               ) : (
                 <div className="space-y-1 max-h-[50vh] overflow-y-auto">
+                  <p className="text-[11px] font-black text-muted-foreground/70 px-1">الصفحات</p>
                   {CONTROLLABLE_PAGES.map((p) => {
                     const enabled = !permBlocked.includes(p.id);
                     return (
@@ -2078,6 +2359,21 @@ function AdminsTab() {
                       </button>
                     );
                   })}
+                  {/* Not a page — a capability, and unlike the toggles above it starts
+                      OFF. Separated so it never reads as "just another page". */}
+                  <div className="pt-3 mt-2 border-t border-white/60 dark:border-white/10">
+                    <p className="text-[11px] font-black text-muted-foreground/70 px-1 mb-1">صلاحيات إضافية</p>
+                    <button type="button" onClick={() => setPermActivity((v) => !v)}
+                      className="flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-right transition-colors hover:bg-muted/60">
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold text-foreground">عرض سجل نشاط المستخدمين</span>
+                        <span className="block text-[11px] text-muted-foreground mt-0.5">يقدر يفتح «تفاصيل وسجل النشاط» لأي مستخدم — بما فيه طلبات المتجر والمبالغ والنقاط ودرجات الامتحانات.</span>
+                      </span>
+                      <span dir="ltr" className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors mt-0.5 ${permActivity ? "bg-emerald-500" : "bg-muted-foreground/30"}`}>
+                        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${permActivity ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+                      </span>
+                    </button>
+                  </div>
                 </div>
               )}
               <div className="flex gap-2">

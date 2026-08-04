@@ -54,6 +54,11 @@ export const usersTable = pgTable("users", {
   // see api-server lib/feature-access.ts (the single resolution point).
   screenCaptureAllowed: boolean("screen_capture_allowed"),
   allSubjectsAccess: boolean("all_subjects_access"),
+  // May this ADMIN open another user's activity log (the «تفاصيل وسجل النشاط»
+  // drawer)? Unlike the two above, this one is OPT-IN: null/false = NO. The log
+  // exposes a student's orders, money, points and exam scores, so an admin only
+  // gets it when the owner deliberately switches it on. Owners always may.
+  canViewUserActivity: boolean("can_view_user_activity"),
   // Bumped on logout / password change to invalidate all previously-issued tokens. See review B-02.
   tokenVersion: integer("token_version").notNull().default(0),
   // Gamification (v2 Phase 1). Current consecutive-active-days streak, the best the

@@ -16,6 +16,7 @@ export type CachedUserAuth = {
   status: string;
   screenCaptureAllowed: boolean | null;
   allSubjectsAccess: boolean | null;
+  canViewUserActivity: boolean | null;
 };
 
 const TTL_MS = 10_000;
@@ -33,6 +34,7 @@ export async function getUserAuth(userId: number): Promise<CachedUserAuth | null
       status: usersTable.status,
       screenCaptureAllowed: usersTable.screenCaptureAllowed,
       allSubjectsAccess: usersTable.allSubjectsAccess,
+      canViewUserActivity: usersTable.canViewUserActivity,
     })
     .from(usersTable)
     .where(eq(usersTable.id, userId))

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
-import { MapPin, Users, Activity, GraduationCap, Plus, Minus, X, RotateCcw, ChevronDown, Settings2, Maximize2 } from "lucide-react";
+import { MapPin, Users, Activity, GraduationCap, Plus, Minus, X, RotateCcw, ChevronDown, Settings2, Maximize2, ShoppingCart, BookOpen, Banknote } from "lucide-react";
 import { EGYPT_VIEWBOX, EGYPT_GOV_PATHS, EGYPT_GOV_CENTROIDS } from "@/data/egypt-governorates";
 
 // viewBox is "0 0 W H" — parse the extents once for zoom + popup math.
@@ -14,30 +14,56 @@ const authHeader = (): Record<string, string> => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 const fmt = (n: number) => Number(n ?? 0).toLocaleString("en-US");
+// Map labels sit inside a governorate shape, so a full "1,250,000" would spill
+// past the borders — anything from 10k up is abbreviated (Western digits, per the
+// app-wide numbering rule).
+const fmtCompact = (n: number) => {
+  const v = Number(n ?? 0);
+  if (Math.abs(v) < 10_000) return fmt(v);
+  if (Math.abs(v) < 1_000_000) return `${Math.round(v / 100) / 10}k`;
+  return `${Math.round(v / 100_000) / 10}M`;
+};
 
 type GovRow = {
   name: string; users: number; students: number; activeUsers: number;
   subscriptions: number; topSubject: string | null; topSubjectCount: number;
   grade1: number; grade2: number; grade3: number; watchHours: number;
+  // Bookstore — keyed server-side by the order's DELIVERY governorate.
+  orders: number; deliveredOrders: number; buyers: number;
+  booksSold: number; salesEgp: number; topBook: string | null; topBookCount: number;
 };
+
+type FieldGroup = "edu" | "store";
+const GROUP_LABEL: Record<FieldGroup, string> = { edu: "التعليم", store: "المتجر" };
 
 // The fields the owner can show/hide on the per-governorate card. The floating card
 // shows at most CARD_FIELD_LIMIT of these (in this order); the expanded card shows all.
-type CardFieldKey = "users" | "activeUsers" | "students" | "subscriptions" | "grade1" | "grade2" | "grade3" | "watchHours";
-const CARD_FIELDS: { key: CardFieldKey; label: string; get: (g: GovRow) => number; suffix?: string }[] = [
-  { key: "users", label: "المستخدمون", get: (g) => g.users },
-  { key: "activeUsers", label: "النشطون", get: (g) => g.activeUsers },
-  { key: "students", label: "الطلاب", get: (g) => g.students },
-  { key: "subscriptions", label: "الاشتراكات", get: (g) => g.subscriptions },
-  { key: "grade1", label: "الأول الثانوي", get: (g) => g.grade1 },
-  { key: "grade2", label: "الثاني الثانوي", get: (g) => g.grade2 },
-  { key: "grade3", label: "الثالث الثانوي", get: (g) => g.grade3 },
-  { key: "watchHours", label: "المشاهدات بالساعة", get: (g) => g.watchHours, suffix: " س" },
+type CardFieldKey =
+  | "users" | "activeUsers" | "students" | "subscriptions" | "grade1" | "grade2" | "grade3" | "watchHours"
+  | "orders" | "booksSold" | "salesEgp" | "buyers" | "deliveredOrders";
+const CARD_FIELDS: { key: CardFieldKey; label: string; get: (g: GovRow) => number; suffix?: string; group: FieldGroup }[] = [
+  { key: "users", label: "المستخدمون", get: (g) => g.users, group: "edu" },
+  { key: "activeUsers", label: "النشطون", get: (g) => g.activeUsers, group: "edu" },
+  { key: "students", label: "الطلاب", get: (g) => g.students, group: "edu" },
+  { key: "subscriptions", label: "الاشتراكات", get: (g) => g.subscriptions, group: "edu" },
+  { key: "grade1", label: "الأول الثانوي", get: (g) => g.grade1, group: "edu" },
+  { key: "grade2", label: "الثاني الثانوي", get: (g) => g.grade2, group: "edu" },
+  { key: "grade3", label: "الثالث الثانوي", get: (g) => g.grade3, group: "edu" },
+  { key: "watchHours", label: "المشاهدات بالساعة", get: (g) => g.watchHours, suffix: " س", group: "edu" },
+  { key: "orders", label: "الطلبات", get: (g) => g.orders, group: "store" },
+  { key: "booksSold", label: "الكتب المُباعة", get: (g) => g.booksSold, group: "store" },
+  { key: "salesEgp", label: "المبيعات", get: (g) => g.salesEgp, suffix: " ج.م", group: "store" },
+  { key: "buyers", label: "طلاب اشتروا", get: (g) => g.buyers, group: "store" },
+  { key: "deliveredOrders", label: "طلبات مُسلَّمة", get: (g) => g.deliveredOrders, group: "store" },
 ];
+// Per GROUP, not overall: the floating card follows whichever tab is open, so the
+// owner keeps one set of four education fields AND one set of four store fields
+// instead of having to re-pick every time they switch tabs.
 const CARD_FIELD_LIMIT = 4;
 const DEFAULT_VISIBLE: Record<CardFieldKey, boolean> = {
   users: true, activeUsers: true, students: true, subscriptions: true,
   grade1: false, grade2: false, grade3: false, watchHours: false,
+  orders: true, booksSold: true, salesEgp: true, buyers: true, deliveredOrders: false,
 };
 const FIELDS_STORAGE_KEY = "ofouq-geo-card-fields:v1";
 function loadVisibleFields(): Record<CardFieldKey, boolean> {
@@ -54,14 +80,20 @@ type GeoResponse = {
   generatedAt: string;
   governorates: GovRow[];
   unknownUsers: number;
-  totals: { coveredGovernorates: number; totalUsersWithGov: number; totalSubscriptions: number };
+  totals: {
+    coveredGovernorates: number; totalUsersWithGov: number; totalSubscriptions: number;
+    governoratesWithOrders: number; totalOrders: number; totalBooksSold: number; totalSalesEgp: number;
+  };
 };
 
-type Metric = "users" | "subscriptions" | "activeUsers";
-const METRICS: { key: Metric; label: string; icon: React.ElementType }[] = [
-  { key: "users", label: "عدد المستخدمين", icon: Users },
-  { key: "subscriptions", label: "النشاط (الاشتراكات)", icon: Activity },
-  { key: "activeUsers", label: "النشطون", icon: GraduationCap },
+type Metric = "users" | "subscriptions" | "activeUsers" | "orders" | "booksSold" | "salesEgp";
+const METRICS: { key: Metric; label: string; icon: React.ElementType; group: FieldGroup; suffix?: string }[] = [
+  { key: "users", label: "عدد المستخدمين", icon: Users, group: "edu" },
+  { key: "subscriptions", label: "النشاط (الاشتراكات)", icon: Activity, group: "edu" },
+  { key: "activeUsers", label: "النشطون", icon: GraduationCap, group: "edu" },
+  { key: "orders", label: "الطلبات", icon: ShoppingCart, group: "store" },
+  { key: "booksSold", label: "الكتب المُباعة", icon: BookOpen, group: "store" },
+  { key: "salesEgp", label: "المبيعات", icon: Banknote, group: "store", suffix: " ج.م" },
 ];
 
 // Ramp: low → high = red → yellow → blue → green (per request).
@@ -94,14 +126,18 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
   useEffect(() => {
     try { localStorage.setItem(FIELDS_STORAGE_KEY, JSON.stringify(visibleFields)); } catch { /* ignore */ }
   }, [visibleFields]);
-  const enabledFields = CARD_FIELDS.filter((f) => visibleFields[f.key]);
+  // The open tab decides which half of the fields the card is about.
+  const activeGroup: FieldGroup = METRICS.find((m) => m.key === metric)?.group ?? "edu";
+  const groupFields = CARD_FIELDS.filter((f) => f.group === activeGroup);
+  const enabledFields = groupFields.filter((f) => visibleFields[f.key]);
   const enabledCount = enabledFields.length;
   const shownFields = enabledFields.slice(0, CARD_FIELD_LIMIT);
   const toggleField = (key: CardFieldKey) =>
     setVisibleFields((prev) => {
       const next = !prev[key];
-      // Enforce the max-visible cap: block turning a 5th field on.
-      if (next && CARD_FIELDS.filter((f) => prev[f.key]).length >= CARD_FIELD_LIMIT) return prev;
+      // Enforce the max-visible cap WITHIN the group: block turning a 5th on.
+      const group = CARD_FIELDS.find((f) => f.key === key)?.group;
+      if (next && CARD_FIELDS.filter((f) => f.group === group && prev[f.key]).length >= CARD_FIELD_LIMIT) return prev;
       return { ...prev, [key]: next };
     });
   // Expanded view: card ~doubles in height, the map moves on top (taking ~3/4 of
@@ -284,24 +320,52 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
   const popLeft = activeCentroid ? ((activeCentroid[0] - view.x) / view.w) * 100 : 0;
   const popTop = activeCentroid ? ((activeCentroid[1] - view.y) / view.h) * 100 : 0;
   const popBelow = popTop < 26;
+  // "Highest by X" must not list governorates whose X is zero — the list now spans
+  // the union of user-governorates and order-governorates, so a place we only ship
+  // to would otherwise show up ranked in a users chart with a flat 0.
   const topList = useMemo(
-    () => [...(data?.governorates ?? [])].sort((a, b) => b[metric] - a[metric]).slice(0, 5),
+    () => [...(data?.governorates ?? [])].filter((g) => g[metric] > 0).sort((a, b) => b[metric] - a[metric]).slice(0, 5),
     [data, metric],
   );
 
   const expandedRow = expandedGov ? byName.get(expandedGov) ?? null : null;
+
+  // The active metric decides which vocabulary the whole card speaks: the summary
+  // strip, the ranking subtitle and the empty state all follow the store/education
+  // split rather than being hard-wired to the user counts.
+  const metricDef = METRICS.find((m) => m.key === metric) ?? METRICS[0];
+  const isStoreMetric = activeGroup === "store";
+  const noStoreData = isStoreMetric && (data?.totals.totalOrders ?? 0) === 0;
+  const summaryStats = isStoreMetric
+    ? [
+        { label: "محافظات فيها طلبات", value: data?.totals.governoratesWithOrders ?? 0 },
+        { label: "طلبات", value: data?.totals.totalOrders ?? 0 },
+        { label: metric === "salesEgp" ? "مبيعات (ج.م)" : "كتب مُباعة", value: metric === "salesEgp" ? (data?.totals.totalSalesEgp ?? 0) : (data?.totals.totalBooksSold ?? 0) },
+      ]
+    : [
+        { label: "محافظات مغطّاة", value: data?.totals.coveredGovernorates ?? 0 },
+        { label: "مستخدمون", value: data?.totals.totalUsersWithGov ?? 0 },
+        { label: "اشتراكات", value: data?.totals.totalSubscriptions ?? 0 },
+      ];
 
   return (
     <LayoutGroup>
     <div className="glass-card p-5 relative">
       <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
         <h3 className="font-display font-bold flex items-center gap-2"><MapPin className="w-5 h-5 text-rose-500" />التوزيع الجغرافي عبر المحافظات</h3>
+        {/* Two groups of metrics — education, then the store — split by a hairline
+            so six chips still read as two short lists instead of one long row. */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          {METRICS.map((m) => (
-            <button key={m.key} onClick={() => setMetric(m.key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${metric === m.key ? "bg-primary text-white border-primary" : "bg-white/50 dark:bg-white/[0.06] text-muted-foreground border-white/60 dark:border-white/10 hover:bg-white/70 dark:hover:bg-white/10"}`}>
-              <m.icon className="w-3.5 h-3.5" />{m.label}
-            </button>
+          {METRICS.map((m, i) => (
+            <div key={m.key} className="flex items-center gap-1.5">
+              {i > 0 && METRICS[i - 1].group !== m.group && (
+                <span className="w-px h-5 bg-slate-300/70 dark:bg-white/15 mx-0.5" aria-hidden />
+              )}
+              <button onClick={() => setMetric(m.key)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${metric === m.key ? "bg-primary text-white border-primary" : "bg-white/50 dark:bg-white/[0.06] text-muted-foreground border-white/60 dark:border-white/10 hover:bg-white/70 dark:hover:bg-white/10"}`}>
+                <m.icon className="w-3.5 h-3.5" />{m.label}
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -352,7 +416,7 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
                     return (
                       <text key={name} x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
                         style={{ fontSize: 13, fontWeight: 800, fill: "#fff", paintOrder: "stroke" }}
-                        stroke="rgba(0,0,0,0.35)" strokeWidth={0.6}>{fmt(row[metric])}</text>
+                        stroke="rgba(0,0,0,0.35)" strokeWidth={0.6}>{fmtCompact(row[metric])}</text>
                     );
                   })}
                 </g>
@@ -413,14 +477,16 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
           {/* Ranking side panel */}
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-2">
-              <Stat label="محافظات مغطّاة" value={data?.totals.coveredGovernorates ?? 0} />
-              <Stat label="مستخدمون" value={data?.totals.totalUsersWithGov ?? 0} />
-              <Stat label="اشتراكات" value={data?.totals.totalSubscriptions ?? 0} />
+              {summaryStats.map((s) => (
+                <Stat key={s.label} label={s.label} value={s.value} />
+              ))}
             </div>
-            <p className="text-xs font-bold text-muted-foreground">الأعلى حسب {METRICS.find((m) => m.key === metric)?.label}</p>
+            <p className="text-xs font-bold text-muted-foreground">الأعلى حسب {metricDef.label}</p>
             <div className={expanded ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2" : "space-y-2"}>
               {topList.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-6">لا توجد بيانات جغرافية بعد</p>
+                <p className="text-xs text-muted-foreground text-center py-6">
+                  {noStoreData ? "لسه مفيش طلبات من المتجر" : isStoreMetric ? "مفيش بيانات للمتجر بعد" : "لا توجد بيانات جغرافية بعد"}
+                </p>
               ) : topList.map((g, i) => (
                 <div key={g.name} onMouseEnter={() => setHovered(g.name)} onMouseLeave={() => setHovered(null)}
                   onClick={() => setSelectedName(g.name)}
@@ -428,9 +494,15 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
                   <span className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-black flex-shrink-0" style={{ background: rampColor(g[metric] / maxVal) }}>{i + 1}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-foreground truncate">{g.name}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">{g.topSubject ? `الأكثر اشتراكًا: ${g.topSubject}` : "—"}</p>
+                    {/* The subtitle answers "the top what?" for the metric in view —
+                        best-selling book on the store tabs, top subject otherwise. */}
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      {isStoreMetric
+                        ? (g.topBook ? `الأكثر مبيعًا: ${g.topBook}` : "—")
+                        : (g.topSubject ? `الأكثر اشتراكًا: ${g.topSubject}` : "—")}
+                    </p>
                   </div>
-                  <span className="font-display font-black text-primary text-lg">{fmt(g[metric])}</span>
+                  <span className="font-display font-black text-primary text-lg">{fmt(g[metric])}{metricDef.suffix ?? ""}</span>
                   <button onClick={(e) => { e.stopPropagation(); setExpandedGov(g.name); }} title="توسيع"
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 flex-shrink-0"><Maximize2 className="w-3.5 h-3.5" /></button>
                 </div>
@@ -468,9 +540,13 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
                 <h4 className="font-bold text-sm flex items-center gap-1.5"><Settings2 className="w-4 h-4 text-primary" />بيانات البطاقة</h4>
                 <button onClick={() => setSettingsOpen(false)} className="w-7 h-7 rounded-lg hover:bg-muted flex items-center justify-center text-muted-foreground"><X className="w-4 h-4" /></button>
               </div>
-              <p className="text-[11px] text-muted-foreground mb-3">اختَر اللي يظهر في البطاقة العائمة — بحد أقصى {CARD_FIELD_LIMIT} عناصر.</p>
-              <div className="space-y-1.5">
-                {CARD_FIELDS.map((f) => {
+              <p className="text-[11px] text-muted-foreground mb-3">
+                اختَر اللي يظهر في بطاقة <span className="font-bold text-foreground">{GROUP_LABEL[activeGroup]}</span> — بحد أقصى {CARD_FIELD_LIMIT} عناصر.
+              </p>
+              {/* Only the open tab's fields: the card shows that group, so offering
+                  the other group's toggles here would edit something invisible. */}
+              <div className="space-y-1.5 max-h-[45vh] overflow-y-auto pl-1">
+                {groupFields.map((f) => {
                   const on = visibleFields[f.key];
                   const disabled = !on && enabledCount >= CARD_FIELD_LIMIT;
                   return (
@@ -508,20 +584,38 @@ export function EgyptHeatmap({ isDark }: { isDark: boolean }) {
                   </div>
                 </div>
                 {/* Left pane: ALL the governorate data */}
-                <div className="p-5 md:p-6">
+                <div className="p-5 md:p-6 max-h-[70vh] md:max-h-[440px] overflow-y-auto">
                   <h3 className="font-display font-black text-xl text-foreground mb-1">{expandedGov}</h3>
                   <p className="text-xs text-muted-foreground mb-4">كل بيانات المحافظة</p>
                   <div className="space-y-2">
-                    {CARD_FIELDS.map((f) => (
-                      <div key={f.key} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-white/50 dark:bg-white/[0.06] border border-white/60 dark:border-white/10">
-                        <span className="text-sm text-muted-foreground">{f.label}</span>
-                        <span className="text-base font-black text-foreground">{fmt(f.get(expandedRow))}{f.suffix ?? ""}</span>
-                      </div>
-                    ))}
-                    <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-primary/5 border border-primary/20">
-                      <span className="text-sm text-muted-foreground">الأكثر اشتراكًا</span>
-                      <span className="text-base font-black text-primary truncate max-w-[150px]">{expandedRow.topSubject || "—"}</span>
-                    </div>
+                    {CARD_FIELDS.map((f, i) => {
+                      const startsGroup = i === 0 || CARD_FIELDS[i - 1].group !== f.group;
+                      return (
+                        <div key={f.key} className="space-y-2">
+                          {startsGroup && (
+                            <p className={`text-[11px] font-black text-muted-foreground/70 px-1 ${i === 0 ? "" : "pt-2"}`}>{GROUP_LABEL[f.group]}</p>
+                          )}
+                          <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-white/50 dark:bg-white/[0.06] border border-white/60 dark:border-white/10">
+                            <span className="text-sm text-muted-foreground">{f.label}</span>
+                            <span className="text-base font-black text-foreground">{fmt(f.get(expandedRow))}{f.suffix ?? ""}</span>
+                          </div>
+                          {/* Each group closes with its own "top" highlight row. */}
+                          {i === CARD_FIELDS.length - 1 || CARD_FIELDS[i + 1].group !== f.group ? (
+                            f.group === "edu" ? (
+                              <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-primary/5 border border-primary/20">
+                                <span className="text-sm text-muted-foreground">الأكثر اشتراكًا</span>
+                                <span className="text-base font-black text-primary truncate max-w-[150px]">{expandedRow.topSubject || "—"}</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-primary/5 border border-primary/20">
+                                <span className="text-sm text-muted-foreground">الأكثر مبيعًا</span>
+                                <span className="text-base font-black text-primary truncate max-w-[150px]">{expandedRow.topBook || "—"}</span>
+                              </div>
+                            )
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </motion.div>

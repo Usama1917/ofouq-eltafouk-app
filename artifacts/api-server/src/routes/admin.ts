@@ -40,9 +40,17 @@ import {
   studentOnboardingResponsesTable,
   adminAuditLogTable,
   appSettingsTable,
+  ordersTable,
+  orderItemsTable,
+  storeSettingsTable,
+  quizAttemptsTable,
+  unitExamAttemptsTable,
+  lessonBookmarksTable,
+  lessonNotesTable,
+  bookFavoritesTable,
 } from "@workspace/db";
 import { ensureAppSettings } from "../lib/app-settings";
-import { canCaptureScreen, hasAllSubjectsAccess } from "../lib/feature-access";
+import { canCaptureScreen, hasAllSubjectsAccess, canViewUserActivity } from "../lib/feature-access";
 import { eq, ne, and, count, sql, desc, asc, or, gte, lt, inArray, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
@@ -139,7 +147,9 @@ async function requireAdminGate(req: any, res: any, next: any) {
       return;
     }
     const [actor] = await db
-      .select({ id: usersTable.id, role: usersTable.role, status: usersTable.status })
+      // canViewUserActivity rides along so the activity-log route can gate on the
+      // actor without a second round-trip.
+      .select({ id: usersTable.id, role: usersTable.role, status: usersTable.status, canViewUserActivity: usersTable.canViewUserActivity })
       .from(usersTable)
       .where(eq(usersTable.id, actorId))
       .limit(1);
@@ -333,7 +343,7 @@ router.get("/admin/owner-dashboard/timeseries", async (req, res) => {
       const [watchByDay, requestsByDay, messagesByDay] = await Promise.all([
         db.select({ day: sql<string>`to_char(${lessonWatchProgressTable.lastWatchedAt}, 'YYYY-MM-DD')`, total: sql<number>`count(distinct ${lessonWatchProgressTable.studentId})` }).from(lessonWatchProgressTable).where(and(gte(lessonWatchProgressTable.lastWatchedAt, from), lt(lessonWatchProgressTable.lastWatchedAt, toExcl))).groupBy(sql`to_char(${lessonWatchProgressTable.lastWatchedAt}, 'YYYY-MM-DD')`),
         db.select({ day: sql<string>`to_char(${subjectSubscriptionRequestsTable.submittedAt}, 'YYYY-MM-DD')`, total: count() }).from(subjectSubscriptionRequestsTable).where(and(gte(subjectSubscriptionRequestsTable.submittedAt, from), lt(subjectSubscriptionRequestsTable.submittedAt, toExcl))).groupBy(sql`to_char(${subjectSubscriptionRequestsTable.submittedAt}, 'YYYY-MM-DD')`),
-        db.select({ day: sql<string>`to_char(${supportMessagesTable.createdAt}, 'YYYY-MM-DD')`, total: count() }).from(supportMessagesTable).where(and(eq(supportMessagesTable.senderRole, "student"), gte(supportMessagesTable.createdAt, from), lt(supportMessagesTable.createdAt, toExcl))).groupBy(sql`to_char(${supportMessagesTable.createdAt}, 'YYYY-MM-DD')`),
+        db.select({ day: sql<string>`to_char(${supportMessagesTable.createdAt}, 'YYYY-MM-DD')`, total: count() }).from(supportMessagesTable).where(and(eq(supportMessagesTable.senderRole, "user"), gte(supportMessagesTable.createdAt, from), lt(supportMessagesTable.createdAt, toExcl))).groupBy(sql`to_char(${supportMessagesTable.createdAt}, 'YYYY-MM-DD')`),
       ]);
       const watchMap = new Map(watchByDay.map((r) => [r.day, num(r.total)]));
       const reqMap = new Map(requestsByDay.map((r) => [r.day, num(r.total)]));
@@ -347,6 +357,58 @@ router.get("/admin/owner-dashboard/timeseries", async (req, res) => {
         cur.setUTCDate(cur.getUTCDate() + 1);
       }
       res.json({ metric, from: fromStr, to: toStr, series });
+      return;
+    }
+
+    // Store money/volume per day. Same 366-day cap as `activity`.
+    if (metric === "sales") {
+      const maxMs = 366 * 24 * 3600 * 1000;
+      if (to.getTime() - from.getTime() > maxMs) from = new Date(to.getTime() - maxMs);
+      const live = ne(ordersTable.status, "cancelled");
+      const [orderDays, bookDays] = await Promise.all([
+        db.select({
+          day: sql<string>`to_char(${ordersTable.createdAt}, 'YYYY-MM-DD')`,
+          orders: count(),
+          sales: sql<number>`coalesce(sum(${ordersTable.totalEgp}), 0)`,
+        }).from(ordersTable)
+          .where(and(live, gte(ordersTable.createdAt, from), lt(ordersTable.createdAt, toExcl)))
+          .groupBy(sql`to_char(${ordersTable.createdAt}, 'YYYY-MM-DD')`),
+        db.select({
+          day: sql<string>`to_char(${ordersTable.createdAt}, 'YYYY-MM-DD')`,
+          books: sql<number>`coalesce(sum(${orderItemsTable.quantity}), 0)`,
+        }).from(orderItemsTable)
+          .innerJoin(ordersTable, eq(orderItemsTable.orderId, ordersTable.id))
+          .where(and(live, gte(ordersTable.createdAt, from), lt(ordersTable.createdAt, toExcl)))
+          .groupBy(sql`to_char(${ordersTable.createdAt}, 'YYYY-MM-DD')`),
+      ]);
+      const oMap = new Map(orderDays.map((r) => [r.day, { orders: num(r.orders), sales: num(r.sales) }]));
+      const bMap = new Map(bookDays.map((r) => [r.day, num(r.books)]));
+      const series: { day: string; salesEgp: number; orders: number; booksSold: number }[] = [];
+      const cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
+      const end = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate()));
+      while (cur <= end) {
+        const key = cur.toISOString().slice(0, 10);
+        const s = oMap.get(key);
+        series.push({ day: key, salesEgp: s?.sales ?? 0, orders: s?.orders ?? 0, booksSold: bMap.get(key) ?? 0 });
+        cur.setUTCDate(cur.getUTCDate() + 1);
+      }
+      res.json({ metric, from: fromStr, to: toStr, series });
+      return;
+    }
+
+    // Best sellers inside the chosen window. Not a time series — the shape is
+    // {name, value} rows — but it rides this endpoint so the same calendar
+    // control in the card's gear drives it.
+    if (metric === "topBooks") {
+      const rows = await db
+        .select({ name: orderItemsTable.titleSnapshot, value: sql<number>`coalesce(sum(${orderItemsTable.quantity}), 0)` })
+        .from(orderItemsTable)
+        .innerJoin(ordersTable, eq(orderItemsTable.orderId, ordersTable.id))
+        .where(and(ne(ordersTable.status, "cancelled"), gte(ordersTable.createdAt, from), lt(ordersTable.createdAt, toExcl)))
+        .groupBy(orderItemsTable.titleSnapshot)
+        .orderBy(desc(sql`coalesce(sum(${orderItemsTable.quantity}), 0)`))
+        .limit(6);
+      res.json({ metric, from: fromStr, to: toStr, series: rows.map((r) => ({ name: r.name, value: num(r.value) })) });
       return;
     }
 
@@ -390,7 +452,11 @@ router.get("/admin/owner-dashboard/timeseries", async (req, res) => {
 // its running total evolve day by day. Every backing table has a creation
 // timestamp, so the value at day D = (rows that existed before the window) +
 // (rows created each day up to D), filtered to the metric's current subset.
-const METRIC_TS: Record<string, { table: any; ts: any; where?: any }> = {
+// `sumCol` switches a metric from "how many rows" to "sum of this column" — the
+// money and copies-sold metrics are totals, not counts. `join` exists because
+// order_items carries the quantity but has no timestamp of its own, so it has to
+// borrow its parent order's created_at.
+const METRIC_TS: Record<string, { table: any; ts: any; where?: any; sumCol?: any; join?: { table: any; on: any } }> = {
   totalUsers: { table: usersTable, ts: usersTable.joinedAt },
   totalStudents: { table: usersTable, ts: usersTable.joinedAt, where: eq(usersTable.role, "student") },
   totalTeachers: { table: usersTable, ts: usersTable.joinedAt, where: eq(usersTable.role, "teacher") },
@@ -407,11 +473,27 @@ const METRIC_TS: Record<string, { table: any; ts: any; where?: any }> = {
   totalLessons: { table: lessonsTable, ts: lessonsTable.createdAt },
   totalVideos: { table: videosTable, ts: videosTable.createdAt },
   totalSegments: { table: videoSegmentsTable, ts: videoSegmentsTable.createdAt },
-  unreadSupport: { table: supportMessagesTable, ts: supportMessagesTable.createdAt, where: and(eq(supportMessagesTable.senderRole, "student"), isNull(supportMessagesTable.readAt)) },
+  unreadSupport: { table: supportMessagesTable, ts: supportMessagesTable.createdAt, where: and(eq(supportMessagesTable.senderRole, "user"), isNull(supportMessagesTable.readAt)) },
   openConversations: { table: supportConversationsTable, ts: supportConversationsTable.createdAt, where: eq(supportConversationsTable.status, "open") },
   pushTokensAndroid: { table: pushNotificationTokensTable, ts: pushNotificationTokensTable.createdAt, where: eq(pushNotificationTokensTable.platform, "android") },
   pushTokensIos: { table: pushNotificationTokensTable, ts: pushNotificationTokensTable.createdAt, where: eq(pushNotificationTokensTable.platform, "ios") },
   pushTokensTotal: { table: pushNotificationTokensTable, ts: pushNotificationTokensTable.createdAt },
+  // ── Store / sales ────────────────────────────────────────────────────────
+  // Like `activeSubscriptions` above, these read the order's CURRENT status but
+  // bucket it by its creation day — i.e. "orders placed up to day D that are now
+  // delivered". That's the same convention the rest of this map already uses.
+  totalOrders: { table: ordersTable, ts: ordersTable.createdAt, where: ne(ordersTable.status, "cancelled") },
+  openOrders: { table: ordersTable, ts: ordersTable.createdAt, where: inArray(ordersTable.status, ["placed", "confirmed", "packed", "shipped", "out_for_delivery"]) },
+  deliveredOrders: { table: ordersTable, ts: ordersTable.createdAt, where: eq(ordersTable.status, "delivered") },
+  cancelledOrders: { table: ordersTable, ts: ordersTable.createdAt, where: eq(ordersTable.status, "cancelled") },
+  salesEgpTotal: { table: ordersTable, ts: ordersTable.createdAt, where: ne(ordersTable.status, "cancelled"), sumCol: ordersTable.totalEgp },
+  booksSoldCount: {
+    table: orderItemsTable, ts: ordersTable.createdAt, where: ne(ordersTable.status, "cancelled"),
+    sumCol: orderItemsTable.quantity,
+    join: { table: ordersTable, on: eq(orderItemsTable.orderId, ordersTable.id) },
+  },
+  totalBooks: { table: booksTable, ts: booksTable.createdAt },
+  publishedBooks: { table: booksTable, ts: booksTable.createdAt, where: eq(booksTable.available, true) },
 };
 
 router.get("/admin/owner-dashboard/metric-timeseries", async (req, res) => {
@@ -437,10 +519,16 @@ router.get("/admin/owner-dashboard/metric-timeseries", async (req, res) => {
     // the daily counts then accumulate on top of it for a true running total.
     const baseWhere = def.where ? and(def.where, lt(def.ts, from)) : lt(def.ts, from);
     const dayWhere = def.where ? and(def.where, gte(def.ts, from), lt(def.ts, toExcl)) : and(gte(def.ts, from), lt(def.ts, toExcl));
-    const [baselineRows, byDay] = await Promise.all([
-      db.select({ total: count() }).from(def.table).where(baseWhere),
-      db.select({ day: sql<string>`to_char(${def.ts}, 'YYYY-MM-DD')`, total: count() }).from(def.table).where(dayWhere).groupBy(sql`to_char(${def.ts}, 'YYYY-MM-DD')`),
-    ]);
+    // Money/quantity metrics accumulate a SUM; everything else counts rows.
+    const agg = def.sumCol ? sql<number>`coalesce(sum(${def.sumCol}), 0)` : count();
+    const scoped = (cols: Record<string, any>) => {
+      const q: any = db.select(cols).from(def.table);
+      return def.join ? q.innerJoin(def.join.table, def.join.on) : q;
+    };
+    const [baselineRows, byDay] = (await Promise.all([
+      scoped({ total: agg }).where(baseWhere),
+      scoped({ day: sql<string>`to_char(${def.ts}, 'YYYY-MM-DD')`, total: agg }).where(dayWhere).groupBy(sql`to_char(${def.ts}, 'YYYY-MM-DD')`),
+    ])) as [{ total: unknown }[], { day: string; total: unknown }[]];
     let running = num(baselineRows[0]?.total);
     const dayMap = new Map(byDay.map((r) => [r.day, num(r.total)]));
 
@@ -480,6 +568,10 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
       openConversationsRow,
       pushTokenRows,
       lastActiveRow,
+      orderStatusRows,
+      booksSoldRow,
+      bookStockRow,
+      storeSettingsRow,
     ] = await Promise.all([
       db.select({ role: usersTable.role, total: count() }).from(usersTable).groupBy(usersTable.role),
       db.select({ status: usersTable.status, total: count() }).from(usersTable).where(eq(usersTable.role, "student")).groupBy(usersTable.status),
@@ -491,10 +583,24 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
       db.select({ total: count() }).from(lessonsTable),
       db.select({ total: count() }).from(videosTable),
       db.select({ total: count() }).from(videoSegmentsTable),
-      db.select({ total: count() }).from(supportMessagesTable).where(and(eq(supportMessagesTable.senderRole, "student"), sql`${supportMessagesTable.readAt} is null`)),
+      db.select({ total: count() }).from(supportMessagesTable).where(and(eq(supportMessagesTable.senderRole, "user"), sql`${supportMessagesTable.readAt} is null`)),
       db.select({ total: count() }).from(supportConversationsTable).where(eq(supportConversationsTable.status, "open")),
       db.select({ platform: pushNotificationTokensTable.platform, total: count() }).from(pushNotificationTokensTable).where(sql`${pushNotificationTokensTable.disabledAt} is null`).groupBy(pushNotificationTokensTable.platform),
       db.select({ ts: sql<string | null>`max(${usersTable.lastActiveAt})` }).from(usersTable),
+      // ── Store KPIs ────────────────────────────────────────────────────────
+      db.select({ status: ordersTable.status, total: count(), sales: sql<number>`coalesce(sum(${ordersTable.totalEgp}), 0)` })
+        .from(ordersTable).groupBy(ordersTable.status),
+      db.select({ total: sql<number>`coalesce(sum(${orderItemsTable.quantity}), 0)` })
+        .from(orderItemsTable)
+        .innerJoin(ordersTable, eq(orderItemsTable.orderId, ordersTable.id))
+        .where(ne(ordersTable.status, "cancelled")),
+      db.select({
+        total: count(),
+        published: sql<number>`count(*) filter (where ${booksTable.available})`,
+        outOfStock: sql<number>`count(*) filter (where ${booksTable.stockQuantity} <= 0)`,
+        stock: sql<number>`coalesce(sum(${booksTable.stockQuantity}), 0)`,
+      }).from(booksTable),
+      db.select({ threshold: storeSettingsTable.lowStockThreshold }).from(storeSettingsTable).limit(1),
     ]);
 
     const roleMap = new Map(roleCounts.map((r) => [r.role, num(r.total)]));
@@ -504,6 +610,18 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
 
     const totalStudents = roleMap.get("student") ?? 0;
     const activeStudents = studentStatusMap.get("active") ?? 0;
+
+    // Store: fold the per-status rows into the numbers the reports card shows.
+    const orderStatusMap = new Map(orderStatusRows.map((r) => [r.status, { n: num(r.total), sales: num(r.sales) }]));
+    const OPEN_STATUSES = ["placed", "confirmed", "packed", "shipped", "out_for_delivery"];
+    const sumStatuses = (keys: string[], pick: "n" | "sales") =>
+      keys.reduce((s, k) => s + (orderStatusMap.get(k)?.[pick] ?? 0), 0);
+    const cancelledOrders = orderStatusMap.get("cancelled")?.n ?? 0;
+    const deliveredOrders = orderStatusMap.get("delivered")?.n ?? 0;
+    const openOrders = sumStatuses(OPEN_STATUSES, "n");
+    // Cancelled money never existed — exclude it from revenue, same as everywhere else.
+    const salesEgpTotal = sumStatuses([...OPEN_STATUSES, "delivered"], "sales");
+    const lowStockThreshold = num(storeSettingsRow[0]?.threshold) || 5;
 
     const kpis = {
       totalUsers: roleCounts.reduce((sum, r) => sum + num(r.total), 0),
@@ -530,6 +648,18 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
       pushTokensIos: pushMap.get("ios") ?? 0,
       pushTokensTotal: pushTokenRows.reduce((sum, r) => sum + num(r.total), 0),
       lastActivityAt: lastActiveRow[0]?.ts ?? null,
+      // ── Store / products ──
+      totalOrders: openOrders + deliveredOrders,
+      openOrders,
+      deliveredOrders,
+      cancelledOrders,
+      booksSoldCount: num(booksSoldRow[0]?.total),
+      salesEgpTotal,
+      totalBooks: num(bookStockRow[0]?.total),
+      publishedBooks: num(bookStockRow[0]?.published),
+      outOfStockBooks: num(bookStockRow[0]?.outOfStock),
+      totalStock: num(bookStockRow[0]?.stock),
+      lowStockThreshold,
     };
 
     // ── Content-gap alerts (real existence checks) ──
@@ -581,7 +711,9 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
     };
 
     // ── Charts ──
-    const [growthRows, topSubjectRows, watchByDay, requestsByDay, messagesByDay] = await Promise.all([
+    // Store charts share the "cancelled orders don't count" rule with the geo card.
+    const liveOrderChart = ne(ordersTable.status, "cancelled");
+    const [growthRows, topSubjectRows, watchByDay, requestsByDay, messagesByDay, salesByDay, booksByDay, topBookRows] = await Promise.all([
       db
         .select({
           month: sql<string>`to_char(date_trunc('month', ${usersTable.joinedAt}), 'YYYY-MM')`,
@@ -601,7 +733,33 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
         .limit(6),
       db.select({ day: sql<string>`to_char(${lessonWatchProgressTable.lastWatchedAt}, 'YYYY-MM-DD')`, total: sql<number>`count(distinct ${lessonWatchProgressTable.studentId})` }).from(lessonWatchProgressTable).where(sql`${lessonWatchProgressTable.lastWatchedAt} >= (now() - interval '7 days')`).groupBy(sql`to_char(${lessonWatchProgressTable.lastWatchedAt}, 'YYYY-MM-DD')`),
       db.select({ day: sql<string>`to_char(${subjectSubscriptionRequestsTable.submittedAt}, 'YYYY-MM-DD')`, total: count() }).from(subjectSubscriptionRequestsTable).where(sql`${subjectSubscriptionRequestsTable.submittedAt} >= (now() - interval '7 days')`).groupBy(sql`to_char(${subjectSubscriptionRequestsTable.submittedAt}, 'YYYY-MM-DD')`),
-      db.select({ day: sql<string>`to_char(${supportMessagesTable.createdAt}, 'YYYY-MM-DD')`, total: count() }).from(supportMessagesTable).where(and(eq(supportMessagesTable.senderRole, "student"), sql`${supportMessagesTable.createdAt} >= (now() - interval '7 days')`)).groupBy(sql`to_char(${supportMessagesTable.createdAt}, 'YYYY-MM-DD')`),
+      db.select({ day: sql<string>`to_char(${supportMessagesTable.createdAt}, 'YYYY-MM-DD')`, total: count() }).from(supportMessagesTable).where(and(eq(supportMessagesTable.senderRole, "user"), sql`${supportMessagesTable.createdAt} >= (now() - interval '7 days')`)).groupBy(sql`to_char(${supportMessagesTable.createdAt}, 'YYYY-MM-DD')`),
+      // Store — daily money + order count over the default 30-day window.
+      db.select({
+        day: sql<string>`to_char(${ordersTable.createdAt}, 'YYYY-MM-DD')`,
+        orders: count(),
+        sales: sql<number>`coalesce(sum(${ordersTable.totalEgp}), 0)`,
+      }).from(ordersTable)
+        .where(and(liveOrderChart, sql`${ordersTable.createdAt} >= (now() - interval '30 days')`))
+        .groupBy(sql`to_char(${ordersTable.createdAt}, 'YYYY-MM-DD')`),
+      // Store — daily copies sold (lives on order_items, hence its own query).
+      db.select({
+        day: sql<string>`to_char(${ordersTable.createdAt}, 'YYYY-MM-DD')`,
+        books: sql<number>`coalesce(sum(${orderItemsTable.quantity}), 0)`,
+      }).from(orderItemsTable)
+        .innerJoin(ordersTable, eq(orderItemsTable.orderId, ordersTable.id))
+        .where(and(liveOrderChart, sql`${ordersTable.createdAt} >= (now() - interval '30 days')`))
+        .groupBy(sql`to_char(${ordersTable.createdAt}, 'YYYY-MM-DD')`),
+      // Store — best sellers all-time (title snapshot, so delisted books still count).
+      db.select({
+        name: orderItemsTable.titleSnapshot,
+        value: sql<number>`coalesce(sum(${orderItemsTable.quantity}), 0)`,
+      }).from(orderItemsTable)
+        .innerJoin(ordersTable, eq(orderItemsTable.orderId, ordersTable.id))
+        .where(liveOrderChart)
+        .groupBy(orderItemsTable.titleSnapshot)
+        .orderBy(desc(sql`coalesce(sum(${orderItemsTable.quantity}), 0)`))
+        .limit(6),
     ]);
 
     // user growth: pivot months -> {month, students, teachers, others}
@@ -635,6 +793,22 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
       }
     }
 
+    // Store sales: 30 daily buckets, gaps filled with zero so the curve is
+    // continuous instead of jumping between the days that happened to have orders.
+    const salesMap = new Map(salesByDay.map((r) => [r.day, { orders: num(r.orders), sales: num(r.sales) }]));
+    const booksMap = new Map(booksByDay.map((r) => [r.day, num(r.books)]));
+    const salesDaily: { day: string; salesEgp: number; orders: number; booksSold: number }[] = [];
+    {
+      const today = new Date();
+      for (let i = 29; i >= 0; i -= 1) {
+        const d = new Date(today);
+        d.setDate(today.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        const s = salesMap.get(key);
+        salesDaily.push({ day: key, salesEgp: s?.sales ?? 0, orders: s?.orders ?? 0, booksSold: booksMap.get(key) ?? 0 });
+      }
+    }
+
     const charts = {
       roleDistribution: roleCounts.map((r) => ({ role: r.role, value: num(r.total) })),
       subscriptionsByStatus: [
@@ -653,10 +827,12 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
       topSubjects: topSubjectRows.map((r) => ({ name: r.name, value: num(r.value) })),
       userGrowth,
       last7Days,
+      salesDaily,
+      topBooks: topBookRows.map((r) => ({ name: r.name, value: num(r.value) })),
     };
 
     // ── Recent insights ──
-    const [recentStudents, recentRequests, recentSupport] = await Promise.all([
+    const [recentStudents, recentRequests, recentSupport, recentOrders, productRows, removedBookSalesRow] = await Promise.all([
       db
         .select({ id: usersTable.id, name: usersTable.name, email: usersTable.email, status: usersTable.status, joinedAt: usersTable.joinedAt })
         .from(usersTable)
@@ -687,7 +863,71 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
         .leftJoin(usersTable, eq(supportConversationsTable.userId, usersTable.id))
         .orderBy(desc(supportConversationsTable.lastMessageAt))
         .limit(6),
+      // Latest orders — cancelled ones INCLUDED here on purpose: this is an
+      // operations feed, and a cancellation is exactly what the owner needs to see.
+      db
+        .select({
+          id: ordersTable.id,
+          orderNumber: ordersTable.orderNumber,
+          buyerName: usersTable.name,
+          recipientName: ordersTable.recipientName,
+          governorate: ordersTable.governorate,
+          status: ordersTable.status,
+          totalEgp: ordersTable.totalEgp,
+          createdAt: ordersTable.createdAt,
+        })
+        .from(ordersTable)
+        .leftJoin(usersTable, eq(ordersTable.userId, usersTable.id))
+        .orderBy(desc(ordersTable.createdAt))
+        .limit(6),
+      // Per-product stock + sales. The sold/revenue side is a correlated subquery
+      // rather than a join+group so books that never sold still come back (a LEFT
+      // JOIN would work too, but this keeps the row shape flat and the zero honest).
+      db
+        .select({
+          id: booksTable.id,
+          title: booksTable.title,
+          available: booksTable.available,
+          priceEgp: booksTable.priceEgp,
+          stockQuantity: booksTable.stockQuantity,
+          // `books.id` is written out in full: drizzle emits the outer column
+          // unqualified, and bare `id` is ambiguous against oi.id / o.id here.
+          sold: sql<number>`(
+            select coalesce(sum(oi.quantity), 0) from order_items oi
+            join orders o on o.id = oi.order_id
+            where oi.book_id = books.id and o.status <> 'cancelled'
+          )`,
+          revenueEgp: sql<number>`(
+            select coalesce(sum(oi.quantity * oi.unit_price_egp), 0) from order_items oi
+            join orders o on o.id = oi.order_id
+            where oi.book_id = books.id and o.status <> 'cancelled'
+          )`,
+        })
+        .from(booksTable)
+        .orderBy(desc(booksTable.createdAt))
+        .limit(200),
+      // Copies sold whose book was later removed from the catalog. order_items
+      // keeps the sale (book_id goes NULL, title_snapshot survives), so these
+      // count in the totals but can never appear in the per-product table —
+      // without saying so, "14 sold" next to a table of zeros looks broken.
+      db.select({ total: sql<number>`coalesce(sum(${orderItemsTable.quantity}), 0)` })
+        .from(orderItemsTable)
+        .innerJoin(ordersTable, eq(orderItemsTable.orderId, ordersTable.id))
+        .where(and(ne(ordersTable.status, "cancelled"), isNull(orderItemsTable.bookId))),
     ]);
+
+    const products = productRows
+      .map((p) => ({
+        id: p.id,
+        title: p.title,
+        available: !!p.available,
+        priceEgp: num(p.priceEgp),
+        stockQuantity: num(p.stockQuantity),
+        sold: num(p.sold),
+        revenueEgp: num(p.revenueEgp),
+      }))
+      // Best sellers first; a book that never sold sinks to the bottom.
+      .sort((a, b) => b.sold - a.sold || b.revenueEgp - a.revenueEgp);
 
     res.json({
       generatedAt: new Date().toISOString(),
@@ -698,7 +938,10 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
         students: recentStudents,
         subscriptionRequests: recentRequests,
         support: recentSupport,
+        orders: recentOrders,
       },
+      products,
+      soldFromRemovedBooks: num(removedBookSalesRow[0]?.total),
     });
   } catch (err) {
     req.log.error({ err }, "Owner dashboard summary error");
@@ -706,11 +949,31 @@ router.get("/admin/owner-dashboard/summary", async (req, res) => {
   }
 });
 
-// ── Per-user activity log (owner only) — real timeline from attributed data ────
+// Arabic labels for the activity timeline. Kept next to the handler that uses
+// them so a new order status / audit action is renamed in exactly one place.
+const ORDER_STATUS_AR: Record<string, string> = {
+  placed: "تم الطلب", confirmed: "مؤكَّد", packed: "تم التغليف", shipped: "تم الشحن",
+  out_for_delivery: "خرج للتوصيل", delivered: "تم التسليم", cancelled: "ملغي",
+};
+const pointsTypeAr = (type: string) =>
+  (({ earn: "كسب نقاط", spend: "صرف نقاط", purchase: "شراء", adjust: "تعديل يدوي" } as Record<string, string>)[type] || type);
+const AUDIT_ACTION_AR: Record<string, string> = {
+  content_create: "أضاف محتوى", content_update: "عدّل محتوى", content_delete: "حذف محتوى",
+  user_create: "أضاف مستخدمًا", user_update: "عدّل مستخدمًا", user_delete: "حذف مستخدمًا",
+  login: "تسجيل دخول", logout: "تسجيل خروج", settings_update: "غيّر الإعدادات",
+  order_status: "غيّر حالة طلب",
+};
+const AUDIT_ENTITY_AR: Record<string, string> = {
+  video: "فيديو", lesson: "درس", unit: "وحدة", subject: "مادة", year: "سنة دراسية",
+  user: "مستخدم", book: "كتاب", order: "طلب", banner: "بانر", settings: "إعدادات",
+};
+
+// ── Per-user activity log — real timeline from attributed data ────────────────
 router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => {
   try {
+    // Owner always; an admin only when the owner switched this on for them.
     const actor = (req as any).adminActor;
-    if (!actor || actor.role !== "owner") {
+    if (!actor || !canViewUserActivity(actor)) {
       res.status(403).json({ error: "هذه البيانات متاحة للمالك فقط" });
       return;
     }
@@ -736,12 +999,15 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
 
     const target = alias(usersTable, "target_user");
 
-    const [supportReplies, subReviews, subGrants, requestsMade, messagesSent, lessonsWatched, videosAdded] = await Promise.all([
+    const [
+      supportReplies, subReviews, subGrants, requestsMade, messagesSent, lessonsWatched, videosAdded,
+      ordersPlaced, favorites, pointsTx, quizAttempts, examAttempts, bookmarks, notes, adminActions,
+    ] = await Promise.all([
       db.select({ at: supportMessagesTable.createdAt, body: supportMessagesTable.body, who: target.name })
         .from(supportMessagesTable)
         .innerJoin(supportConversationsTable, eq(supportMessagesTable.conversationId, supportConversationsTable.id))
         .leftJoin(target, eq(supportConversationsTable.userId, target.id))
-        .where(and(eq(supportMessagesTable.senderId, userId), ne(supportMessagesTable.senderRole, "student")))
+        .where(and(eq(supportMessagesTable.senderId, userId), eq(supportMessagesTable.senderRole, "admin")))
         .orderBy(desc(supportMessagesTable.createdAt)).limit(50),
       db.select({ at: subjectSubscriptionRequestsTable.reviewedAt, status: subjectSubscriptionRequestsTable.status, who: target.name, subject: subjectsTable.name })
         .from(subjectSubscriptionRequestsTable)
@@ -762,7 +1028,7 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
         .orderBy(desc(subjectSubscriptionRequestsTable.submittedAt)).limit(50),
       db.select({ at: supportMessagesTable.createdAt, body: supportMessagesTable.body })
         .from(supportMessagesTable)
-        .where(and(eq(supportMessagesTable.senderId, userId), eq(supportMessagesTable.senderRole, "student")))
+        .where(and(eq(supportMessagesTable.senderId, userId), eq(supportMessagesTable.senderRole, "user")))
         .orderBy(desc(supportMessagesTable.createdAt)).limit(50),
       db.select({ at: lessonWatchProgressTable.lastWatchedAt, lesson: lessonsTable.title, completed: lessonWatchProgressTable.completed })
         .from(lessonWatchProgressTable)
@@ -774,6 +1040,55 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
         .from(adminAuditLogTable)
         .where(and(eq(adminAuditLogTable.actorUserId, userId), eq(adminAuditLogTable.actionType, "content_create"), eq(adminAuditLogTable.entityType, "video")))
         .orderBy(desc(adminAuditLogTable.createdAt)).limit(50),
+      // ── Store ─────────────────────────────────────────────────────────────
+      db.select({ at: ordersTable.createdAt, id: ordersTable.id, orderNumber: ordersTable.orderNumber, total: ordersTable.totalEgp, status: ordersTable.status, gov: ordersTable.governorate })
+        .from(ordersTable)
+        .where(eq(ordersTable.userId, userId))
+        .orderBy(desc(ordersTable.createdAt)).limit(50),
+      db.select({ at: bookFavoritesTable.createdAt, title: booksTable.title })
+        .from(bookFavoritesTable)
+        .leftJoin(booksTable, eq(bookFavoritesTable.bookId, booksTable.id))
+        .where(eq(bookFavoritesTable.userId, userId))
+        .orderBy(desc(bookFavoritesTable.createdAt)).limit(30),
+      // ── Points wallet ─────────────────────────────────────────────────────
+      db.select({ at: pointsTransactionsTable.createdAt, type: pointsTransactionsTable.type, amount: pointsTransactionsTable.amount, description: pointsTransactionsTable.description })
+        .from(pointsTransactionsTable)
+        .where(eq(pointsTransactionsTable.userId, userId))
+        .orderBy(desc(pointsTransactionsTable.createdAt)).limit(50),
+      // ── Quizzes (per lesson) ──────────────────────────────────────────────
+      // lessons.video_id → the quiz's video, so the attempt can be named by lesson.
+      db.select({ at: quizAttemptsTable.createdAt, score: quizAttemptsTable.score, total: quizAttemptsTable.total, percent: quizAttemptsTable.percent, points: quizAttemptsTable.pointsAwarded, lesson: lessonsTable.title })
+        .from(quizAttemptsTable)
+        .leftJoin(lessonsTable, eq(lessonsTable.videoId, quizAttemptsTable.videoId))
+        .where(eq(quizAttemptsTable.userId, userId))
+        .orderBy(desc(quizAttemptsTable.createdAt)).limit(50),
+      // ── Unit exams ────────────────────────────────────────────────────────
+      db.select({ at: unitExamAttemptsTable.createdAt, examType: unitExamAttemptsTable.examType, score: unitExamAttemptsTable.score, total: unitExamAttemptsTable.total, percent: unitExamAttemptsTable.percent, points: unitExamAttemptsTable.pointsAwarded, unit: unitsTable.name })
+        .from(unitExamAttemptsTable)
+        .leftJoin(unitsTable, eq(unitExamAttemptsTable.unitId, unitsTable.id))
+        .where(eq(unitExamAttemptsTable.userId, userId))
+        .orderBy(desc(unitExamAttemptsTable.createdAt)).limit(50),
+      // ── Study tools ───────────────────────────────────────────────────────
+      db.select({ at: lessonBookmarksTable.createdAt, lesson: lessonsTable.title })
+        .from(lessonBookmarksTable)
+        .leftJoin(lessonsTable, eq(lessonBookmarksTable.lessonId, lessonsTable.id))
+        .where(eq(lessonBookmarksTable.studentId, userId))
+        .orderBy(desc(lessonBookmarksTable.createdAt)).limit(30),
+      db.select({ at: lessonNotesTable.createdAt, lesson: lessonsTable.title, body: lessonNotesTable.body })
+        .from(lessonNotesTable)
+        .leftJoin(lessonsTable, eq(lessonNotesTable.lessonId, lessonsTable.id))
+        .where(eq(lessonNotesTable.studentId, userId))
+        .orderBy(desc(lessonNotesTable.createdAt)).limit(30),
+      // ── Everything else this admin did (audit log), minus the video-creates
+      // already listed above so they aren't duplicated. COALESCE keeps rows with
+      // a NULL entity_type — a bare `<> 'video'` would silently drop them.
+      db.select({ at: adminAuditLogTable.createdAt, actionType: adminAuditLogTable.actionType, actionLabel: adminAuditLogTable.actionLabel, entityType: adminAuditLogTable.entityType, entityLabel: adminAuditLogTable.entityLabel, status: adminAuditLogTable.status })
+        .from(adminAuditLogTable)
+        .where(and(
+          eq(adminAuditLogTable.actorUserId, userId),
+          sql`(coalesce(${adminAuditLogTable.entityType}, '') <> 'video' or ${adminAuditLogTable.actionType} <> 'content_create')`,
+        ))
+        .orderBy(desc(adminAuditLogTable.createdAt)).limit(60),
     ]);
 
     const trunc = (value: string | null | undefined, max = 160) => {
@@ -792,6 +1107,62 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
     for (const r of messagesSent) timeline.push({ type: "support_message", at: r.at as any, title: "أرسل رسالة دعم", detail: trunc(r.body) });
     for (const r of lessonsWatched) timeline.push({ type: "lesson_watch", at: r.at as any, title: `شاهد درس ${r.lesson || ""}`.trim(), detail: r.completed ? "اكتمل" : "قيد المشاهدة" });
     for (const r of videosAdded) timeline.push({ type: "content_create", at: r.at as any, title: `أضاف فيديو تعليمي${r.label ? `: ${r.label}` : ""}`, detail: "محتوى أكاديمي" });
+
+    // ── Store ──
+    for (const r of ordersPlaced) {
+      timeline.push({
+        type: "order_placed",
+        at: r.at as any,
+        title: `طلب من المتجر ${r.orderNumber || `#${r.id}`}`,
+        detail: `${Number(r.total ?? 0).toLocaleString("en-US")} ج.م · ${r.gov} · ${ORDER_STATUS_AR[r.status] || r.status}`,
+      });
+    }
+    for (const r of favorites) timeline.push({ type: "book_favorite", at: r.at as any, title: `أضاف كتابًا للمفضلة${r.title ? `: ${r.title}` : ""}`, detail: "قائمة الرغبات" });
+
+    // ── Points ── the sign tells earn from spend, so show it explicitly.
+    for (const r of pointsTx) {
+      const amount = Number(r.amount ?? 0);
+      const earned = amount >= 0;
+      timeline.push({
+        type: earned ? "points_earn" : "points_spend",
+        at: r.at as any,
+        title: `${earned ? "كسب" : "صرف"} ${Math.abs(amount).toLocaleString("en-US")} نقطة`,
+        detail: trunc(r.description) || pointsTypeAr(r.type),
+      });
+    }
+
+    // ── Quizzes & exams ──
+    for (const r of quizAttempts) {
+      timeline.push({
+        type: "quiz_attempt",
+        at: r.at as any,
+        title: `حلّ اختبار درس${r.lesson ? ` ${r.lesson}` : ""}`,
+        detail: `${r.score}/${r.total} (${r.percent}%)${Number(r.points ?? 0) > 0 ? ` · +${r.points} نقطة` : ""}`,
+      });
+    }
+    for (const r of examAttempts) {
+      timeline.push({
+        type: "exam_attempt",
+        at: r.at as any,
+        title: `دخل امتحان${r.unit ? ` وحدة ${r.unit}` : " وحدة"}`,
+        detail: `${r.examType === "adaptive" ? "امتحان تكيّفي" : "امتحان مراجعة"} · ${r.score}/${r.total} (${r.percent}%)${Number(r.points ?? 0) > 0 ? ` · +${r.points} نقطة` : ""}`,
+      });
+    }
+
+    // ── Study tools ──
+    for (const r of bookmarks) timeline.push({ type: "bookmark", at: r.at as any, title: `حفظ درس في المفضلة${r.lesson ? `: ${r.lesson}` : ""}`, detail: "علامة مرجعية" });
+    for (const r of notes) timeline.push({ type: "note", at: r.at as any, title: `كتب ملاحظة${r.lesson ? ` على درس ${r.lesson}` : ""}`, detail: trunc(r.body, 120) });
+
+    // ── Any other admin action recorded in the audit log ──
+    for (const r of adminActions) {
+      const label = r.actionLabel || AUDIT_ACTION_AR[r.actionType] || r.actionType;
+      timeline.push({
+        type: "admin_action",
+        at: r.at as any,
+        title: `${label}${r.entityLabel ? `: ${r.entityLabel}` : ""}`,
+        detail: `${AUDIT_ENTITY_AR[r.entityType ?? ""] || r.entityType || "إجراء إداري"}${r.status && r.status !== "success" ? " · فشل" : ""}`,
+      });
+    }
 
     timeline.sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
 
@@ -816,6 +1187,12 @@ router.get("/admin/owner-dashboard/admin-activity/:userId", async (req, res) => 
         requestsSubmitted: requestsMade.length,
         lessonsWatched: lessonsWatched.length,
         videosAdded: videosAdded.length,
+        // Store / points / exams — the counts behind the new timeline entries.
+        ordersPlaced: ordersPlaced.length,
+        pointsEarned: pointsTx.reduce((s, r) => s + Math.max(0, Number(r.amount ?? 0)), 0),
+        pointsSpent: pointsTx.reduce((s, r) => s + Math.abs(Math.min(0, Number(r.amount ?? 0))), 0),
+        quizzesTaken: quizAttempts.length,
+        examsTaken: examAttempts.length,
       },
       timeline: timeline.slice(0, 150),
     });
@@ -991,7 +1368,7 @@ router.get("/admin/reports/activity", async (req, res) => {
         .from(supportMessagesTable)
         .innerJoin(supportConversationsTable, eq(supportMessagesTable.conversationId, supportConversationsTable.id))
         .leftJoin(target, eq(supportConversationsTable.userId, target.id))
-        .where(and(eq(supportMessagesTable.senderId, targetId), ne(supportMessagesTable.senderRole, "student"), inRange(supportMessagesTable.createdAt)))
+        .where(and(eq(supportMessagesTable.senderId, targetId), eq(supportMessagesTable.senderRole, "admin"), inRange(supportMessagesTable.createdAt)))
         .orderBy(desc(supportMessagesTable.createdAt)).limit(2000),
       db.select({ at: subjectSubscriptionRequestsTable.reviewedAt, status: subjectSubscriptionRequestsTable.status, who: target.name, subject: subjectsTable.name })
         .from(subjectSubscriptionRequestsTable)
@@ -1012,7 +1389,7 @@ router.get("/admin/reports/activity", async (req, res) => {
         .orderBy(desc(subjectSubscriptionRequestsTable.submittedAt)).limit(2000),
       db.select({ at: supportMessagesTable.createdAt, body: supportMessagesTable.body })
         .from(supportMessagesTable)
-        .where(and(eq(supportMessagesTable.senderId, targetId), eq(supportMessagesTable.senderRole, "student"), inRange(supportMessagesTable.createdAt)))
+        .where(and(eq(supportMessagesTable.senderId, targetId), eq(supportMessagesTable.senderRole, "user"), inRange(supportMessagesTable.createdAt)))
         .orderBy(desc(supportMessagesTable.createdAt)).limit(2000),
       db.select({ at: lessonWatchProgressTable.lastWatchedAt, lesson: lessonsTable.title, completed: lessonWatchProgressTable.completed })
         .from(lessonWatchProgressTable)
@@ -1116,7 +1493,7 @@ router.get("/admin/reports/activity", async (req, res) => {
         .from(usersTable).where(eq(usersTable.role, "admin")),
       db.select({ uid: supportMessagesTable.senderId, n: count() })
         .from(supportMessagesTable)
-        .where(and(ne(supportMessagesTable.senderRole, "student"), inRange(supportMessagesTable.createdAt)))
+        .where(and(eq(supportMessagesTable.senderRole, "admin"), inRange(supportMessagesTable.createdAt)))
         .groupBy(supportMessagesTable.senderId),
       db.select({ uid: subjectSubscriptionRequestsTable.reviewedBy, n: count() })
         .from(subjectSubscriptionRequestsTable)
@@ -1204,10 +1581,22 @@ router.get("/admin/reports/activity", async (req, res) => {
 
 // ── Geographic distribution (Egypt governorate heatmap) ───────────────────────
 // Per-governorate aggregates for the dashboard map card: total users, students,
-// active users, subscriptions (activity), and the most-subscribed subject.
+// active users, subscriptions (activity), the most-subscribed subject, and the
+// bookstore numbers (orders, books sold, sales, buyers, best-selling book).
+//
+// The store rows are keyed by `orders.governorate` — the delivery address snapshot
+// taken at checkout — NOT the buyer's profile governorate. That is what "sold in
+// governorate X" means for a shipped product: it's where the parcel actually goes
+// and what the shipping zone is priced from. The two can differ (a student living
+// in Giza shipping to family in Assiut), so the governorate list below is the
+// UNION of both sources — otherwise a governorate that only ever received parcels
+// would silently vanish from the store metrics.
 router.get("/admin/owner-dashboard/geo", async (req, res) => {
   try {
-    const [usersByGov, subsByGov, subjectRows, gradeRows, watchByGov] = await Promise.all([
+    // Cancelled orders are excluded everywhere: they were restocked and never
+    // earned money, so counting them would overstate every store metric.
+    const liveOrder = ne(ordersTable.status, "cancelled");
+    const [usersByGov, subsByGov, subjectRows, gradeRows, watchByGov, orderRows, itemRows] = await Promise.all([
       db.select({
         gov: usersTable.governorate,
         total: count(),
@@ -1241,6 +1630,29 @@ router.get("/admin/owner-dashboard/geo", async (req, res) => {
         .from(lessonWatchProgressTable)
         .innerJoin(usersTable, eq(lessonWatchProgressTable.studentId, usersTable.id))
         .groupBy(usersTable.governorate),
+      // ── Store: order-level aggregates per destination governorate ───────────
+      db.select({
+        gov: ordersTable.governorate,
+        orders: count(),
+        delivered: sql<number>`count(*) filter (where ${ordersTable.status} = 'delivered')`,
+        // How many DIFFERENT students bought — "5 orders" from one student is a
+        // very different signal than 5 orders from 5 students.
+        buyers: sql<number>`count(distinct ${ordersTable.userId})`,
+        sales: sql<number>`coalesce(sum(${ordersTable.totalEgp}), 0)`,
+      })
+        .from(ordersTable)
+        .where(liveOrder)
+        .groupBy(ordersTable.governorate),
+      // ── Store: per-title quantities → books sold + the best seller ──────────
+      db.select({
+        gov: ordersTable.governorate,
+        title: orderItemsTable.titleSnapshot,
+        qty: sql<number>`coalesce(sum(${orderItemsTable.quantity}), 0)`,
+      })
+        .from(orderItemsTable)
+        .innerJoin(ordersTable, eq(orderItemsTable.orderId, ordersTable.id))
+        .where(liveOrder)
+        .groupBy(ordersTable.governorate, orderItemsTable.titleSnapshot),
     ]);
 
     const subsMap = new Map<string, number>();
@@ -1263,24 +1675,65 @@ router.get("/admin/owner-dashboard/geo", async (req, res) => {
       watchHoursMap.set(r.gov, Math.round(((Number(r.seconds) || 0) / 3600) * 10) / 10);
     }
 
+    // Store maps. `governorate` is NOT NULL on orders, but an empty/whitespace
+    // string would still poison the map with a nameless bucket — skip those.
+    const orderMap = new Map<string, { orders: number; delivered: number; buyers: number; sales: number }>();
+    for (const r of orderRows) {
+      const gov = r.gov?.trim();
+      if (!gov) continue;
+      orderMap.set(gov, {
+        orders: Number(r.orders) || 0,
+        delivered: Number(r.delivered) || 0,
+        buyers: Number(r.buyers) || 0,
+        sales: Number(r.sales) || 0,
+      });
+    }
+    const booksSoldMap = new Map<string, number>();
+    const topBook = new Map<string, { title: string; n: number }>();
+    for (const r of itemRows) {
+      const gov = r.gov?.trim();
+      if (!gov || !r.title) continue;
+      const n = Number(r.qty) || 0;
+      booksSoldMap.set(gov, (booksSoldMap.get(gov) || 0) + n);
+      const cur = topBook.get(gov);
+      if (!cur || n > cur.n) topBook.set(gov, { title: r.title, n });
+    }
+
     let unknownUsers = 0;
-    const governorates = [] as Array<{ name: string; users: number; students: number; activeUsers: number; subscriptions: number; topSubject: string | null; topSubjectCount: number; grade1: number; grade2: number; grade3: number; watchHours: number }>;
+    // Union of "has users" and "has orders" — see the note above the handler.
+    const usersRowByGov = new Map<string, (typeof usersByGov)[number]>();
     for (const r of usersByGov) {
       if (!r.gov) { unknownUsers += Number(r.total) || 0; continue; }
-      const ts = topSubject.get(r.gov);
-      const gr = gradeMap.get(r.gov);
+      usersRowByGov.set(r.gov, r);
+    }
+    const allNames = new Set<string>([...usersRowByGov.keys(), ...orderMap.keys(), ...booksSoldMap.keys()]);
+
+    const governorates = [] as Array<{ name: string; users: number; students: number; activeUsers: number; subscriptions: number; topSubject: string | null; topSubjectCount: number; grade1: number; grade2: number; grade3: number; watchHours: number; orders: number; deliveredOrders: number; buyers: number; booksSold: number; salesEgp: number; topBook: string | null; topBookCount: number }>;
+    for (const name of allNames) {
+      const r = usersRowByGov.get(name);
+      const ts = topSubject.get(name);
+      const gr = gradeMap.get(name);
+      const o = orderMap.get(name);
+      const tb = topBook.get(name);
       governorates.push({
-        name: r.gov,
-        users: Number(r.total) || 0,
-        students: Number(r.students) || 0,
-        activeUsers: Number(r.active) || 0,
-        subscriptions: subsMap.get(r.gov) || 0,
+        name,
+        users: Number(r?.total) || 0,
+        students: Number(r?.students) || 0,
+        activeUsers: Number(r?.active) || 0,
+        subscriptions: subsMap.get(name) || 0,
         topSubject: ts?.subject ?? null,
         topSubjectCount: ts?.n ?? 0,
         grade1: gr?.g1 ?? 0,
         grade2: gr?.g2 ?? 0,
         grade3: gr?.g3 ?? 0,
-        watchHours: watchHoursMap.get(r.gov) || 0,
+        watchHours: watchHoursMap.get(name) || 0,
+        orders: o?.orders ?? 0,
+        deliveredOrders: o?.delivered ?? 0,
+        buyers: o?.buyers ?? 0,
+        booksSold: booksSoldMap.get(name) || 0,
+        salesEgp: o?.sales ?? 0,
+        topBook: tb?.title ?? null,
+        topBookCount: tb?.n ?? 0,
       });
     }
     governorates.sort((a, b) => b.users - a.users);
@@ -1290,9 +1743,18 @@ router.get("/admin/owner-dashboard/geo", async (req, res) => {
       governorates,
       unknownUsers,
       totals: {
-        coveredGovernorates: governorates.length,
+        // Still strictly "governorates that have users" — the store union above
+        // can add a governorate we only ever shipped to, and that must not quietly
+        // inflate a number the owner has been reading as user coverage.
+        coveredGovernorates: governorates.reduce((s, g) => s + (g.users > 0 ? 1 : 0), 0),
         totalUsersWithGov: governorates.reduce((s, g) => s + g.users, 0),
         totalSubscriptions: governorates.reduce((s, g) => s + g.subscriptions, 0),
+        // Store totals — the summary strip switches to these when the owner
+        // picks a store metric.
+        governoratesWithOrders: governorates.reduce((s, g) => s + (g.orders > 0 ? 1 : 0), 0),
+        totalOrders: governorates.reduce((s, g) => s + g.orders, 0),
+        totalBooksSold: governorates.reduce((s, g) => s + g.booksSold, 0),
+        totalSalesEgp: governorates.reduce((s, g) => s + g.salesEgp, 0),
       },
     });
   } catch (err) {
@@ -1790,9 +2252,12 @@ router.get("/admin/users/:id/tabs", async (req, res) => {
   if (actor?.role !== "owner") return res.status(403).json({ error: "متاح للمالك فقط" });
   const id = parseInt(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: "معرف غير صالح" });
-  const [u] = await db.select({ blockedTabs: usersTable.blockedTabs }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
+  const [u] = await db.select({ blockedTabs: usersTable.blockedTabs, canViewUserActivity: usersTable.canViewUserActivity })
+    .from(usersTable).where(eq(usersTable.id, id)).limit(1);
   if (!u) return res.status(404).json({ error: "غير موجود" });
-  return res.json({ blockedTabs: u.blockedTabs ?? [], controllable: [...CONTROLLABLE_TABS] });
+  // `canViewUserActivity` rides along with the page toggles because it lives in the
+  // same owner dialog, but it is a separate opt-IN capability, not a page.
+  return res.json({ blockedTabs: u.blockedTabs ?? [], controllable: [...CONTROLLABLE_TABS], canViewUserActivity: u.canViewUserActivity === true });
 });
 
 // Owner-only: set the pages hidden from this admin (the toggles in the permissions card).
@@ -1803,11 +2268,17 @@ router.put("/admin/users/:id/tabs", async (req, res) => {
   if (!Number.isInteger(id)) return res.status(400).json({ error: "معرف غير صالح" });
   const raw = (req.body ?? {}).blockedTabs;
   const blocked = Array.isArray(raw) ? Array.from(new Set(raw.map(String).filter((t) => CONTROLLABLE_TABS.has(t)))) : [];
-  const [user] = await db.update(usersTable).set({ blockedTabs: blocked }).where(eq(usersTable.id, id)).returning({ id: usersTable.id, name: usersTable.name });
+  // Only touch the activity capability when the client actually sent it, so an
+  // older dashboard build saving page toggles can't silently revoke it.
+  const rawActivity = (req.body ?? {}).canViewUserActivity;
+  const activityPatch = typeof rawActivity === "boolean" ? { canViewUserActivity: rawActivity } : {};
+  const [user] = await db.update(usersTable).set({ blockedTabs: blocked, ...activityPatch }).where(eq(usersTable.id, id))
+    .returning({ id: usersTable.id, name: usersTable.name, canViewUserActivity: usersTable.canViewUserActivity });
   if (!user) return res.status(404).json({ error: "غير موجود" });
   invalidateUserAuth(id); // refresh the cached auth so the change is picked up promptly
-  await logAudit(req, { actionType: "admin_tabs", actionLabel: "حدّث صلاحيات صفحات مشرف", entityType: "user", entityId: id, entityLabel: user.name, oldValue: "", newValue: blocked.join(",") || "كل الصفحات" });
-  return res.json({ ok: true, blockedTabs: blocked });
+  const activityNote = typeof rawActivity === "boolean" ? ` · سجل النشاط: ${rawActivity ? "مسموح" : "ممنوع"}` : "";
+  await logAudit(req, { actionType: "admin_tabs", actionLabel: "حدّث صلاحيات صفحات مشرف", entityType: "user", entityId: id, entityLabel: user.name, oldValue: "", newValue: `${blocked.join(",") || "كل الصفحات"}${activityNote}` });
+  return res.json({ ok: true, blockedTabs: blocked, canViewUserActivity: user.canViewUserActivity === true });
 });
 
 // Report a user from their details view. At the threshold the account auto-suspends.

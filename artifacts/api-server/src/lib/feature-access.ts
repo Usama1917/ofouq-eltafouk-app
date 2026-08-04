@@ -14,7 +14,22 @@ export type FeatureUser = {
   role: string;
   screenCaptureAllowed?: boolean | null;
   allSubjectsAccess?: boolean | null;
+  canViewUserActivity?: boolean | null;
 };
+
+/**
+ * May this user open ANOTHER user's activity log?
+ *
+ * Deliberately the inverse default of the two features below: they are opt-OUT
+ * (admins get them unless the owner revokes), this is opt-IN. The log lays out a
+ * student's orders, spend, points and exam scores, so an admin sees it only when
+ * the owner has explicitly switched it on for that admin. Owner: always.
+ */
+export function canViewUserActivity(user: FeatureUser): boolean {
+  if (user.role === "owner") return true;
+  if (user.role !== "admin") return false;
+  return user.canViewUserActivity === true;
+}
 
 /** May this user take screenshots / record the screen in the mobile app? */
 export function canCaptureScreen(user: FeatureUser, globalBlockEnabled: boolean): boolean {
