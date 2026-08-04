@@ -396,7 +396,11 @@ export default function SubscribeScreen() {
           </Text>
           <TextInput
             value={code}
-            onChangeText={setCode}
+            // The code is printed on the book in WESTERN digits, so an Arabic-Indic
+            // keyboard would produce a code that never matches. Convert on every
+            // keystroke instead of rejecting, so the student isn't left wondering
+            // why their typing "doesn't work".
+            onChangeText={(text) => setCode(toEnglishDigits(text))}
             placeholder={tr.codePlaceholder}
             placeholderTextColor={colors.textTertiary}
             style={[
@@ -405,12 +409,16 @@ export default function SubscribeScreen() {
                 color: colors.text,
                 backgroundColor: colors.surface,
                 borderColor: colors.border,
-                textAlign,
-                writingDirection: direction,
+                // Always LTR: the code is a number, and an RTL field puts the caret
+                // and digit order on the wrong side while typing.
+                textAlign: "left",
+                writingDirection: "ltr",
               },
             ]}
-            textAlign={isRTL ? "right" : "left"}
-            keyboardType="default"
+            textAlign="left"
+            keyboardType="number-pad"
+            autoCorrect={false}
+            autoCapitalize="none"
           />
 
           <Text style={[styles.fieldLabel, { color: colors.textSecondary, alignSelf: rtlAlign, textAlign, writingDirection: direction }]}>

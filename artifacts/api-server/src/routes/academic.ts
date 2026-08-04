@@ -188,8 +188,23 @@ function bilingualCreateError(args: {
   return null;
 }
 
+// Arabic-Indic (٠-٩) and Persian (۰-۹) digits → Western, so a code typed on an
+// Arabic keyboard matches the Western digits printed on the book. The app now
+// converts as you type, but this is the real guard: it is the ONE function used
+// both when storing a request and when matching it, so old app builds and any
+// direct API call get normalised too.
+const AR_INDIC_DIGITS = "٠١٢٣٤٥٦٧٨٩";
+const PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+function toWesternDigits(text: string) {
+  return text.replace(/[٠-٩۰-۹]/g, (d) => {
+    const ar = AR_INDIC_DIGITS.indexOf(d);
+    if (ar >= 0) return String(ar);
+    const fa = PERSIAN_DIGITS.indexOf(d);
+    return fa >= 0 ? String(fa) : d;
+  });
+}
 function normalizeSubscriptionCode(value: unknown) {
-  return toText(value).replace(/\s+/g, "").toUpperCase();
+  return toWesternDigits(toText(value)).replace(/\s+/g, "").toUpperCase();
 }
 
 function toNumber(value: unknown, fallback = 0) {

@@ -63,7 +63,11 @@ function Row({
       {/* spacer pushes the points to the opposite edge so the name hugs the avatar */}
       <View style={styles.nameSpacer} />
       <View style={styles.pointsBox}>
-        <Text style={[styles.points, { color: COLORS.primary }]}>🎟️ {toEnglishDigits(String(entry.points))}</Text>
+        {/* Number then icon, always left→right — two nodes so bidi can't reorder it. */}
+        <View style={styles.valueRow}>
+          <Text style={[styles.points, { color: COLORS.primary }]}>{toEnglishDigits(String(entry.points))}</Text>
+          <Text style={[styles.points, { color: COLORS.primary }]}>🎟️</Text>
+        </View>
       </View>
     </View>
   );
@@ -200,7 +204,8 @@ const styles = StyleSheet.create({
   backBtn: {
     width: 40,
     height: 40,
-    borderRadius: 14,
+    // Fully round (half of 40) — matches the circular back button in settings.
+    borderRadius: 20,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -263,6 +268,7 @@ const styles = StyleSheet.create({
   name: { ...FONT.semiBold, fontSize: 15, flexShrink: 1 },
   nameSpacer: { flex: 1 },
   pointsBox: { minWidth: 64, alignItems: "flex-end" },
+  valueRow: { flexDirection: "row", alignItems: "center", gap: 4, direction: "ltr" },
   points: { ...FONT.bold, fontSize: 14 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
   muted: { ...FONT.medium, fontSize: 14, textAlign: "center" },

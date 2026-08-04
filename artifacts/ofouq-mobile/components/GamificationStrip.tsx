@@ -90,8 +90,10 @@ export function GamificationStrip({
 
         <View style={[styles.stats, { flexDirection: rowDirection }]}>
           <View style={styles.stat}>
-            {/* flame on the LEFT of the number (RTL: number is the first/right child) */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            {/* Owner rule: ALWAYS number first, then the icon, reading left→right.
+                `direction: "ltr"` pins the physical order — a bare flexDirection
+                "row" gets mirrored by RN under RTL and rendered the flame first. */}
+            <View style={styles.valueRow}>
               <Text style={[styles.statValue, { color: colors.text }]}>{toEnglishDigits(String(summary.streak))}</Text>
               <LottieBox ref={iconLottie} data={iconFire} restFrame={60} loop autoplay={false} style={styles.flame} />
             </View>
@@ -101,7 +103,13 @@ export function GamificationStrip({
           </View>
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <View style={styles.stat}>
-            <Text style={[styles.statValue, { color: colors.text }]}>🎟️ {toEnglishDigits(String(summary.balance))}</Text>
+            {/* Same structure as the streak — the number and the emoji are separate
+                nodes rather than one string, so the order is laid out, not left to
+                bidi reordering (which flips with the surrounding text direction). */}
+            <View style={styles.valueRow}>
+              <Text style={[styles.statValue, { color: colors.text }]}>{toEnglishDigits(String(summary.balance))}</Text>
+              <Text style={styles.statValue}>🎟️</Text>
+            </View>
             <Text style={[styles.statLabel, { color: colors.textSecondary, textAlign }]}>
               {isEn ? "points" : "نقطة"}
             </Text>
@@ -147,6 +155,13 @@ const styles = StyleSheet.create({
   stat: {
     alignItems: "center",
     minWidth: 56,
+  },
+  // Shared by the streak and the points so both read number-then-icon identically.
+  valueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    direction: "ltr",
   },
   statValue: {
     ...FONT.bold,

@@ -184,7 +184,12 @@ export default function RewardsScreen() {
         <View style={[styles.summary, { backgroundColor: colors.card, borderColor: colors.border, flexDirection: rowDirection, overflow: "hidden" }]}>
           {/* points */}
           <Animated.View style={[styles.summaryStat, { opacity: revealAnim, transform: [{ translateX: revealAnim.interpolate({ inputRange: [0, 1], outputRange: [-22, 0] }) }] }]}>
-            <Text style={[styles.summaryValue, { color: colors.text }]}>🎟️ {toEnglishDigits(String(summary?.balance ?? 0))}</Text>
+            {/* Split into two nodes (not one "🎟️ 123" string) so the order is laid
+                out rather than decided by bidi, which flips with the language. */}
+            <View style={styles.valueRow}>
+              <Text style={[styles.summaryValue, { color: colors.text }]}>{toEnglishDigits(String(summary?.balance ?? 0))}</Text>
+              <Text style={[styles.summaryValue, { color: colors.text }]}>🎟️</Text>
+            </View>
             <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{isEn ? "points" : "نقطة"}</Text>
           </Animated.View>
           <Animated.View style={[styles.summaryDivider, { backgroundColor: colors.border, opacity: revealAnim }]} />
@@ -200,8 +205,9 @@ export default function RewardsScreen() {
               delayLongPress={450}
               style={{ alignItems: "center" }}
             >
-              {/* flame on the LEFT of the number (RTL: number is the first/right child) */}
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              {/* Owner rule: number first, then the icon, left→right — `direction`
+                  pins it so RTL doesn't mirror the row into flame-first. */}
+              <View style={styles.valueRow}>
                 <Text style={[styles.summaryValue, { color: colors.text }]}>{toEnglishDigits(String(summary?.streak ?? 0))}</Text>
                 <LottieBox ref={iconLottie} data={iconFire} restFrame={60} loop autoplay={false} style={styles.iconFlame} />
               </View>
@@ -389,6 +395,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   summaryStat: { alignItems: "center", flex: 1 },
+  // Number then icon, always left→right (see the owner rule at the usage sites).
+  valueRow: { flexDirection: "row", alignItems: "center", gap: 4, direction: "ltr" },
   iconFlame: { width: 26, height: 30 },
   summaryValue: { ...FONT.bold, fontSize: 18, color: "#0F172A" },
   fireNumber: {
