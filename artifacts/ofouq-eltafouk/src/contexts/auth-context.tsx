@@ -11,6 +11,9 @@ export interface AuthUser {
   // Owner-controlled per-admin page access: ids of admin pages HIDDEN from this admin
   // (empty/absent = all visible). Owners ignore this.
   blockedTabs?: string[] | null;
+  // Owner-granted capability (opt-IN, off by default): may this admin open another
+  // user's activity log? Owners always may, regardless of this value.
+  canViewUserActivity?: boolean | null;
   status: string;
   avatarUrl?: string | null;
   phone?: string | null;

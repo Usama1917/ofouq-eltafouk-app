@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, BookOpen, Video, MessageSquare, 
   Flag, Megaphone, Plus, Edit, Trash2, Eye, Check, X, ArrowUp, ArrowDown,
   TrendingUp, Coins, Award, FileText, LogOut, Crown, GraduationCap, ImagePlus, TicketPercent, Truck, Send, ChevronDown,
-  Sun, Moon, Bot, Search, Info, Phone, MapPin, BookMarked, Activity, Bell, Smartphone, Mail, CalendarClock, ShieldCheck, ShieldAlert, AlertTriangle, SlidersHorizontal, ShoppingCart
+  Sun, Moon, Bot, Search, Info, Phone, MapPin, BookMarked, Activity, Bell, Smartphone, Mail, CalendarClock, ShieldCheck, ShieldAlert, AlertTriangle, SlidersHorizontal, ShoppingCart, History
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
@@ -509,12 +509,56 @@ function PreviewModal({ title, content, onConfirm, onCancel }: {
   );
 }
 
+// Uploads under /api/uploads are auth-gated, and a plain <img src> cannot carry the
+// Authorization header — the browser gets a 401 and fires onError, which surfaced as
+// "الصورة غير موجودة" even though the file was there. Fetch the bytes with the token
+// and hand the <img> a blob: URL instead.
+//
+// Shared by BOTH the lightbox and the hover thumbnail: the same bug existed twice
+// because each had its own <img>, so the fix lives in one place now.
+function useAuthedImage(src: string, active = true) {
+  const needsAuth = src.startsWith("/api/") || src.startsWith(apiPath("/api/"));
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setObjectUrl(null);
+    setFailed(false);
+    if (!needsAuth || !active) return;
+    let cancelled = false;
+    let url: string | null = null;
+    (async () => {
+      try {
+        const res = await fetch(src.startsWith("/api/") ? apiPath(src) : src, { headers: authHeader() });
+        if (!res.ok) throw new Error(String(res.status));
+        const blob = await res.blob();
+        if (cancelled) return;
+        url = URL.createObjectURL(blob);
+        setObjectUrl(url);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [src, needsAuth, active]);
+
+  // `resolved` is what to feed <img src>; null means "not ready yet".
+  return { needsAuth, resolved: needsAuth ? objectUrl : src, failed };
+}
+
 function ImageLightbox({ src, title, onClose }: { src: string; title?: string; onClose: () => void }) {
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+  const { needsAuth, resolved, failed } = useAuthedImage(src);
 
   useEffect(() => {
     setStatus("loading");
   }, [src]);
+  useEffect(() => {
+    if (failed) setStatus("error");
+  }, [failed]);
 
   return (
     <div
@@ -556,9 +600,9 @@ function ImageLightbox({ src, title, onClose }: { src: string; title?: string; o
               <p className="text-sm font-black">تعذر تحميل الصورة</p>
               <p className="mt-1 text-xs font-semibold">قد تكون الصورة غير موجودة أو الرابط لم يعد متاحًا.</p>
             </div>
-          ) : (
+          ) : needsAuth && !resolved ? null : (
             <img
-              src={src}
+              src={resolved!}
               alt={title || "preview"}
               onLoad={() => setStatus("loaded")}
               onError={() => setStatus("error")}
@@ -586,6 +630,12 @@ function RequestImagePreviewButton({
   const iconRef = useRef<HTMLSpanElement | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<"loading" | "loaded" | "error">("loading");
+  // Only fetch once the hover card is actually open — otherwise every row in the
+  // table would download its student's image on mount.
+  const { needsAuth: previewNeedsAuth, resolved: previewSrc, failed: previewFailed } = useAuthedImage(src, isPreviewOpen);
+  useEffect(() => {
+    if (previewFailed) setPreviewStatus("error");
+  }, [previewFailed]);
   const [position, setPosition] = useState({
     top: 0,
     left: 0,
@@ -705,9 +755,9 @@ function RequestImagePreviewButton({
                 <ImagePlus className="mb-2 h-6 w-6" />
                 <p className="text-[11px] font-black">تعذر عرض الصورة</p>
               </div>
-            ) : (
+            ) : previewNeedsAuth && !previewSrc ? null : (
               <img
-                src={src}
+                src={previewSrc!}
                 alt={title}
                 onLoad={() => setPreviewStatus("loaded")}
                 onError={() => setPreviewStatus("error")}
@@ -1308,8 +1358,46 @@ function DetailEmpty({ text }: { text: string }) {
   return <p className="py-2 text-center text-xs text-muted-foreground">{text}</p>;
 }
 
+// The activity log an admin sees inside the user drawer. Same endpoint the owner
+// panel uses; access is decided server-side by the owner's per-admin switch.
+type ActivityItem = { type: string; at: string | null; title: string; detail: string };
+function UserActivitySection({ userId }: { userId: number }) {
+  const { data, isLoading, isError } = useQuery<{ timeline: ActivityItem[] }>({
+    queryKey: ["/api/admin/owner-dashboard/admin-activity", userId],
+    queryFn: () => customFetch<{ timeline: ActivityItem[] }>(`/api/admin/owner-dashboard/admin-activity/${userId}`, { method: "GET" }),
+    enabled: Number.isFinite(userId),
+    staleTime: 30_000,
+  });
+  const timeline = data?.timeline ?? [];
+  return (
+    <DetailSection title="سجل النشاط" icon={History}
+      badge={<span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground">{formatAdminNumber(timeline.length)}</span>}>
+      {isLoading ? (
+        <DetailEmpty text="جارٍ التحميل…" />
+      ) : isError ? (
+        <DetailEmpty text="تعذّر تحميل سجل النشاط" />
+      ) : timeline.length === 0 ? (
+        <DetailEmpty text="لا يوجد نشاط مسجّل" />
+      ) : (
+        <div className="max-h-[320px] space-y-2 overflow-y-auto">
+          {timeline.map((it, i) => (
+            <div key={i} className="rounded-xl bg-muted/40 px-3 py-2">
+              <p className="text-sm font-bold text-foreground">{it.title}</p>
+              {it.detail ? <p className="text-[11px] text-muted-foreground">{it.detail}</p> : null}
+              <p className="text-[11px] text-muted-foreground">{formatAdminDateTime(it.at)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </DetailSection>
+  );
+}
+
 function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | null; onClose: () => void }) {
   const open = user != null;
+  const { user: me } = useAuth();
+  // Owner always; an admin only when the owner switched the capability on.
+  const canSeeActivity = me?.role === "owner" || me?.canViewUserActivity === true;
   const { data, isLoading, isError, refetch } = useQuery<StudentDetailsResponse>({
     queryKey: ["/api/admin/users", user?.id, "details"],
     queryFn: () => customFetch<StudentDetailsResponse>(`/api/admin/users/${user!.id}/details`, { method: "GET" }),
@@ -1801,6 +1889,11 @@ function StudentDetailsDrawer({ user, onClose }: { user: AdminUserListItem | nul
                       </div>
                     )}
                   </DetailSection>
+
+                  {/* Section 7: activity log — rendered only for an admin the OWNER
+                      granted the capability to. The server enforces it too; this
+                      just avoids showing a section that would 403. */}
+                  {canSeeActivity && u?.id ? <UserActivitySection userId={u.id} /> : null}
                 </>
               ) : null}
             </div>

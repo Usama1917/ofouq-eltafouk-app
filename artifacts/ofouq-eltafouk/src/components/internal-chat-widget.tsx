@@ -12,6 +12,44 @@ const MUTE_MS = 10 * 60 * 1000; // mute window = 10 minutes
 const MIN_W = 380;
 const MIN_H = 560;
 
+// ── Liquid-glass FAB ─────────────────────────────────────────────────────────
+// Translated from the owner's Figma "Glass" effect. CSS has no real refraction or
+// dispersion, so each Figma slider maps to the closest CSS tool; the mapping is
+// written down here rather than left as magic numbers:
+//   Fill #FFFFFF 20%  → background rgba(255,255,255,.20)
+//   Frost 3 (of 100)  → backdrop blur 3px (near-clear glass, not frosted)
+//   Refraction 47     → inner glow + bright rim reading as a lensed edge
+//   Depth 21          → the light/dark inset pair that gives the glass thickness
+//   Splay 38          → how far that inner glow spreads
+//   Light −35° @ 80%  → specular streak along −35°, 0.8 alpha
+//   Dispersion 40     → faint conic colour fringe on the rim
+// Figma size 59.86×61 → a 60px circle.
+const LIQUID_GLASS_FAB: React.CSSProperties = {
+  background: "rgba(255, 255, 255, 0.20)",
+  backdropFilter: "blur(3px) saturate(180%)",
+  WebkitBackdropFilter: "blur(3px) saturate(180%)",
+  border: "1px solid rgba(255, 255, 255, 0.45)",
+  overflow: "hidden",
+  boxShadow: [
+    "inset 1.6px -1.1px 2px rgba(255, 255, 255, 0.80)",
+    "inset -1.6px 1.1px 2px rgba(255, 255, 255, 0.28)",
+    "inset 0 0 14px rgba(255, 255, 255, 0.22)",
+    "0 1px 0 rgba(255, 255, 255, 0.55)",
+    "0 10px 28px rgba(15, 23, 42, 0.22)",
+    "0 2px 8px rgba(15, 23, 42, 0.10)",
+  ].join(", "),
+};
+const GLASS_DISPERSION_RING: React.CSSProperties = {
+  background:
+    "conic-gradient(from -35deg, rgba(255,120,120,0.30), rgba(255,220,120,0.22), rgba(120,255,200,0.26), rgba(120,180,255,0.32), rgba(200,140,255,0.26), rgba(255,120,120,0.30))",
+  WebkitMaskImage: "radial-gradient(circle, transparent 62%, #000 78%, #000 100%)",
+  maskImage: "radial-gradient(circle, transparent 62%, #000 78%, #000 100%)",
+};
+const GLASS_SPECULAR: React.CSSProperties = {
+  background:
+    "linear-gradient(-35deg, rgba(255,255,255,0) 42%, rgba(255,255,255,0.55) 55%, rgba(255,255,255,0) 68%)",
+};
+
 function loadSize(): { w: number; h: number } {
   try {
     const raw = localStorage.getItem(SIZE_KEY);
@@ -220,9 +258,17 @@ export function InternalChatWidget({ isDark }: { isDark?: boolean }) {
         onContextMenu={onButtonContextMenu}
         aria-label="محادثات الفريق (كليك يمين للمزيد من الخيارات)"
         title="محادثات الفريق — كليك يمين لخيارات الكتم والفتح في تبويب مستقل"
-        className="fixed bottom-6 left-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-white shadow-xl shadow-primary/30 transition-transform hover:-translate-y-0.5 active:scale-95"
+        className="group/fab fixed bottom-6 left-6 z-50 flex h-[60px] w-[60px] items-center justify-center rounded-full transition-transform hover:-translate-y-0.5 active:scale-95"
+        style={LIQUID_GLASS_FAB}
       >
-        {open ? <X className="h-6 w-6" /> : <MessagesSquare className="h-6 w-6" />}
+        {/* Dispersion (Figma 40): a faint colour fringe around the rim. CSS has no
+            real chromatic aberration, so a low-opacity conic ring stands in. */}
+        <span aria-hidden className="pointer-events-none absolute inset-0 rounded-full opacity-45" style={GLASS_DISPERSION_RING} />
+        {/* Specular streak — the Figma light at -35°, 80%. */}
+        <span aria-hidden className="pointer-events-none absolute inset-0 rounded-full" style={GLASS_SPECULAR} />
+        <span className="relative text-slate-800 drop-shadow-sm dark:text-white">
+          {open ? <X className="h-6 w-6" /> : <MessagesSquare className="h-6 w-6" />}
+        </span>
         {!open && isMuted ? (
           // Muted indicator — bottom-left corner (the unread badge owns top-right).
           <span className="absolute -bottom-0.5 -left-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-600 text-white ring-2 ring-white dark:ring-[#11151b]">
